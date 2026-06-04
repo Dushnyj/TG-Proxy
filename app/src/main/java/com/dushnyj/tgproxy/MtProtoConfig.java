@@ -47,8 +47,21 @@ public final class MtProtoConfig {
     }
 
     public static Map<Integer, String> parseDcRules(String text) {
+        return parseDcRules(text, true, false);
+    }
+
+    public static Map<Integer, String> parseUserDcRules(String text) {
+        return parseDcRules(text, false, true);
+    }
+
+    private static Map<Integer, String> parseDcRules(String text, boolean allowDefault,
+                                                     boolean rejectDuplicates) {
         LinkedHashMap<Integer, String> result = new LinkedHashMap<>();
-        String source = text == null || text.trim().isEmpty() ? DEFAULT_DC_RULES : text;
+        String source = text == null ? "" : text.trim();
+        if (source.isEmpty()) {
+            if (!allowDefault) throw new IllegalArgumentException("No DC rules");
+            source = DEFAULT_DC_RULES;
+        }
         for (String raw : source.split("\\r?\\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
@@ -65,6 +78,9 @@ public final class MtProtoConfig {
             String ip = line.substring(colon + 1).trim();
             if (!isValidDc(dc) || !isIpv4(ip)) {
                 throw new IllegalArgumentException("Invalid DC rule: " + line);
+            }
+            if (rejectDuplicates && result.containsKey(dc)) {
+                throw new IllegalArgumentException("Duplicate DC rule: " + dc);
             }
             result.put(dc, ip);
         }

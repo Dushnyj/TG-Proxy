@@ -1,4 +1,6 @@
 -keep class com.dushnyj.tgproxy.** { *; }
+-keep class com.jcraft.jsch.** { *; }
+-dontwarn com.jcraft.jsch.**
 -keep class org.bouncycastle.** { *; }
 -dontwarn org.bouncycastle.**
 -keepattributes *Annotation*

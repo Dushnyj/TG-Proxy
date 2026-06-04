@@ -19,6 +19,7 @@ public final class MtProtoProxyEngine {
     static final String ROUTE_WORKER = "worker";
     static final String ROUTE_CF_PROXY = "cf_proxy";
     static final String ROUTE_DIRECT = "direct";
+    static final String ROUTE_VPS_RELAY = "vps_relay";
     static final String CF_MODE_AUTO = "auto";
     static final String CF_MODE_ON = "on";
     static final String CF_MODE_OFF = "off";
@@ -45,22 +46,32 @@ public final class MtProtoProxyEngine {
     public final AtomicLong errors = new AtomicLong();
 
     private final ConcurrentHashMap<Socket, Boolean> activeSockets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, RouteStats> routeStats = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> activeRouteByScope = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> activeEndpointByScope = new ConcurrentHashMap<>();
+    private final RouteEngine routeEngine = new RouteEngine();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ServerSocket serverSocket;
     private Thread acceptThread;
-    private final WarmConnectionPool<RawWebSocket> cfPool =
-            new WarmConnectionPool<>(CF_POOL_SIZE_PER_DC, RawWebSocket::isAlive, RawWebSocket::close);
+    private final WarmConnectionPool<CfSocket> cfPool =
+            new WarmConnectionPool<>(CF_POOL_SIZE_PER_DC, CfSocket::isAlive, CfSocket::close);
 
     private String boundIp = MtProtoConfig.DEFAULT_HOST;
     private String secretHex = MtProtoConfig.generateSecretHex();
     private byte[] secret = MtProtoConfig.secretBytes(secretHex);
     private Map<Integer, String> dcRedirects = MtProtoConfig.parseDcRules(MtProtoConfig.DEFAULT_DC_RULES);
     private List<String> cfProxyDomains = FlowsealCfDomains.defaults();
+    private boolean cfProxyCustomDomains = false;
     private List<String> cfWorkerDomains = Collections.emptyList();
     private String cfProxyMode = CF_MODE_AUTO;
     private boolean cfWarmupEnabled = true;
     private boolean verbose = false;
-    private volatile String cfNetworkProfile = CfProxyDomainState.PROFILE_WIFI;
+    private volatile VpsRelayConfig vpsRelayConfig = VpsRelayConfig.disabled();
+    private volatile NetworkProfile networkProfile =
+            NetworkProfile.wifi(CfProxyDomainState.PROFILE_WIFI);
+    private volatile String cfNetworkProfile = networkProfile.cfProfileId();
+    private volatile RoutePreference routePreference = RoutePreference.AUTO;
+    private volatile Runnable routeStatsChangedListener;
 
     public void setBoundIp(String boundIp) {
         this.boundIp = boundIp == null || boundIp.trim().isEmpty()
@@ -100,6 +111,10 @@ public final class MtProtoProxyEngine {
         cfPool.clear();
     }
 
+    public void setCfProxyCustomDomains(boolean customDomains) {
+        this.cfProxyCustomDomains = customDomains;
+    }
+
     public void setCfWarmupEnabled(boolean enabled) {
         this.cfWarmupEnabled = enabled;
         if (!enabled) cfPool.clear();
@@ -109,38 +124,85 @@ public final class MtProtoProxyEngine {
         this.cfWorkerDomains = normalizeDomains(domains);
     }
 
+    public void setVpsRelayConfig(VpsRelayConfig config) {
+        this.vpsRelayConfig = config == null ? VpsRelayConfig.disabled() : config;
+    }
+
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
     }
 
     public void setMobileNetwork(boolean mobileNetwork) {
-        String nextProfile = mobileNetwork
-                ? CfProxyDomainState.PROFILE_MOBILE
-                : CfProxyDomainState.PROFILE_WIFI;
-        if (!nextProfile.equals(cfNetworkProfile)) {
+        setNetworkProfile(mobileNetwork
+                ? NetworkProfile.mobile(CfProxyDomainState.PROFILE_MOBILE)
+                : NetworkProfile.wifi(CfProxyDomainState.PROFILE_WIFI));
+    }
+
+    public void setNetworkProfile(NetworkProfile profile) {
+        NetworkProfile next = profile == null ? NetworkProfile.defaultProfile() : profile;
+        String nextCfProfile = next.cfProfileId();
+        if (!nextCfProfile.equals(cfNetworkProfile)) {
             cfPool.clear();
-            cfNetworkProfile = nextProfile;
+            activeRouteByScope.clear();
+            activeEndpointByScope.clear();
+            cfNetworkProfile = nextCfProfile;
         }
+        networkProfile = next;
+    }
+
+    public void setRoutePreference(RoutePreference preference) {
+        this.routePreference = preference == null ? RoutePreference.AUTO : preference;
+    }
+
+    void replaceRouteStats(Map<String, RouteStats> statsByRoute) {
+        routeStats.clear();
+        if (statsByRoute != null) {
+            for (Map.Entry<String, RouteStats> entry : statsByRoute.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    routeStats.put(entry.getKey(), entry.getValue().copy());
+                }
+            }
+        }
+    }
+
+    void setRouteStatsChangedListener(Runnable listener) {
+        this.routeStatsChangedListener = listener;
     }
 
     public boolean isRunning() {
         return running.get();
     }
 
+    public boolean isListening() {
+        return running.get()
+                && serverSocket != null
+                && serverSocket.isBound()
+                && !serverSocket.isClosed();
+    }
+
     public void start(int port) throws Exception {
         if (!running.compareAndSet(false, true)) return;
-        serverSocket = new ServerSocket();
-        serverSocket.setReuseAddress(true);
-        serverSocket.bind(new InetSocketAddress(boundIp, port));
-        acceptThread = new Thread(this::acceptLoop, "tg-mtproto-accept");
-        acceptThread.setDaemon(true);
-        acceptThread.start();
-        warmupCfPool();
+        try {
+            serverSocket = new ServerSocket();
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new InetSocketAddress(boundIp, port));
+            acceptThread = new Thread(this::acceptLoop, "tg-mtproto-accept");
+            acceptThread.setDaemon(true);
+            acceptThread.start();
+            warmupCfPool();
+        } catch (Exception e) {
+            running.set(false);
+            closeServerSocket();
+            throw e;
+        }
     }
 
     public void stop() {
         running.set(false);
+        DiagnosticsLog.record("engine stop requested");
         cfPool.clear();
+        activeRouteByScope.clear();
+        activeEndpointByScope.clear();
         closeServerSocket();
         for (Socket socket : activeSockets.keySet()) {
             try { socket.close(); } catch (Exception ignored) {}
@@ -224,91 +286,114 @@ public final class MtProtoProxyEngine {
     }
 
     private RawWebSocket connectForDc(int dc, boolean media) {
-        String targetIp = dcRedirects.get(dc);
-        for (String route : routePlanForDc(dc, media)) {
+        RoutePlan plan = routePlanCandidatesForDc(dc, media);
+        String scope = routeScope(dc, media);
+        for (RouteCandidate route : plan.routes()) {
             RawWebSocket ws = null;
-            if (ROUTE_WORKER.equals(route)) {
-                ws = connectViaWorker(dc);
-            } else if (ROUTE_CF_PROXY.equals(route)) {
-                ws = connectViaCfProxy(dc);
-            } else if (ROUTE_DIRECT.equals(route) && targetIp != null) {
-                ws = connectDirectWs(dc, media, targetIp);
+            if (route.type() == RouteType.WORKER) {
+                ws = connectViaWorker(route);
+            } else if (route.type() == RouteType.VPS_RELAY) {
+                ws = connectViaVpsRelay(route, dc, media);
+            } else if (route.type() == RouteType.PUBLIC_CLOUDFLARE
+                    || route.type() == RouteType.CUSTOM_CLOUDFLARE) {
+                ws = connectViaCfProxy(dc, scope, route);
+            } else if (route.type() == RouteType.DIRECT_WS) {
+                ws = connectDirectWs(route);
             }
-            if (ws != null) return ws;
+            if (ws != null) {
+                recordRouteSuccess(route, -1);
+                DiagnosticsLog.record("route connected " + route.key() + " endpoint=" + route.endpoint());
+                activeRouteByScope.put(scope, route.key());
+                if (route.type() != RouteType.PUBLIC_CLOUDFLARE
+                        && route.type() != RouteType.CUSTOM_CLOUDFLARE) {
+                    activeEndpointByScope.put(scope, route.endpoint());
+                } else if (!activeEndpointByScope.containsKey(scope)) {
+                    activeEndpointByScope.put(scope, route.endpoint());
+                }
+                return ws;
+            }
         }
         return null;
+    }
+
+    private RawWebSocket connectViaVpsRelay(RouteCandidate route, int dc, boolean media) {
+        VpsRelayConfig config = vpsRelayConfig;
+        if (config == null || !config.isAllowedForProfile(networkProfile.key())) return null;
+        try {
+            return RawWebSocket.connectRelay(config, dc, media, CONNECT_TIMEOUT_MS);
+        } catch (Exception error) {
+            recordRouteFailure(route, RouteError.classify(error));
+            return null;
+        }
     }
 
     List<String> routePlanForDc(int dc, boolean media) {
-        ArrayList<String> routes = new ArrayList<>();
-        String targetIp = dcRedirects.get(dc);
-        boolean directAllowed = targetIp != null
-                && TgRoutePolicy.shouldUseDirectWs(dc, media, dcRedirects);
-        if (!cfWorkerDomains.isEmpty()) {
-            routes.add(ROUTE_WORKER);
+        ArrayList<String> result = new ArrayList<>();
+        for (RouteCandidate route : routePlanCandidatesForDc(dc, media).routes()) {
+            String legacy = legacyRouteId(route.type());
+            if (!legacy.isEmpty() && !result.contains(legacy)) result.add(legacy);
         }
-
-        if (CF_MODE_ON.equals(cfProxyMode)) {
-            routes.add(ROUTE_CF_PROXY);
-            if (directAllowed) routes.add(ROUTE_DIRECT);
-        } else if (CF_MODE_AUTO.equals(cfProxyMode)) {
-            if (CfProxyDomainState.PROFILE_MOBILE.equals(cfNetworkProfile)) {
-                routes.add(ROUTE_CF_PROXY);
-                if (directAllowed) routes.add(ROUTE_DIRECT);
-            } else {
-                if (directAllowed) routes.add(ROUTE_DIRECT);
-                routes.add(ROUTE_CF_PROXY);
-            }
-        } else if (directAllowed) {
-            routes.add(ROUTE_DIRECT);
-        }
-
-        if (targetIp != null && routes.isEmpty()) {
-            routes.add(ROUTE_DIRECT);
-        }
-        return routes;
+        return result;
     }
 
-    private RawWebSocket connectDirectWs(int dc, boolean media, String targetIp) {
-        String[] domains = TgConstants.wsDomains(dc, media);
+    RoutePlan routePlanCandidatesForDc(int dc, boolean media) {
+        return routeEngine.plan(routeSettings(), dc, media,
+                activeRouteByScope.get(routeScope(dc, media)), routeStats, System.currentTimeMillis());
+    }
+
+    private RawWebSocket connectDirectWs(RouteCandidate route) {
+        String[] domains = TgConstants.wsDomains(route.dc(), route.media());
         for (String domain : domains) {
             try {
-                return RawWebSocket.connect(targetIp, domain, CONNECT_TIMEOUT_MS);
-            } catch (Exception ignored) {
+                return RawWebSocket.connect(route.endpoint(), domain, CONNECT_TIMEOUT_MS);
+            } catch (Exception error) {
+                recordRouteFailure(route, RouteError.classify(error));
             }
         }
         return null;
     }
 
-    private RawWebSocket connectViaWorker(int dc) {
-        String dst = DEFAULT_DC_IPS.get(dc);
+    private RawWebSocket connectViaWorker(RouteCandidate route) {
+        String dst = DEFAULT_DC_IPS.get(route.dc());
         if (dst == null || cfWorkerDomains.isEmpty()) return null;
         for (String workerDomain : cfWorkerDomains) {
             try {
                 String path = "/apiws?dst=" + URLEncoder.encode(dst, "UTF-8")
-                        + "&dc=" + dc;
+                        + "&dc=" + route.dc();
                 return RawWebSocket.connect(workerDomain, workerDomain, CONNECT_TIMEOUT_MS, path, true);
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                recordRouteFailure(route, RouteError.classify(error));
             }
         }
         return null;
     }
 
-    private RawWebSocket connectViaCfProxy(int dc) {
-        RawWebSocket ws = cfPool.acquire(cfPoolKey(dc), ignored -> openCfSocket(dc));
+    private RawWebSocket connectViaCfProxy(int dc, String scope, RouteCandidate route) {
+        CfSocket cfSocket = cfPool.acquire(cfPoolKey(dc), ignored -> openCfSocket(dc, route));
         warmupCfPoolForDc(dc);
-        return ws;
+        if (cfSocket == null) return null;
+        activeEndpointByScope.put(scope, cfSocket.baseDomain);
+        return cfSocket.socket;
     }
 
-    private RawWebSocket openCfSocket(int dc) {
+    private CfSocket openCfSocket(int dc) {
+        return openCfSocket(dc, RouteCandidate.publicCloudflare(dc, "public-cf"));
+    }
+
+    private CfSocket openCfSocket(int dc, RouteCandidate route) {
         CfProxyDomainState domainState = CfProxyDomainState.shared();
-        return new ParallelCfConnector<RawWebSocket>(domainState, 2, cfNetworkProfile).connect(
+        return new ParallelCfConnector<CfSocket>(
+                domainState,
+                2,
+                cfNetworkProfile,
+                (baseDomain, error) -> recordRouteFailure(route, RouteError.classify(error))).connect(
                 cfProxyDomains,
                 baseDomain -> {
                     String domain = "kws" + dc + "." + baseDomain;
-                    return RawWebSocket.connect(domain, domain, CONNECT_TIMEOUT_MS, null, true);
+                    RawWebSocket socket = RawWebSocket.connect(domain, domain, CONNECT_TIMEOUT_MS, null, true);
+                    return new CfSocket(socket, baseDomain);
                 },
-                RawWebSocket::close);
+                CfSocket::close);
     }
 
     List<String> cfWarmupKeys() {
@@ -335,12 +420,146 @@ public final class MtProtoProxyEngine {
 
     private void warmupCfPool() {
         if (!cfWarmupEnabled || !running.get() || CF_MODE_OFF.equals(cfProxyMode) || cfProxyDomains.isEmpty()) return;
-        cfPool.warmup(cfWarmupKeys(), key -> openCfSocket(dcFromCfPoolKey(key)));
+        cfPool.warmup(cfWarmupKeys(), key -> {
+            int dc = dcFromCfPoolKey(key);
+            return openCfSocket(dc, cfRouteCandidateForDc(dc));
+        });
     }
 
     private void warmupCfPoolForDc(int dc) {
         if (!cfWarmupEnabled || !running.get() || CF_MODE_OFF.equals(cfProxyMode) || cfProxyDomains.isEmpty()) return;
-        cfPool.warmup(Collections.singletonList(cfPoolKey(dc)), key -> openCfSocket(dc));
+        cfPool.warmup(Collections.singletonList(cfPoolKey(dc)),
+                key -> openCfSocket(dc, cfRouteCandidateForDc(dc)));
+    }
+
+    RouteState currentRouteState() {
+        int dc = firstConfiguredDc();
+        String scope = routeScope(dc, false);
+        RoutePlan plan = routePlanCandidatesForDc(dc, false);
+        if (plan.isEmpty()) return RouteState.inactive("no available route");
+        RouteCandidate selected = routeForActiveKey(plan, activeRouteByScope.get(scope));
+        if (selected == null) selected = plan.selected();
+        String endpoint = activeEndpointByScope.get(scope);
+        if (endpoint == null || endpoint.isEmpty()) endpoint = selected.endpoint();
+        if (selected.type() == RouteType.PUBLIC_CLOUDFLARE
+                || selected.type() == RouteType.CUSTOM_CLOUDFLARE) {
+            String active = CfProxyDomainState.shared().activeDomain(cfNetworkProfile);
+            if (!active.isEmpty()) endpoint = active;
+        }
+        RouteStats stats = routeStats.get(selected.key());
+        int ping = stats == null ? -1 : stats.medianLatencyMs();
+        String quality = stats == null || stats.totalFailures() == 0 ? "stable" : stats.lastError().name();
+        return RouteState.active(selected, endpoint, ping, quality);
+    }
+
+    Map<String, RouteStats> routeStatsSnapshot() {
+        return new LinkedHashMap<>(routeStats);
+    }
+
+    int activeConnectionCount() {
+        return activeSockets.size();
+    }
+
+    private RouteEngine.Settings routeSettings() {
+        RouteEngine.Settings.Builder builder = RouteEngine.Settings.builder()
+                .networkProfile(networkProfile)
+                .routePreference(routePreference)
+                .cfMode(cfProxyMode)
+                .dcRedirects(dcRedirects)
+                .workerDomains(cfWorkerDomains);
+        if (cfProxyCustomDomains) {
+            builder.customCfDomains(cfProxyDomains);
+        } else {
+            builder.publicCfDomains(cfProxyDomains);
+        }
+        VpsRelayConfig relay = vpsRelayConfig;
+        if (relay != null && relay.isAllowedForProfile(networkProfile.key())) {
+            builder.vpsRelay(relay.name(), relay.host(), relay.port());
+        }
+        return builder.build();
+    }
+
+    private void recordRouteSuccess(RouteCandidate route, int latencyMs) {
+        if (route == null) return;
+        routeStats.computeIfAbsent(route.key(), ignored -> new RouteStats())
+                .recordSuccess(System.currentTimeMillis(), latencyMs);
+        DiagnosticsLog.record("route success " + route.key()
+                + (latencyMs >= 0 ? " latency=" + latencyMs + "ms" : ""));
+        notifyRouteStatsChanged();
+    }
+
+    private void recordRouteFailure(RouteCandidate route, RouteError error) {
+        if (route == null) return;
+        RouteError normalized = error == null ? RouteError.UNKNOWN : error;
+        routeStats.computeIfAbsent(route.key(), ignored -> new RouteStats())
+                .recordFailure(normalized, System.currentTimeMillis());
+        DiagnosticsLog.record("route failure " + route.key() + " " + normalized.name());
+        notifyRouteStatsChanged();
+    }
+
+    private void notifyRouteStatsChanged() {
+        Runnable listener = routeStatsChangedListener;
+        if (listener != null) listener.run();
+    }
+
+    private RouteCandidate cfRouteCandidateForDc(int dc) {
+        for (RouteCandidate route : routeEngine.buildCandidates(routeSettings(), dc, false)) {
+            if (route.type() == RouteType.PUBLIC_CLOUDFLARE
+                    || route.type() == RouteType.CUSTOM_CLOUDFLARE) {
+                return route;
+            }
+        }
+        return cfProxyCustomDomains
+                ? RouteCandidate.customCloudflare(dc, "custom-cf")
+                : RouteCandidate.publicCloudflare(dc, "public-cf");
+    }
+
+    private int firstConfiguredDc() {
+        for (Integer dc : dcRedirects.keySet()) {
+            if (dc != null && dc > 0) return dc;
+        }
+        return 2;
+    }
+
+    private static String routeScope(int dc, boolean media) {
+        return dc + (media ? ":media" : ":main");
+    }
+
+    private static RouteCandidate routeForActiveKey(RoutePlan plan, String activeKey) {
+        if (activeKey == null || activeKey.isEmpty()) return null;
+        for (RouteCandidate route : plan.routes()) {
+            if (activeKey.equals(route.key())) return route;
+        }
+        return null;
+    }
+
+    private static String legacyRouteId(RouteType type) {
+        if (type == RouteType.WORKER) return ROUTE_WORKER;
+        if (type == RouteType.PUBLIC_CLOUDFLARE || type == RouteType.CUSTOM_CLOUDFLARE) {
+            return ROUTE_CF_PROXY;
+        }
+        if (type == RouteType.DIRECT_WS) return ROUTE_DIRECT;
+        if (type == RouteType.VPS_RELAY) return ROUTE_VPS_RELAY;
+        return "";
+    }
+
+    private static final class CfSocket {
+        final RawWebSocket socket;
+        final String baseDomain;
+
+        CfSocket(RawWebSocket socket, String baseDomain) {
+            this.socket = socket;
+            this.baseDomain = baseDomain == null ? "" : baseDomain;
+        }
+
+        boolean isAlive() {
+            return socket != null && socket.isAlive();
+        }
+
+        void close() {
+            if (socket == null) return;
+            try { socket.close(); } catch (Exception ignored) {}
+        }
     }
 
     private void bridge(Socket client, InputStream clientIn, OutputStream clientOut,

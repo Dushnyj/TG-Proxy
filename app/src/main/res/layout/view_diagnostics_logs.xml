@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/diagnostics_logs"
+        android:textColor="@color/accent"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:includeFontPadding="false"
+        android:text="@string/diagnostics_logs_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="10sp" />
+
+    <Button
+        android:id="@+id/btn_settings_diagnostics"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/btn_start_bg"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:text="@string/open_diagnostics"
+        android:textAllCaps="false"
+        android:textColor="@color/button_text"
+        android:textSize="12sp" />
+</LinearLayout>

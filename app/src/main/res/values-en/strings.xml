@@ -6,6 +6,8 @@
     <string name="status_stopped">Stopped</string>
     <string name="status_active">Active</string>
     <string name="status_sleep">Sleep mode</string>
+    <string name="status_starting">Starting</string>
+    <string name="status_degraded">Degraded</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="information">Information</string>
@@ -16,9 +18,22 @@
     <string name="secret">Secret</string>
     <string name="telegram_link">Telegram link</string>
     <string name="ping">Ping</string>
+    <string name="quality">Quality</string>
+    <string name="connections">Connections</string>
     <string name="traffic">Traffic</string>
     <string name="uptime">Uptime</string>
     <string name="check_ping">Check ping</string>
+    <string name="diagnostics">Diagnostics</string>
+    <string name="diagnostics_summary">Profile: %1$s\nRoute: %2$s\nCF domain: %3$s\nPing: %4$s\nQuality: %5$s\nConnections: %6$s\nTraffic: %7$s\nUptime: %8$s</string>
+    <string name="diagnostics_copy_report">Copy</string>
+    <string name="diagnostics_save_report">Save report</string>
+    <string name="diagnostics_save_txt">Save TXT</string>
+    <string name="diagnostics_save_zip">Save ZIP</string>
+    <string name="diagnostics_share">Share</string>
+    <string name="diagnostics_reset">Reset diagnostics</string>
+    <string name="diagnostics_reset_done">Diagnostics reset</string>
+    <string name="diagnostics_report_saved">Report saved: %1$s</string>
+    <string name="diagnostics_report_save_failed">Could not save report.</string>
     <string name="settings">Settings</string>
     <string name="telegram">Telegram</string>
     <string name="github">GitHub</string>
@@ -33,10 +48,80 @@
     <string name="dc_rules_hint">2:149.154.167.220\n4:149.154.167.220</string>
     <string name="connection">Connection</string>
     <string name="route_settings">Route</string>
+    <string name="routing_settings">Routing</string>
+    <string name="vps_relay">VPS Relay</string>
+    <string name="vps_relay_note">Personal relay participates in routing only for selected network profiles.</string>
+    <string name="vps_relay_enabled">Enable VPS Relay</string>
+    <string name="vps_relay_name">Name</string>
+    <string name="vps_relay_host">Host / domain</string>
+    <string name="vps_relay_port">Port</string>
+    <string name="vps_relay_tls">TLS</string>
+    <string name="vps_relay_path">Path</string>
+    <string name="vps_relay_token">Token</string>
+    <string name="vps_relay_bind_profile">Only current network profile</string>
+    <string name="vps_relay_test_ok">VPS Relay is available.</string>
+    <string name="vps_relay_test_failed">VPS Relay unavailable: %1$s</string>
+    <string name="vps_relay_manual">Enter manually</string>
+    <string name="vps_relay_auto_setup">Auto setup</string>
+    <string name="vps_relay_update_title">VPS Relay is outdated</string>
+    <string name="vps_relay_update_message">Server version is %1$s, app expects %2$s. If you have SSH access to the VPS, update Relay. If someone else owns the server, tell the VPS owner.</string>
+    <string name="vps_relay_update_server">Update VPS Relay</string>
+    <string name="skip_update">Skip</string>
+    <string name="vps_relay_saved">Saved VPS Relay</string>
+    <string name="vps_relay_none">No saved Relay</string>
+    <string name="vps_relay_new">New</string>
+    <string name="vps_relay_save">Save Relay</string>
+    <string name="vps_setup_idle">VPS setup has not started</string>
+    <string name="vps_setup_wait_ssh">Enter VPS SSH credentials to start setup</string>
+    <string name="vps_relay_selected">Relay selected for the current profile</string>
+    <string name="vps_setup_title">Automatic VPS setup</string>
+    <string name="vps_setup_ssh_host">SSH host / IP</string>
+    <string name="vps_setup_ssh_port">SSH port</string>
+    <string name="vps_setup_ssh_user">SSH user</string>
+    <string name="vps_setup_ssh_password">SSH password</string>
+    <string name="vps_setup_relay_host">Relay host / IP</string>
+    <string name="vps_setup_relay_port">Relay port</string>
+    <string name="vps_setup_tls_domain">HTTPS domain via nginx:443</string>
+    <string name="vps_setup_tls_domain_note">Use a domain/subdomain with DNS pointing to this VPS and an existing certificate. Existing sites are not changed automatically.</string>
+    <string name="vps_domain_discovery_running">Searching VPS domains</string>
+    <string name="vps_domain_discovery_done">Domains found: %1$d</string>
+    <string name="vps_domain_discovery_title">Choose VPS domain</string>
+    <string name="vps_domain_discovery_empty">No domains were found on the VPS in nginx/apache/caddy or LetsEncrypt. Enter a domain manually or use IP-only mode without HTTPS/nginx.</string>
+    <string name="vps_setup_plan_title">Change plan</string>
+    <string name="vps_setup_continue">Continue</string>
+    <string name="vps_setup_running">VPS setup is already running</string>
+    <string name="vps_setup_error_title">VPS setup error</string>
+    <string name="vps_setup_failed">VPS setup failed: %1$s</string>
+    <string name="import_export">Import and export</string>
+    <string name="import_export_note">Safe export does not include secret, relay token, or SSH data.</string>
+    <string name="export_safe_profile">Export</string>
+    <string name="export_vps_relay">Relay</string>
+    <string name="export_encrypted_profile">Password</string>
+    <string name="import_settings">Import</string>
+    <string name="export_ready">Export ready</string>
+    <string name="import_payload_hint">Paste .tgproxy text or tgproxy://import</string>
+    <string name="import_password_hint">Password if profile is encrypted</string>
+    <string name="import_applied">Settings imported</string>
+    <string name="import_failed">Import failed: %1$s</string>
+    <string name="export_password_title">Export password</string>
+    <string name="export_password_required">Enter a password for full export.</string>
+    <string name="save_export">Save file</string>
+    <string name="share_export">Share</string>
+    <string name="show_qr">QR</string>
+    <string name="export_qr_title">Import QR</string>
+    <string name="share_qr">Share QR</string>
+    <string name="export_saved">Export saved: %1$s</string>
+    <string name="open_import_file">Open file</string>
+    <string name="diagnostics_logs">Diagnostics and logs</string>
+    <string name="diagnostics_logs_note">Technical report, recent route events, and verbose logging.</string>
+    <string name="open_diagnostics">Open diagnostics</string>
     <string name="optimization">Optimization</string>
     <string name="behavior">Behavior</string>
+    <string name="settings_system">System</string>
     <string name="interface_settings">Interface</string>
-    <string name="advanced">Advanced</string>
+    <string name="advanced">Logs and performance</string>
+    <string name="route_quality_stable">Stable</string>
+    <string name="route_quality_unknown">No data</string>
     <string name="cf_proxy">Cloudflare CDN</string>
     <string name="cf_mode">Cloudflare CDN mode</string>
     <string name="enable_cf_proxy">Cloudflare CDN</string>
@@ -59,6 +144,15 @@
     <string name="route_off">Off</string>
     <string name="test">Test</string>
     <string name="runtime">Logs and performance</string>
+    <string name="network_profile">Network profile</string>
+    <string name="active_profile">Active profile</string>
+    <string name="edit_profile">Edit profile</string>
+    <string name="profile_active">active</string>
+    <string name="profile_name">Profile name</string>
+    <string name="route_preference">Route priority</string>
+    <string name="route_preference_note">Auto uses network type and route statistics. Manual priority changes order, but errors and cooldowns still apply.</string>
+    <string name="saved_profiles">Saved profiles</string>
+    <string name="profile_list_empty">Profiles will appear automatically after connecting to networks.</string>
     <string name="verbose_logging">Verbose logging</string>
     <string name="buffer_kb">Buffer, KB</string>
     <string name="pool_size">WebSocket session pool</string>
@@ -109,6 +203,7 @@
     <string name="notification_action_start">Start</string>
     <string name="notification_action_stop">Stop</string>
     <string name="notification_address_line">Address: %1$s</string>
+    <string name="notification_uptime_line">Uptime: %1$s</string>
     <string name="notification_traffic_line">Traffic: %1$s</string>
 
     <string-array name="theme_options">
@@ -127,5 +222,12 @@
         <item>Auto</item>
         <item>On</item>
         <item>Off</item>
+    </string-array>
+
+    <string-array name="route_preference_options">
+        <item>Auto</item>
+        <item>Direct first</item>
+        <item>Cloudflare first</item>
+        <item>Relay first</item>
     </string-array>
 </resources>

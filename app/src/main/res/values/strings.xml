@@ -6,6 +6,8 @@
     <string name="status_stopped">Остановлен</string>
     <string name="status_active">Активен</string>
     <string name="status_sleep">Спящий режим</string>
+    <string name="status_starting">Запуск</string>
+    <string name="status_degraded">Проблема</string>
     <string name="start">Запустить</string>
     <string name="stop">Остановить</string>
     <string name="information">Информация</string>
@@ -16,9 +18,31 @@
     <string name="secret">Secret</string>
     <string name="telegram_link">Ссылка для Telegram</string>
     <string name="ping">Пинг</string>
+    <string name="quality">Качество</string>
+    <string name="connections">Подключения</string>
     <string name="traffic">Трафик</string>
     <string name="uptime">Аптайм</string>
     <string name="check_ping">Проверить пинг</string>
+    <string name="diagnostics">Диагностика</string>
+    <string name="diagnostics_summary">Профиль: %1$s\nМаршрут: %2$s\nCF-домен: %3$s\nПинг: %4$s\nКачество: %5$s\nПодключения: %6$s\nТрафик: %7$s\nАптайм: %8$s</string>
+    <string name="diagnostics_copy_report">Копировать</string>
+    <string name="diagnostics_save_report">Сохранить отчёт</string>
+    <string name="diagnostics_copy_short_report">Копировать кратко</string>
+    <string name="diagnostics_save_txt">Сохранить TXT</string>
+    <string name="diagnostics_save_zip">Сохранить ZIP</string>
+    <string name="diagnostics_share">Поделиться</string>
+    <string name="diagnostics_reset">Сбросить диагностику</string>
+    <string name="diagnostics_reset_done">Диагностика сброшена</string>
+    <string name="diagnostics_report_saved">Отчёт сохранён: %1$s</string>
+    <string name="diagnostics_report_save_failed">Не удалось сохранить отчёт.</string>
+    <string name="diagnostics_current_network">Текущая сеть</string>
+    <string name="diagnostics_active_profile">Активный профиль</string>
+    <string name="diagnostics_active_route">Активный маршрут</string>
+    <string name="diagnostics_route_checks">Проверка маршрутов</string>
+    <string name="diagnostics_switch_history">История переключений</string>
+    <string name="diagnostics_errors">Ошибки</string>
+    <string name="diagnostics_service">Сервис</string>
+    <string name="diagnostics_report">Отчёт</string>
     <string name="settings">Настройки</string>
     <string name="telegram">Telegram</string>
     <string name="github">GitHub</string>
@@ -33,10 +57,80 @@
     <string name="dc_rules_hint">2:149.154.167.220\n4:149.154.167.220</string>
     <string name="connection">Подключение</string>
     <string name="route_settings">Маршрут</string>
+    <string name="routing_settings">Маршрутизация</string>
+    <string name="vps_relay">VPS Relay</string>
+    <string name="vps_relay_note">Личный relay участвует в маршрутах только для выбранных профилей сети.</string>
+    <string name="vps_relay_enabled">Включить VPS Relay</string>
+    <string name="vps_relay_name">Название</string>
+    <string name="vps_relay_host">Host / домен</string>
+    <string name="vps_relay_port">Порт</string>
+    <string name="vps_relay_tls">TLS</string>
+    <string name="vps_relay_path">Path</string>
+    <string name="vps_relay_token">Token</string>
+    <string name="vps_relay_bind_profile">Только текущий профиль сети</string>
+    <string name="vps_relay_test_ok">VPS Relay доступен.</string>
+    <string name="vps_relay_test_failed">VPS Relay недоступен: %1$s</string>
+    <string name="vps_relay_manual">Ввести вручную</string>
+    <string name="vps_relay_auto_setup">Автонастройка VPS</string>
+    <string name="vps_relay_update_title">VPS Relay устарел</string>
+    <string name="vps_relay_update_message">На сервере версия %1$s, в приложении ожидается %2$s. Если у вас есть SSH-доступ к VPS, обновите Relay. Если сервер настраивал другой человек, сообщите владельцу VPS.</string>
+    <string name="vps_relay_update_server">Обновить VPS Relay</string>
+    <string name="skip_update">Пропустить</string>
+    <string name="vps_relay_saved">Сохранённые VPS Relay</string>
+    <string name="vps_relay_none">Нет сохранённых Relay</string>
+    <string name="vps_relay_new">Новый</string>
+    <string name="vps_relay_save">Сохранить Relay</string>
+    <string name="vps_setup_idle">Настройка VPS не запущена</string>
+    <string name="vps_setup_wait_ssh">Введите SSH-данные VPS для начала настройки</string>
+    <string name="vps_relay_selected">Relay выбран для текущего профиля</string>
+    <string name="vps_setup_title">Автонастройка VPS</string>
+    <string name="vps_setup_ssh_host">SSH host / IP</string>
+    <string name="vps_setup_ssh_port">SSH порт</string>
+    <string name="vps_setup_ssh_user">SSH пользователь</string>
+    <string name="vps_setup_ssh_password">SSH пароль</string>
+    <string name="vps_setup_relay_host">Relay host / IP</string>
+    <string name="vps_setup_relay_port">Relay порт</string>
+    <string name="vps_setup_tls_domain">HTTPS-домен через nginx:443</string>
+    <string name="vps_setup_tls_domain_note">Используйте домен/поддомен с DNS на VPS и уже выпущенным сертификатом. Существующие сайты не изменяются автоматически.</string>
+    <string name="vps_domain_discovery_running">Ищу домены на VPS</string>
+    <string name="vps_domain_discovery_done">Найдено доменов: %1$d</string>
+    <string name="vps_domain_discovery_title">Выберите домен VPS</string>
+    <string name="vps_domain_discovery_empty">На VPS не найдены домены в nginx/apache/caddy или LetsEncrypt. Введите домен вручную или используйте IP-only режим без HTTPS/nginx.</string>
+    <string name="vps_setup_plan_title">План изменений</string>
+    <string name="vps_setup_continue">Продолжить</string>
+    <string name="vps_setup_running">Настройка VPS уже выполняется</string>
+    <string name="vps_setup_error_title">Ошибка настройки VPS</string>
+    <string name="vps_setup_failed">Ошибка настройки VPS: %1$s</string>
+    <string name="import_export">Импорт и экспорт</string>
+    <string name="import_export_note">Безопасный экспорт не включает secret, relay token и SSH-данные.</string>
+    <string name="export_safe_profile">Экспорт</string>
+    <string name="export_vps_relay">Relay</string>
+    <string name="export_encrypted_profile">С паролем</string>
+    <string name="import_settings">Импорт</string>
+    <string name="export_ready">Экспорт готов</string>
+    <string name="import_payload_hint">Вставьте текст .tgproxy или tgproxy://import</string>
+    <string name="import_password_hint">Пароль, если профиль зашифрован</string>
+    <string name="import_applied">Настройки импортированы</string>
+    <string name="import_failed">Импорт не выполнен: %1$s</string>
+    <string name="export_password_title">Пароль для экспорта</string>
+    <string name="export_password_required">Введите пароль для полного экспорта.</string>
+    <string name="save_export">Сохранить файл</string>
+    <string name="share_export">Поделиться</string>
+    <string name="show_qr">QR</string>
+    <string name="export_qr_title">QR для импорта</string>
+    <string name="share_qr">Поделиться QR</string>
+    <string name="export_saved">Экспорт сохранён: %1$s</string>
+    <string name="open_import_file">Открыть файл</string>
+    <string name="diagnostics_logs">Диагностика и логи</string>
+    <string name="diagnostics_logs_note">Технический отчёт, последние события маршрутов и подробное логирование.</string>
+    <string name="open_diagnostics">Открыть диагностику</string>
     <string name="optimization">Оптимизация</string>
     <string name="behavior">Поведение</string>
+    <string name="settings_system">Система</string>
     <string name="interface_settings">Интерфейс</string>
-    <string name="advanced">Дополнительно</string>
+    <string name="advanced">Логи и производительность</string>
+    <string name="route_quality_stable">Стабильно</string>
+    <string name="route_quality_unknown">Нет данных</string>
     <string name="cf_proxy">Cloudflare CDN</string>
     <string name="cf_mode">Режим Cloudflare CDN</string>
     <string name="enable_cf_proxy">Cloudflare CDN</string>
@@ -59,6 +153,24 @@
     <string name="route_off">Отключен</string>
     <string name="test">Тест</string>
     <string name="runtime">Логи и производительность</string>
+    <string name="network_profile">Профиль сети</string>
+    <string name="active_profile">Активный профиль</string>
+    <string name="edit_profile">Редактировать профиль</string>
+    <string name="profile_active">активен</string>
+    <string name="profile_name">Название профиля</string>
+    <string name="route_preference">Приоритет маршрута</string>
+    <string name="route_preference_note">Авто учитывает тип сети и статистику. Ручной приоритет задаёт порядок, но ошибки и cooldown всё равно учитываются.</string>
+    <string name="create_profile">Создать</string>
+    <string name="save_profile">Сохранить</string>
+    <string name="delete_profile">Удалить</string>
+    <string name="manual_profile_default">Ручной профиль</string>
+    <string name="profile_saved">Профиль сохранён</string>
+    <string name="profile_deleted">Профиль удалён</string>
+    <string name="delete_profile_title">Удалить профиль?</string>
+    <string name="delete_profile_message">Активный профиль будет создан заново для текущей сети. Статистика выбранного профиля сбросится.</string>
+    <string name="wifi_profile_permission_note">Для точного имени Wi‑Fi Android может запросить доступ к данным Wi‑Fi/геолокации.</string>
+    <string name="saved_profiles">Сохранённые профили</string>
+    <string name="profile_list_empty">Профили появятся автоматически после подключения к сетям.</string>
     <string name="verbose_logging">Подробное логирование</string>
     <string name="buffer_kb">Буфер, КБ</string>
     <string name="pool_size">Пул WebSocket-сессий</string>
@@ -109,6 +221,7 @@
     <string name="notification_action_start">Запустить</string>
     <string name="notification_action_stop">Остановить</string>
     <string name="notification_address_line">Адрес: %1$s</string>
+    <string name="notification_uptime_line">Аптайм: %1$s</string>
     <string name="notification_traffic_line">Трафик: %1$s</string>
 
     <string-array name="theme_options">
@@ -127,5 +240,12 @@
         <item>Авто</item>
         <item>Вкл</item>
         <item>Выкл</item>
+    </string-array>
+
+    <string-array name="route_preference_options">
+        <item>Авто</item>
+        <item>Direct первым</item>
+        <item>Cloudflare первым</item>
+        <item>Relay первым</item>
     </string-array>
 </resources>

@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay"
+        android:textColor="@color/accent"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="10sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_saved"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <Spinner
+        android:id="@+id/sp_vps_relay_saved"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="7dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_vps_relay_new"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/vps_relay_new"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_vps_relay_save"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_start_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/vps_relay_save"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <CheckBox
+        android:id="@+id/cb_vps_relay_enabled"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="6dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_enabled"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_name"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/et_vps_relay_name"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:hint="@string/vps_relay"
+        android:inputType="textCapWords"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="5dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="@string/vps_relay_host"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+
+            <EditText
+                android:id="@+id/et_vps_relay_host"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="3dp"
+                android:background="@drawable/edit_bg"
+                android:inputType="textUri"
+                android:paddingStart="9dp"
+                android:paddingEnd="9dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="92dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="@string/vps_relay_port"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+
+            <EditText
+                android:id="@+id/et_vps_relay_port"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="3dp"
+                android:background="@drawable/edit_bg"
+                android:inputType="number"
+                android:paddingStart="9dp"
+                android:paddingEnd="9dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="7dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <CheckBox
+            android:id="@+id/cb_vps_relay_tls"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:buttonTint="@color/accent"
+            android:includeFontPadding="false"
+            android:text="@string/vps_relay_tls"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+
+        <CheckBox
+            android:id="@+id/cb_vps_relay_bind_profile"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1.6"
+            android:buttonTint="@color/accent"
+            android:includeFontPadding="false"
+            android:text="@string/vps_relay_bind_profile"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_path"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/et_vps_relay_path"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:hint="/apiws"
+        android:inputType="textUri"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/vps_relay_token"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/et_vps_relay_token"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:fontFamily="monospace"
+        android:inputType="textPassword|textNoSuggestions"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_vps_relay_test"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_start_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/test"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_vps_relay_auto_setup"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/vps_relay_auto_setup"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_vps_setup"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:layout_marginTop="8dp"
+        android:max="100"
+        android:progress="0" />
+
+    <TextView
+        android:id="@+id/tv_vps_setup_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:text="@string/vps_setup_idle"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+</LinearLayout>

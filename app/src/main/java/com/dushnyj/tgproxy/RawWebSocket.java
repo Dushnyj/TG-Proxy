@@ -120,6 +120,82 @@ public class RawWebSocket {
         throw new IOException("WS handshake failed: " + statusCode);
     }
 
+    static RawWebSocket connectRelay(VpsRelayConfig config, int dc, boolean media,
+                                     int timeout) throws Exception {
+        if (config == null || !config.isUsable()) {
+            throw new IOException("VPS relay is not configured");
+        }
+        Socket socket = new Socket();
+        socket.connect(new java.net.InetSocketAddress(config.host(), config.port()), timeout);
+        socket.setSoTimeout(timeout);
+        socket.setTcpNoDelay(true);
+        socket.setReceiveBufferSize(262144);
+        socket.setSendBufferSize(262144);
+
+        Socket activeSocket = socket;
+        if (config.tls()) {
+            SSLSocket ssl = (SSLSocket) sslFactory.createSocket(
+                    socket, config.host(), config.port(), true);
+            ssl.setUseClientMode(true);
+            SSLParameters params = ssl.getSSLParameters();
+            params.setEndpointIdentificationAlgorithm("HTTPS");
+            ssl.setSSLParameters(params);
+            ssl.startHandshake();
+            activeSocket = ssl;
+        }
+
+        RawWebSocket ws = new RawWebSocket(activeSocket);
+        String path = relayPath(config.path(), dc, media);
+        websocketHandshake(ws, config.host(), path, config.token());
+        activeSocket.setSoTimeout(RECV_TIMEOUT_MS);
+        return ws;
+    }
+
+    private static void websocketHandshake(RawWebSocket ws, String host,
+                                           String path, String token) throws Exception {
+        byte[] keyBytes = new byte[16];
+        rng.nextBytes(keyBytes);
+        String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
+        String req = "GET " + path + " HTTP/1.1\r\n" +
+                "Host: " + host + "\r\n" +
+                "Authorization: Bearer " + token + "\r\n" +
+                "Upgrade: websocket\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Sec-WebSocket-Key: " + wsKey + "\r\n" +
+                "Sec-WebSocket-Version: 13\r\n" +
+                "Sec-WebSocket-Protocol: binary\r\n" +
+                "Origin: https://web.telegram.org\r\n" +
+                "\r\n";
+
+        ws.out.write(req.getBytes("UTF-8"));
+        ws.out.flush();
+
+        int statusCode = 0;
+        boolean firstLine = true;
+        while (true) {
+            String line = readLine(ws.in);
+            if (line == null || line.isEmpty()) break;
+            if (firstLine) {
+                String[] parts = line.split(" ", 3);
+                if (parts.length >= 2) {
+                    try { statusCode = Integer.parseInt(parts[1]); }
+                    catch (NumberFormatException ignored) {}
+                }
+                firstLine = false;
+            }
+        }
+        if (statusCode != 101) {
+            ws.closeQuiet();
+            throw new IOException("WS handshake failed: " + statusCode);
+        }
+    }
+
+    private static String relayPath(String path, int dc, boolean media) {
+        String safePath = (path == null || path.isEmpty()) ? "/apiws" : path;
+        String separator = safePath.contains("?") ? "&" : "?";
+        return safePath + separator + "dc=" + dc + "&media=" + (media ? "1" : "0");
+    }
+
     private static String readLine(InputStream in) throws IOException {
         StringBuilder sb = new StringBuilder();
         int c;

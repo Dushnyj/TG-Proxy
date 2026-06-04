@@ -27,6 +27,7 @@ import android.text.style.ForegroundColorSpan;
 import androidx.preference.PreferenceManager;
 
 import java.util.Arrays;
+import java.util.Map;
 
 public class ProxyService extends Service {
 
@@ -41,6 +42,9 @@ public class ProxyService extends Service {
     private int     port;
     private String  boundIp = "127.0.0.1";
     private boolean isMobile = false;
+    private NetworkProfileStore profileStore;
+    private NetworkProfile activeNetworkProfile = NetworkProfile.defaultProfile();
+    private NetworkProfileRecord activeProfileRecord;
 
     private static ProxyService instance;
 
@@ -53,9 +57,11 @@ public class ProxyService extends Service {
 
     private Runnable pendingReconnect = null;
     private Runnable notificationTicker = null;
+    private Runnable engineStartRetry = null;
     private Bitmap notificationLargeIcon;
     private boolean recheckOnNetworkChange = true;
     private static final long RECONNECT_DEBOUNCE_MS = 2500;
+    private static final long ENGINE_START_RETRY_MS = 5000;
 
     public static ProxyService getInstance() { return instance; }
     public MtProtoProxyEngine getEngine()     { return engine; }
@@ -78,11 +84,13 @@ public class ProxyService extends Service {
         handler  = new Handler(Looper.getMainLooper());
         prefs    = PreferenceManager.getDefaultSharedPreferences(this);
         createNotificationChannel();
+        DiagnosticsLog.record("service created");
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TGProxy::ProxyWake");
 
-        isMobile = NetworkUtils.isMobileNetwork(this);
+        profileStore = NetworkProfileStore.fromPreferences(prefs);
+        activateNetworkProfile(false);
         registerNetworkCallback();
         registerScreenReceiver();
     }
@@ -94,7 +102,10 @@ public class ProxyService extends Service {
         screenReceiver = new ScreenStateReceiver();
         screenReceiver.setCallback(new ScreenStateReceiver.Callback() {
             @Override public void onScreenOn() {
-                if (paused && engine != null) resumeEngine();
+                if (paused && engine != null) {
+                    DiagnosticsLog.record("screen on, resuming engine");
+                    resumeEngine();
+                }
             }
             @Override public void onScreenOff() {
                 if (!paused && engine != null && smartSleepEnabled) {
@@ -121,11 +132,11 @@ public class ProxyService extends Service {
             networkCallback = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
-                    boolean wasMobile = isMobile;
-                    isMobile = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
-                    if (engine != null) engine.setMobileNetwork(isMobile);
-                    if (engine != null && recheckOnNetworkChange && wasMobile != isMobile) {
-                        scheduleReconnect();
+                    String previous = activeProfileKey();
+                    NetworkProfileRecord record = activateNetworkProfile(true);
+                    if (record != null && !previous.equals(record.key())) {
+                        DiagnosticsLog.record("network profile changed " + previous + " -> " + record.key());
+                        if (engine != null && recheckOnNetworkChange) scheduleReconnect();
                     }
                 }
 
@@ -138,8 +149,14 @@ public class ProxyService extends Service {
                 public void onAvailable(Network network) {
                     if (paused) {
                         handler.post(() -> resumeEngine());
-                    } else if (recheckOnNetworkChange) {
-                        scheduleReconnect();
+                    } else {
+                        String previous = activeProfileKey();
+                        NetworkProfileRecord record = activateNetworkProfile(true);
+                        if (record != null && !previous.equals(record.key())) {
+                            DiagnosticsLog.record("network available, profile changed "
+                                    + previous + " -> " + record.key());
+                            if (engine != null && recheckOnNetworkChange) scheduleReconnect();
+                        }
                     }
                 }
             };
@@ -153,9 +170,11 @@ public class ProxyService extends Service {
 
     private void scheduleReconnect() {
         cancelPendingReconnect();
+        DiagnosticsLog.record("route reconnect scheduled");
         pendingReconnect = () -> {
             pendingReconnect = null;
             if (engine != null && engine.isRunning() && !paused) {
+                DiagnosticsLog.record("route reconnect executing");
                 engine.reconnectPool();
             }
         };
@@ -172,6 +191,7 @@ public class ProxyService extends Service {
     private void pauseEngine() {
         paused = true;
         cancelPendingReconnect();
+        DiagnosticsLog.record("engine paused by smart sleep");
         if (engine != null) engine.pause();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         refreshNotification();
@@ -179,10 +199,16 @@ public class ProxyService extends Service {
 
     private void resumeEngine() {
         paused = false;
+        DiagnosticsLog.record("engine resume requested");
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         if (engine != null) {
             new Thread(() -> {
-                try { engine.resume(port); } catch (Exception ignored) {}
+                try {
+                    engine.resume(port);
+                    DiagnosticsLog.record("engine resumed on " + boundIp + ":" + port);
+                } catch (Exception e) {
+                    DiagnosticsLog.record("engine resume failed " + errorSummary(e));
+                }
             }).start();
         }
         refreshNotification();
@@ -191,16 +217,24 @@ public class ProxyService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            DiagnosticsLog.record("notification stop action");
             stopSelf();
             return START_NOT_STICKY;
         }
         if (intent != null && ACTION_RESUME.equals(intent.getAction())) {
+            DiagnosticsLog.record("notification resume action");
             if (paused && engine != null) resumeEngine();
             refreshNotification();
             return START_STICKY;
         }
 
-        if (engine != null) { engine.stop(); engine = null; }
+        if (engine != null) {
+            cancelEngineStartRetry();
+            persistCurrentRouteStats();
+            engine.stop();
+            engine = null;
+            DiagnosticsLog.record("existing engine stopped before restart");
+        }
 
         prefs = PreferenceManager.getDefaultSharedPreferences(this);
 
@@ -216,10 +250,12 @@ public class ProxyService extends Service {
         startTime = System.currentTimeMillis();
         paused = false;
         startForeground(NOTIF_ID, buildNotification());
+        DiagnosticsLog.record("service start requested " + boundIp + ":" + port);
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
 
-        isMobile = NetworkUtils.isMobileNetwork(this);
+        profileStore = NetworkProfileStore.fromPreferences(prefs);
+        NetworkProfileRecord profileRecord = activateNetworkProfile(false);
 
         engine = new MtProtoProxyEngine();
         engine.setBoundIp(boundIp);
@@ -227,15 +263,21 @@ public class ProxyService extends Service {
         engine.setDcRules(prefs.getString("dc_rules", MtProtoConfig.DEFAULT_DC_RULES));
         engine.setCfProxyMode(storedCfProxyMode());
         engine.setCfProxyDomains(splitDomains(prefs.getString("cfproxy_domains", "")));
+        engine.setCfProxyCustomDomains(prefs.getBoolean("cfproxy_custom_enabled", false));
         engine.setCfWarmupEnabled(prefs.getBoolean("cf_warmup", true));
         engine.setCfWorkerDomains(splitDomains(prefs.getString("worker_domains", "")));
+        engine.setVpsRelayConfig(vpsRelayConfigFromPrefs(profileRecord == null ? "" : profileRecord.key()));
         engine.setVerbose(prefs.getBoolean("verbose_logging", false));
-        engine.setMobileNetwork(isMobile);
+        if (profileRecord != null) {
+            engine.setNetworkProfile(profileRecord.profile());
+            engine.setRoutePreference(profileRecord.routePreference());
+            engine.replaceRouteStats(profileStore.routeStats(profileRecord.profile()));
+            DiagnosticsLog.record("active profile " + profileRecord.key()
+                    + " routePreference=" + profileRecord.routePreference().name());
+        }
+        engine.setRouteStatsChangedListener(this::persistCurrentRouteStats);
 
-        new Thread(() -> {
-            try { engine.start(port); }
-            catch (Exception e) { handler.post(this::stopSelf); }
-        }).start();
+        startEngineAsync();
         startNotificationTicker();
 
         return START_STICKY;
@@ -244,8 +286,11 @@ public class ProxyService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        DiagnosticsLog.record("service destroyed");
+        cancelEngineStartRetry();
         cancelPendingReconnect();
         stopNotificationTicker();
+        persistCurrentRouteStats();
         if (engine != null) { engine.stop(); engine = null; }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (screenReceiver != null) {
@@ -260,6 +305,13 @@ public class ProxyService extends Service {
         }
         stopForeground(true);
         super.onDestroy();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        DiagnosticsLog.record("task removed, foreground proxy service remains active");
+        refreshNotification();
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
@@ -291,9 +343,11 @@ public class ProxyService extends Service {
             down = TgConstants.humanBytes(engine.bytesDown.get());
         }
         String traffic = MainUiState.trafficSummary(up, down);
+        String uptime = MainUiState.uptimeSummary(getUptime());
         CharSequence compact = colorTrafficInText(address + " • " + traffic, address.length() + 3);
         CharSequence details = colorTrafficInText(
                 getString(R.string.notification_address_line, address)
+                        + "\n" + getString(R.string.notification_uptime_line, uptime)
                         + "\n" + getString(R.string.notification_traffic_line, traffic),
                 -1);
         long when = startTime > 0 ? startTime : System.currentTimeMillis();
@@ -351,6 +405,20 @@ public class ProxyService extends Service {
                 prefs.getString("cfproxy_mode", fallback));
     }
 
+    private VpsRelayConfig vpsRelayConfigFromPrefs(String profileKey) {
+        VpsRelayConfig selected = VpsRelayStore.fromPreferences(prefs).selectedRelay(profileKey);
+        if (selected != null) return selected;
+        return VpsRelayConfig.manual(
+                prefs.getBoolean("vps_relay_enabled", false),
+                prefs.getString("vps_relay_name", "VPS Relay"),
+                prefs.getString("vps_relay_host", ""),
+                prefs.getInt("vps_relay_port", 443),
+                prefs.getBoolean("vps_relay_tls", true),
+                prefs.getString("vps_relay_path", "/apiws"),
+                prefs.getString("vps_relay_token", ""),
+                prefs.getString("vps_relay_profile_key", ""));
+    }
+
     private CharSequence colorTrafficInText(String text, int trafficStartHint) {
         SpannableString span = new SpannableString(text);
         int up = trafficStartHint >= 0 ? trafficStartHint : text.indexOf('↑');
@@ -376,13 +444,79 @@ public class ProxyService extends Service {
         } catch (Exception ignored) {}
     }
 
+    private void startEngineAsync() {
+        new Thread(() -> {
+            try {
+                MtProtoProxyEngine current = engine;
+                if (current == null) return;
+                current.start(port);
+                DiagnosticsLog.record("engine started " + boundIp + ":" + port);
+                cancelEngineStartRetry();
+                refreshNotification();
+            } catch (Exception e) {
+                DiagnosticsLog.record("engine start failed " + errorSummary(e));
+                scheduleEngineStartRetry();
+            }
+        }, "tg-engine-start").start();
+    }
+
+    private void scheduleEngineStartRetry() {
+        if (handler == null || engine == null || paused) return;
+        if (engineStartRetry != null) return;
+        engineStartRetry = () -> {
+            engineStartRetry = null;
+            if (engine != null && !engine.isRunning() && !paused) {
+                DiagnosticsLog.record("engine start retry");
+                startEngineAsync();
+            }
+        };
+        handler.postDelayed(engineStartRetry, ENGINE_START_RETRY_MS);
+        refreshNotification();
+    }
+
+    private void cancelEngineStartRetry() {
+        if (handler != null && engineStartRetry != null) {
+            handler.removeCallbacks(engineStartRetry);
+        }
+        engineStartRetry = null;
+    }
+
+    DiagnosticsSnapshot diagnosticsSnapshot() {
+        MtProtoProxyEngine currentEngine = engine;
+        RouteState routeState = currentEngine == null
+                ? RouteState.inactive("engine is not started")
+                : currentEngine.currentRouteState();
+        boolean engineRunning = currentEngine != null && currentEngine.isRunning();
+        boolean localPortListening = currentEngine != null && currentEngine.isListening();
+        ServiceState serviceState = ServiceState.from(
+                instance != null,
+                engineRunning,
+                localPortListening,
+                paused,
+                routeState);
+        Map<String, RouteStats> stats = currentEngine == null
+                ? java.util.Collections.emptyMap()
+                : currentEngine.routeStatsSnapshot();
+        return new DiagnosticsSnapshot(
+                serviceState,
+                activeNetworkProfile,
+                stats,
+                currentEngine == null ? 0L : currentEngine.activeConnectionCount(),
+                currentEngine == null ? 0L : currentEngine.connections.get(),
+                currentEngine == null ? 0L : currentEngine.bytesUp.get(),
+                currentEngine == null ? 0L : currentEngine.bytesDown.get(),
+                currentEngine == null ? 0L : currentEngine.errors.get(),
+                DiagnosticsSnapshot.totalRouteFailures(stats),
+                startTime <= 0L ? 0L : getUptime());
+    }
+
     private void startNotificationTicker() {
         stopNotificationTicker();
         notificationTicker = new Runnable() {
             @Override public void run() {
                 refreshNotification();
                 if (engine != null) {
-                    handler.postDelayed(this, 2000);
+                    handler.postDelayed(this, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
                 }
             }
         };
@@ -399,5 +533,40 @@ public class ProxyService extends Service {
     private static java.util.List<String> splitDomains(String text) {
         if (text == null || text.trim().isEmpty()) return java.util.Collections.emptyList();
         return Arrays.asList(text.replace(',', ' ').replace(';', ' ').trim().split("\\s+"));
+    }
+
+    private synchronized NetworkProfileRecord activateNetworkProfile(boolean savePreviousStats) {
+        if (profileStore == null) {
+            profileStore = NetworkProfileStore.fromPreferences(prefs);
+        }
+        if (savePreviousStats) persistCurrentRouteStats();
+        NetworkProfile profile = NetworkProfileIdentifier.current(this);
+        NetworkProfileRecord record = profileStore.ensureProfile(profile, System.currentTimeMillis());
+        activeNetworkProfile = record.profile();
+        activeProfileRecord = record;
+        isMobile = activeNetworkProfile.isMobile();
+        DiagnosticsLog.record("network profile active " + record.key());
+        if (engine != null) {
+            engine.setNetworkProfile(activeNetworkProfile);
+            engine.setRoutePreference(record.routePreference());
+            engine.replaceRouteStats(profileStore.routeStats(activeNetworkProfile));
+        }
+        return record;
+    }
+
+    private synchronized void persistCurrentRouteStats() {
+        if (profileStore == null || activeNetworkProfile == null || engine == null) return;
+        profileStore.saveRouteStats(activeNetworkProfile, engine.routeStatsSnapshot());
+    }
+
+    private synchronized String activeProfileKey() {
+        return activeProfileRecord == null ? "" : activeProfileRecord.key();
+    }
+
+    private static String errorSummary(Exception error) {
+        if (error == null) return "unknown";
+        String message = error.getMessage();
+        return error.getClass().getSimpleName()
+                + (message == null || message.trim().isEmpty() ? "" : ": " + message.trim());
     }
 }

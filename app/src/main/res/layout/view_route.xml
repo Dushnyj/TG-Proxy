@@ -11,7 +11,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
-        android:text="@string/route_settings"
+        android:text="@string/routing_settings"
         android:textColor="@color/accent"
         android:textSize="14sp"
         android:textStyle="bold" />
@@ -123,4 +123,82 @@
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_hint"
         android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:includeFontPadding="false"
+        android:text="@string/worker_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="10sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:includeFontPadding="false"
+            android:text="@string/worker_domains"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btn_worker_help"
+            android:layout_width="38dp"
+            android:layout_height="34dp"
+            android:background="@drawable/btn_start_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?android:attr/selectableItemBackground"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="?"
+            android:textColor="@color/button_text"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="3dp"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/et_worker_domains"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/edit_bg"
+            android:hint="@string/worker_domains"
+            android:inputType="textUri"
+            android:paddingStart="9dp"
+            android:paddingEnd="9dp"
+            android:singleLine="true"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btn_test_worker"
+            android:layout_width="76dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/btn_start_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:text="@string/test"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="13sp" />
+    </LinearLayout>
 </LinearLayout>

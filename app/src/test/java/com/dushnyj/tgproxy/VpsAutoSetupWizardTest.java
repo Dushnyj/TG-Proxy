@@ -1,0 +1,168 @@
+package com.dushnyj.tgproxy;
+
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
+public class VpsAutoSetupWizardTest {
+    @Test
+    public void setupReportsProgressAndSavesVerifiedRelayForProfile() throws Exception {
+        FakeSshClient ssh = new FakeSshClient("systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n");
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        ArrayList<Integer> percents = new ArrayList<>();
+        ArrayList<String> messages = new ArrayList<>();
+        VpsSetupRequest request = directRequest("mobile:mccmnc:25020");
+
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, dcRules) -> VpsRelayCheckResult.ok("{}"), store, dcRules());
+
+        VpsRelayConfig saved = wizard.run(request, new VpsAutoSetupWizard.Listener() {
+            @Override public void onProgress(VpsSetupProgress progress) {
+                percents.add(progress.percent());
+                messages.add(progress.message());
+            }
+
+            @Override public boolean onPlan(VpsSetupPlan plan) {
+                return true;
+            }
+        });
+
+        assertEquals(Arrays.asList(
+                VpsSetupProgress.Stage.AUDIT,
+                VpsSetupProgress.Stage.BACKUP,
+                VpsSetupProgress.Stage.INSTALL), ssh.stages);
+        assertEquals(Integer.valueOf(5), percents.get(0));
+        assertEquals(Integer.valueOf(100), percents.get(percents.size() - 1));
+        assertTrue(messages.get(0).contains("аудит"));
+        assertEquals("relay.example.com", saved.host());
+        VpsRelayConfig selected = store.selectedRelay("mobile:mccmnc:25020");
+        assertNotNull(selected);
+        assertEquals("relay.example.com", selected.host());
+        assertTrue(selected.isAllowedForProfile("mobile:mccmnc:25020"));
+        assertFalse(selected.isAllowedForProfile("wifi:ssid:home"));
+    }
+
+    @Test
+    public void verificationFailureRunsRollbackAndDoesNotSaveRelay() throws Exception {
+        FakeSshClient ssh = new FakeSshClient("systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n");
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsSetupRequest request = directRequest("wifi:ssid:home");
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh,
+                (config, dcRules) -> VpsRelayCheckResult.of(
+                        VpsRelayCheckResult.Status.UNAVAILABLE, "timeout"),
+                store,
+                dcRules());
+
+        try {
+            wizard.run(request, approvingListener());
+        } catch (VpsSetupException expected) {
+            assertTrue(expected.getMessage().contains("timeout"));
+        }
+
+        assertTrue(ssh.stages.contains(VpsSetupProgress.Stage.ROLLBACK));
+        assertEquals(null, store.selectedRelay("wifi:ssid:home"));
+    }
+
+    @Test
+    public void existingRelaySetupAddsTokenWithoutFullReinstall() throws Exception {
+        FakeSshClient ssh = new FakeSshClient(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://example.com/apiws\n"
+                        + "existing_relay_listen=127.0.0.1:18080\n");
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsSetupRequest request = tlsRequest("mobile:mccmnc:25001");
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, dcRules) -> VpsRelayCheckResult.ok("{}"), store, dcRules());
+
+        wizard.run(request, approvingListener());
+
+        int installIndex = ssh.stages.indexOf(VpsSetupProgress.Stage.INSTALL);
+        assertTrue(installIndex >= 0);
+        String installScript = ssh.stdinByStage.get(installIndex);
+        assertTrue(installScript.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
+        assertTrue(installScript.contains("systemctl restart tgproxy-relay"));
+        assertFalse(installScript.contains("tar -xzf"));
+        assertNotNull(store.selectedRelay("mobile:mccmnc:25001"));
+    }
+
+    private static VpsAutoSetupWizard.Listener approvingListener() {
+        return new VpsAutoSetupWizard.Listener() {
+            @Override public void onProgress(VpsSetupProgress progress) {}
+            @Override public boolean onPlan(VpsSetupPlan plan) { return true; }
+        };
+    }
+
+    private static VpsSetupRequest directRequest(String profileKey) {
+        return VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshPort(22)
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayName("Work VPS")
+                .relayHost("relay.example.com")
+                .relayPort(18080)
+                .relayTls(false)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .profileKey(profileKey)
+                .build();
+    }
+
+    private static VpsSetupRequest tlsRequest(String profileKey) {
+        return VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshPort(22)
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayName("Work VPS")
+                .relayHost("example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .profileKey(profileKey)
+                .build();
+    }
+
+    private static Map<Integer, String> dcRules() {
+        LinkedHashMap<Integer, String> rules = new LinkedHashMap<>();
+        rules.put(2, "149.154.167.220");
+        rules.put(4, "149.154.167.220");
+        return rules;
+    }
+
+    private static final class FakeSshClient implements VpsSshClient {
+        final List<VpsSetupProgress.Stage> stages = new ArrayList<>();
+        final List<String> stdinByStage = new ArrayList<>();
+        private final String audit;
+
+        FakeSshClient(String audit) {
+            this.audit = audit;
+        }
+
+        @Override
+        public String execute(VpsSshCredentials credentials, VpsSetupProgress.Stage stage,
+                              String command, String stdin, int timeoutMs) {
+            stages.add(stage);
+            stdinByStage.add(stdin == null ? "" : stdin);
+            return stage == VpsSetupProgress.Stage.AUDIT ? audit : "";
+        }
+    }
+}
+

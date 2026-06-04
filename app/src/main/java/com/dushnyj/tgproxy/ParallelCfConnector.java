@@ -21,18 +21,29 @@ final class ParallelCfConnector<T> {
         void close(T value);
     }
 
+    interface FailureListener {
+        void onFailure(String baseDomain, Exception error);
+    }
+
     private final CfProxyDomainState domainState;
     private final int parallelism;
     private final String networkProfile;
+    private final FailureListener failureListener;
 
     ParallelCfConnector(CfProxyDomainState domainState, int parallelism) {
         this(domainState, parallelism, CfProxyDomainState.PROFILE_DEFAULT);
     }
 
     ParallelCfConnector(CfProxyDomainState domainState, int parallelism, String networkProfile) {
+        this(domainState, parallelism, networkProfile, null);
+    }
+
+    ParallelCfConnector(CfProxyDomainState domainState, int parallelism, String networkProfile,
+                        FailureListener failureListener) {
         this.domainState = domainState;
         this.parallelism = Math.max(1, parallelism);
         this.networkProfile = networkProfile;
+        this.failureListener = failureListener;
     }
 
     T connect(List<String> domains, Attempt<T> attempt, Closer<T> closer) {
@@ -64,6 +75,9 @@ final class ParallelCfConnector<T> {
                     domainState.markSuccess(result.domain, networkProfile, System.currentTimeMillis());
                     cancelOthers(futures, future);
                     return result.value;
+                }
+                if (failureListener != null) {
+                    failureListener.onFailure(result.domain, result.error);
                 }
                 if (CfProxyDomainState.isTooManyRequests(result.error)) {
                     domainState.markTooManyRequests(
