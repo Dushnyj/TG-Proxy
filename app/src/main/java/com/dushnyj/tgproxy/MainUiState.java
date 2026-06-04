@@ -8,7 +8,7 @@ final class MainUiState {
     }
 
     static String trafficSummary(String bytesUp, String bytesDown) {
-        return "Up " + bytesUp + " | Down " + bytesDown;
+        return "↑ " + bytesUp + "   ↓ " + bytesDown;
     }
 
     static String emptyTrafficSummary() {

@@ -9,6 +9,8 @@
     <string name="start">Запустить</string>
     <string name="stop">Остановить</string>
     <string name="information">Информация</string>
+    <string name="route">Маршрут</string>
+    <string name="cf_domain">CF-домен</string>
     <string name="address">IP-адрес</string>
     <string name="port">Порт</string>
     <string name="secret">Secret</string>
@@ -29,11 +31,32 @@
     <string name="regenerate">Обновить</string>
     <string name="dc_rules">Датацентры Telegram (DC -> IP)</string>
     <string name="dc_rules_hint">2:149.154.167.220\n4:149.154.167.220</string>
-    <string name="cf_proxy">Cloudflare Proxy</string>
-    <string name="enable_cf_proxy">Включить CF-прокси</string>
+    <string name="connection">Подключение</string>
+    <string name="route_settings">Маршрут</string>
+    <string name="optimization">Оптимизация</string>
+    <string name="behavior">Поведение</string>
+    <string name="interface_settings">Интерфейс</string>
+    <string name="advanced">Дополнительно</string>
+    <string name="cf_proxy">Cloudflare CDN</string>
+    <string name="cf_mode">Режим Cloudflare CDN</string>
+    <string name="enable_cf_proxy">Cloudflare CDN</string>
+    <string name="cf_proxy_note">Авто: Wi‑Fi пробует Direct первым, мобильная сеть пробует Cloudflare CDN первым. Второй маршрут остаётся запасным.</string>
+    <string name="cf_auto_domains">Автоматические CF-домены</string>
     <string name="cf_custom_domain">Свой домен</string>
     <string name="cf_domains">CF-домены через запятую</string>
+    <string name="worker_note">Cloudflare Worker выключен по умолчанию. Указывайте домен только если вы сами подняли Worker.</string>
     <string name="worker_domains">Cloudflare Worker домены</string>
+    <string name="cf_warmup">Прогрев соединений</string>
+    <string name="cf_warmup_note">Заранее держит короткий пул CF WebSocket для новых подключений Telegram.</string>
+    <string name="cf_recheck_network">Проверять при смене сети</string>
+    <string name="cf_recheck_network_note">При переходе между Wi‑Fi и мобильной сетью маршрут подбирается заново.</string>
+    <string name="route_cloudflare_cdn">Cloudflare CDN</string>
+    <string name="route_cloudflare_worker">Cloudflare Worker</string>
+    <string name="route_direct">Direct</string>
+    <string name="route_auto_direct">Авто: Direct</string>
+    <string name="route_auto_cf">Авто: Cloudflare</string>
+    <string name="route_searching">Автовыбор</string>
+    <string name="route_off">Отключен</string>
     <string name="test">Тест</string>
     <string name="runtime">Логи и производительность</string>
     <string name="verbose_logging">Подробное логирование</string>
@@ -98,5 +121,11 @@
         <item>Как в системе</item>
         <item>Русский</item>
         <item>English</item>
+    </string-array>
+
+    <string-array name="cf_mode_options">
+        <item>Авто</item>
+        <item>Вкл</item>
+        <item>Выкл</item>
     </string-array>
 </resources>

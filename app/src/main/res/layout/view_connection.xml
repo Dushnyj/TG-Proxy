@@ -11,107 +11,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
-        android:text="@string/settings"
+        android:text="@string/connection"
         android:textColor="@color/accent"
         android:textSize="14sp"
         android:textStyle="bold" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:baselineAligned="false"
-        android:orientation="horizontal">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="5dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:includeFontPadding="false"
-                android:text="@string/theme"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp" />
-
-            <Spinner
-                android:id="@+id/sp_theme"
-                android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:layout_marginTop="3dp"
-                android:background="@drawable/edit_bg"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="5dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:includeFontPadding="false"
-                android:text="@string/language"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp" />
-
-            <Spinner
-                android:id="@+id/sp_language"
-                android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:layout_marginTop="3dp"
-                android:background="@drawable/edit_bg"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <CheckBox
-        android:id="@+id/cb_smart_sleep"
-        android:layout_width="match_parent"
-        android:layout_height="32dp"
-        android:layout_marginTop="5dp"
-        android:buttonTint="@color/accent"
-        android:includeFontPadding="false"
-        android:text="@string/smart_sleep"
-        android:textColor="@color/text_primary"
-        android:textSize="13sp" />
-
-    <CheckBox
-        android:id="@+id/cb_autostart_open"
-        android:layout_width="match_parent"
-        android:layout_height="32dp"
-        android:buttonTint="@color/accent"
-        android:includeFontPadding="false"
-        android:text="@string/autostart_open"
-        android:textColor="@color/text_primary"
-        android:textSize="13sp" />
-
-    <CheckBox
-        android:id="@+id/cb_autostart_boot"
-        android:layout_width="match_parent"
-        android:layout_height="32dp"
-        android:buttonTint="@color/accent"
-        android:includeFontPadding="false"
-        android:text="@string/autostart_boot"
-        android:textColor="@color/text_primary"
-        android:textSize="13sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:includeFontPadding="false"
-        android:text="@string/autostart_boot_note"
-        android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -226,27 +129,4 @@
             android:textColor="@color/button_text"
             android:textSize="11sp" />
     </LinearLayout>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
-        android:includeFontPadding="false"
-        android:text="@string/dc_rules"
-        android:textColor="@color/text_secondary"
-        android:textSize="11sp" />
-
-    <EditText
-        android:id="@+id/et_dc_rules"
-        android:layout_width="match_parent"
-        android:layout_height="74dp"
-        android:layout_marginTop="3dp"
-        android:background="@drawable/edit_bg"
-        android:gravity="top|start"
-        android:hint="@string/dc_rules_hint"
-        android:inputType="textMultiLine|textNoSuggestions"
-        android:padding="9dp"
-        android:textColor="@color/text_primary"
-        android:textColorHint="@color/text_hint"
-        android:textSize="13sp" />
 </LinearLayout>

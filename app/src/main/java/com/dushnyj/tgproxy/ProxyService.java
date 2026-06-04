@@ -20,6 +20,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 
 import androidx.preference.PreferenceManager;
 
@@ -51,6 +54,7 @@ public class ProxyService extends Service {
     private Runnable pendingReconnect = null;
     private Runnable notificationTicker = null;
     private Bitmap notificationLargeIcon;
+    private boolean recheckOnNetworkChange = true;
     private static final long RECONNECT_DEBOUNCE_MS = 2500;
 
     public static ProxyService getInstance() { return instance; }
@@ -119,7 +123,8 @@ public class ProxyService extends Service {
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                     boolean wasMobile = isMobile;
                     isMobile = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
-                    if (engine != null && wasMobile != isMobile) {
+                    if (engine != null) engine.setMobileNetwork(isMobile);
+                    if (engine != null && recheckOnNetworkChange && wasMobile != isMobile) {
                         scheduleReconnect();
                     }
                 }
@@ -133,7 +138,7 @@ public class ProxyService extends Service {
                 public void onAvailable(Network network) {
                     if (paused) {
                         handler.post(() -> resumeEngine());
-                    } else {
+                    } else if (recheckOnNetworkChange) {
                         scheduleReconnect();
                     }
                 }
@@ -206,6 +211,7 @@ public class ProxyService extends Service {
         if (boundIp == null || boundIp.trim().isEmpty()) boundIp = MtProtoConfig.DEFAULT_HOST;
 
         smartSleepEnabled = prefs.getBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP);
+        recheckOnNetworkChange = prefs.getBoolean("cf_recheck_network", true);
 
         startTime = System.currentTimeMillis();
         paused = false;
@@ -219,10 +225,12 @@ public class ProxyService extends Service {
         engine.setBoundIp(boundIp);
         engine.setSecretHex(prefs.getString("mtproto_secret", MtProtoConfig.generateSecretHex()));
         engine.setDcRules(prefs.getString("dc_rules", MtProtoConfig.DEFAULT_DC_RULES));
-        engine.setCfProxyEnabled(prefs.getBoolean("cfproxy_enabled", true));
+        engine.setCfProxyMode(storedCfProxyMode());
         engine.setCfProxyDomains(splitDomains(prefs.getString("cfproxy_domains", "")));
+        engine.setCfWarmupEnabled(prefs.getBoolean("cf_warmup", true));
         engine.setCfWorkerDomains(splitDomains(prefs.getString("worker_domains", "")));
         engine.setVerbose(prefs.getBoolean("verbose_logging", false));
+        engine.setMobileNetwork(isMobile);
 
         new Thread(() -> {
             try { engine.start(port); }
@@ -283,9 +291,11 @@ public class ProxyService extends Service {
             down = TgConstants.humanBytes(engine.bytesDown.get());
         }
         String traffic = MainUiState.trafficSummary(up, down);
-        String compact = address + " • " + traffic;
-        String details = getString(R.string.notification_address_line, address)
-                + "\n" + getString(R.string.notification_traffic_line, traffic);
+        CharSequence compact = colorTrafficInText(address + " • " + traffic, address.length() + 3);
+        CharSequence details = colorTrafficInText(
+                getString(R.string.notification_address_line, address)
+                        + "\n" + getString(R.string.notification_traffic_line, traffic),
+                -1);
         long when = startTime > 0 ? startTime : System.currentTimeMillis();
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -331,6 +341,32 @@ public class ProxyService extends Service {
             notificationLargeIcon = BitmapFactory.decodeResource(getResources(), R.drawable.app_icon_full);
         }
         return notificationLargeIcon;
+    }
+
+    private String storedCfProxyMode() {
+        String fallback = prefs.getBoolean("cfproxy_enabled", true)
+                ? MtProtoProxyEngine.CF_MODE_AUTO
+                : MtProtoProxyEngine.CF_MODE_OFF;
+        return MtProtoProxyEngine.normalizeCfProxyMode(
+                prefs.getString("cfproxy_mode", fallback));
+    }
+
+    private CharSequence colorTrafficInText(String text, int trafficStartHint) {
+        SpannableString span = new SpannableString(text);
+        int up = trafficStartHint >= 0 ? trafficStartHint : text.indexOf('↑');
+        int down = text.indexOf('↓', Math.max(0, up));
+        if (up >= 0 && down > up) {
+            span.setSpan(new ForegroundColorSpan(colorValue(R.color.green)),
+                    up, down, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            span.setSpan(new ForegroundColorSpan(colorValue(R.color.red)),
+                    down, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return span;
+    }
+
+    private int colorValue(int colorRes) {
+        if (Build.VERSION.SDK_INT >= 23) return getColor(colorRes);
+        return getResources().getColor(colorRes);
     }
 
     public void refreshNotification() {

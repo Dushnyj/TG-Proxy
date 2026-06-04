@@ -30,12 +30,16 @@ public final class FlowsealConnectivity {
             String bestDomain = "";
             List<String> pool = domains == null || domains.isEmpty()
                     ? FlowsealCfDomains.defaults() : domains;
-            for (int i = pool.size() - 1; i >= 0; i--) {
-                String domain = pool.get(i);
+            CfProxyDomainState domainState = CfProxyDomainState.shared();
+            for (String domain : domainState.orderedDomains(pool, System.currentTimeMillis())) {
                 Result current = testCfProxyDomain(domain);
                 if (current.allOk()) {
+                    domainState.markSuccess(domain, System.currentTimeMillis());
                     callback.onResult(current);
                     return;
+                }
+                if (current.anyOk()) {
+                    domainState.markSuccess(domain, System.currentTimeMillis());
                 }
                 for (Map.Entry<Integer, String> entry : current.statuses.entrySet()) {
                     if ("OK".equals(entry.getValue())) {
@@ -55,7 +59,11 @@ public final class FlowsealConnectivity {
         new Thread(() -> {
             LinkedHashMap<String, Result> results = new LinkedHashMap<>();
             for (String domain : domains) {
-                results.put(domain, testCfProxyDomain(domain));
+                Result result = testCfProxyDomain(domain);
+                if (result.anyOk()) {
+                    CfProxyDomainState.shared().markSuccess(domain, System.currentTimeMillis());
+                }
+                results.put(domain, result);
             }
             callback.onResult(results);
         }, "tg-cfproxy-multi-test").start();
@@ -115,6 +123,9 @@ public final class FlowsealConnectivity {
                 ws.close();
                 result.statuses.put(probe.dc, "OK");
             } catch (Exception e) {
+                if (CfProxyDomainState.isTooManyRequests(e)) {
+                    CfProxyDomainState.shared().markTooManyRequests(domain, System.currentTimeMillis());
+                }
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 result.statuses.put(probe.dc, trim(msg));
             }

@@ -14,7 +14,7 @@
         <LinearLayout
             android:id="@+id/main_root"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:orientation="vertical"
             android:paddingStart="16dp"
             android:paddingTop="10dp"
@@ -128,158 +128,203 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-                <LinearLayout
+                <GridLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:layout_marginTop="7dp"
+                    android:columnCount="2"
+                    android:rowCount="3">
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
                         android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/port"
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:text="@string/route"
                             android:textColor="@color/text_secondary"
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <TextView
-                            android:id="@+id/tv_port"
+                            android:id="@+id/tv_route"
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
+                            android:layout_height="24dp"
                             android:layout_marginTop="2dp"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
                             android:text="-"
                             android:textColor="@color/text_primary"
-                            android:textSize="17sp"
+                            android:textSize="15sp"
                             android:textStyle="bold" />
                     </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="end"
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
                         android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
                             android:text="@string/ping"
                             android:textColor="@color/text_secondary"
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <TextView
                             android:id="@+id/tv_ping"
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
+                            android:layout_height="24dp"
                             android:layout_marginTop="2dp"
-                            android:gravity="end"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
                             android:text="-"
                             android:textColor="@color/text_primary"
-                            android:textSize="17sp"
+                            android:textSize="15sp"
                             android:textStyle="bold" />
                     </LinearLayout>
-                </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="5dp"
-                    android:layout_marginBottom="5dp"
-                    android:background="@color/card_border" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="0.58"
-                        android:text="@string/traffic"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
+                        android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/tv_traffic"
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:text="@string/cf_domain"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tv_cf_domain"
+                            android:layout_width="match_parent"
+                            android:layout_height="24dp"
+                            android:layout_marginTop="2dp"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
+                            android:text="-"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.42"
-                        android:ellipsize="end"
-                        android:gravity="end"
-                        android:maxLines="1"
-                        android:singleLine="true"
-                        android:text="-"
-                        android:textColor="@color/text_primary"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
+                        android:orientation="vertical">
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="5dp"
-                    android:layout_marginBottom="5dp"
-                    android:background="@color/card_border" />
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:text="@string/uptime"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                        <TextView
+                            android:id="@+id/tv_uptime"
+                            android:layout_width="match_parent"
+                            android:layout_height="24dp"
+                            android:layout_marginTop="2dp"
+                            android:gravity="center"
+                            android:maxLines="1"
+                            android:text="-"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/uptime"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
+                        android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/tv_uptime"
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:text="@string/port"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tv_port"
+                            android:layout_width="match_parent"
+                            android:layout_height="24dp"
+                            android:layout_marginTop="2dp"
+                            android:gravity="center"
+                            android:maxLines="1"
+                            android:text="-"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:gravity="end"
-                        android:text="-"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                        android:layout_height="52dp"
+                        android:layout_columnWeight="1"
+                        android:layout_margin="3dp"
+                        android:background="@drawable/info_cell_bg"
+                        android:gravity="center"
+                        android:orientation="vertical">
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="5dp"
-                    android:layout_marginBottom="5dp"
-                    android:background="@color/card_border" />
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="17dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:text="@string/traffic"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/secret"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-
-                <TextView
-                    android:id="@+id/tv_secret"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:ellipsize="middle"
-                    android:fontFamily="monospace"
-                    android:singleLine="true"
-                    android:text="-"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp" />
+                        <TextView
+                            android:id="@+id/tv_traffic"
+                            android:layout_width="match_parent"
+                            android:layout_height="24dp"
+                            android:layout_marginTop="2dp"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
+                            android:text="-"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </GridLayout>
 
                 <TextView
                     android:id="@+id/tv_tg_link"
@@ -478,10 +523,13 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <include layout="@layout/view_settings" />
-            <include layout="@layout/view_cf_proxy" />
-            <include layout="@layout/view_runtime" />
+            <include layout="@layout/view_connection" />
+            <include layout="@layout/view_route" />
+            <include layout="@layout/view_optimization" />
+            <include layout="@layout/view_behavior" />
+            <include layout="@layout/view_interface" />
             <include layout="@layout/view_updates" />
+            <include layout="@layout/view_advanced" />
             <include layout="@layout/view_about" />
         </LinearLayout>
     </ScrollView>

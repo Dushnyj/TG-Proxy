@@ -13,6 +13,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -48,15 +51,14 @@ public class MainActivity extends AppCompatActivity {
     private Button btnTestCf, btnTestWorker;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
-    private TextView tvStatus, tvAddress, tvPort, tvSecret, tvTgLink, tvPing, tvTraffic, tvUptime;
+    private TextView tvStatus, tvAddress, tvRoute, tvCfDomain, tvPort, tvTgLink, tvPing, tvTraffic, tvUptime;
     private TextView tvUpdateStatus, tvUpdateProgress, tvVersion;
     private View tvGithub;
     private EditText etCustomIp, etCustomPort, etSecret, etDcRules, etCfDomains, etWorkerDomains;
-    private EditText etBufferKb, etPoolSize;
     private CheckBox cbSmartSleep, cbAutostartOpen, cbAutostartBoot;
-    private CheckBox cbCfProxy, cbCfCustomDomain, cbVerbose, cbCheckUpdates;
+    private CheckBox cbCfCustomDomain, cbCfWarmup, cbCfRecheckNetwork, cbVerbose, cbCheckUpdates;
     private ProgressBar progressUpdate;
-    private Spinner spTheme, spLanguage;
+    private Spinner spCfMode, spTheme, spLanguage;
     private View mainScreen, settingsScreen;
 
     private SharedPreferences prefs;
@@ -124,7 +126,14 @@ public class MainActivity extends AppCompatActivity {
         if (!prefs.contains("custom_ip")) e.putString("custom_ip", MtProtoConfig.DEFAULT_HOST);
         if (!prefs.contains("custom_port")) e.putInt("custom_port", MtProtoConfig.DEFAULT_PORT);
         if (!prefs.contains("dc_rules")) e.putString("dc_rules", MtProtoConfig.DEFAULT_DC_RULES);
-        if (!prefs.contains("cfproxy_enabled")) e.putBoolean("cfproxy_enabled", true);
+        if (!prefs.contains("cfproxy_mode")) {
+            String mode = prefs.contains("cfproxy_enabled") && !prefs.getBoolean("cfproxy_enabled", true)
+                    ? MtProtoProxyEngine.CF_MODE_OFF
+                    : MtProtoProxyEngine.CF_MODE_AUTO;
+            e.putString("cfproxy_mode", mode);
+        }
+        if (!prefs.contains("cf_warmup")) e.putBoolean("cf_warmup", true);
+        if (!prefs.contains("cf_recheck_network")) e.putBoolean("cf_recheck_network", true);
         if (!prefs.contains("smart_sleep")) e.putBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP);
         if (!prefs.contains("autostart_boot")) e.putBoolean("autostart_boot", false);
         if (!prefs.contains("buffer_kb")) e.putInt("buffer_kb", MtProtoConfig.DEFAULT_BUFFER_KB);
@@ -155,8 +164,9 @@ public class MainActivity extends AppCompatActivity {
 
         tvStatus = findViewById(R.id.tv_status);
         tvAddress = findViewById(R.id.tv_address);
+        tvRoute = findViewById(R.id.tv_route);
+        tvCfDomain = findViewById(R.id.tv_cf_domain);
         tvPort = findViewById(R.id.tv_port);
-        tvSecret = findViewById(R.id.tv_secret);
         tvTgLink = findViewById(R.id.tv_tg_link);
         tvPing = findViewById(R.id.tv_ping);
         tvTraffic = findViewById(R.id.tv_traffic);
@@ -173,16 +183,16 @@ public class MainActivity extends AppCompatActivity {
         etDcRules = findViewById(R.id.et_dc_rules);
         etCfDomains = findViewById(R.id.et_cf_domains);
         etWorkerDomains = findViewById(R.id.et_worker_domains);
-        etBufferKb = findViewById(R.id.et_buffer_kb);
-        etPoolSize = findViewById(R.id.et_pool_size);
 
         cbSmartSleep = findViewById(R.id.cb_smart_sleep);
         cbAutostartOpen = findViewById(R.id.cb_autostart_open);
         cbAutostartBoot = findViewById(R.id.cb_autostart_boot);
-        cbCfProxy = findViewById(R.id.cb_cf_proxy);
         cbCfCustomDomain = findViewById(R.id.cb_cf_custom_domain);
+        cbCfWarmup = findViewById(R.id.cb_cf_warmup);
+        cbCfRecheckNetwork = findViewById(R.id.cb_cf_recheck_network);
         cbVerbose = findViewById(R.id.cb_verbose);
         cbCheckUpdates = findViewById(R.id.cb_check_updates);
+        spCfMode = findViewById(R.id.sp_cf_mode);
         spTheme = findViewById(R.id.sp_theme);
         spLanguage = findViewById(R.id.sp_language);
     }
@@ -195,14 +205,14 @@ public class MainActivity extends AppCompatActivity {
         String cfDomains = prefs.getString("cfproxy_domains", "");
         etCfDomains.setText(cfDomains);
         etWorkerDomains.setText(prefs.getString("worker_domains", ""));
-        etBufferKb.setText(String.valueOf(prefs.getInt("buffer_kb", MtProtoConfig.DEFAULT_BUFFER_KB)));
-        etPoolSize.setText(String.valueOf(prefs.getInt("pool_size", MtProtoConfig.DEFAULT_POOL_SIZE)));
         cbSmartSleep.setChecked(prefs.getBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP));
         cbAutostartOpen.setChecked(prefs.getBoolean("autostart_open", false));
         cbAutostartBoot.setChecked(prefs.getBoolean("autostart_boot", false));
-        cbCfProxy.setChecked(prefs.getBoolean("cfproxy_enabled", true));
+        setupCfModeControl();
         cbCfCustomDomain.setChecked(prefs.getBoolean("cfproxy_custom_enabled", !cfDomains.trim().isEmpty()));
-        etCfDomains.setEnabled(cbCfCustomDomain.isChecked());
+        updateCfCustomDomainEnabled();
+        cbCfWarmup.setChecked(prefs.getBoolean("cf_warmup", true));
+        cbCfRecheckNetwork.setChecked(prefs.getBoolean("cf_recheck_network", true));
         cbVerbose.setChecked(prefs.getBoolean("verbose_logging", false));
         cbCheckUpdates.setChecked(prefs.getBoolean("check_updates", true));
         tvVersion.setText("Version " + BuildConfig.VERSION_NAME + " " + getString(R.string.app_by));
@@ -237,18 +247,18 @@ public class MainActivity extends AppCompatActivity {
 
         setupCopy(tvAddress);
         setupCopy(tvPort);
-        setupCopy(tvSecret);
         setupTelegramLink();
 
         cbSmartSleep.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("smart_sleep", checked).apply());
         cbAutostartOpen.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("autostart_open", checked).apply());
         cbAutostartBoot.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("autostart_boot", checked).apply());
-        cbCfProxy.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("cfproxy_enabled", checked).apply());
         cbCfCustomDomain.setOnCheckedChangeListener((v, checked) -> {
-            etCfDomains.setEnabled(checked);
+            updateCfCustomDomainEnabled();
             if (!checked) etCfDomains.setText("");
             prefs.edit().putBoolean("cfproxy_custom_enabled", checked).apply();
         });
+        cbCfWarmup.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("cf_warmup", checked).apply());
+        cbCfRecheckNetwork.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("cf_recheck_network", checked).apply());
         cbVerbose.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("verbose_logging", checked).apply());
         cbCheckUpdates.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("check_updates", checked).apply());
     }
@@ -293,6 +303,31 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void setupCfModeControl() {
+        ArrayAdapter<CharSequence> cfModeAdapter = ArrayAdapter.createFromResource(
+                this, R.array.cf_mode_options, R.layout.spinner_item);
+        cfModeAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        spCfMode.setAdapter(cfModeAdapter);
+        spCfMode.setSelection(cfModeIndex(storedCfProxyMode()));
+        spCfMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String value = position == 1
+                        ? MtProtoProxyEngine.CF_MODE_ON
+                        : position == 2 ? MtProtoProxyEngine.CF_MODE_OFF : MtProtoProxyEngine.CF_MODE_AUTO;
+                if (!value.equals(storedCfProxyMode())) {
+                    prefs.edit()
+                            .putString("cfproxy_mode", value)
+                            .putBoolean("cfproxy_enabled", !MtProtoProxyEngine.CF_MODE_OFF.equals(value))
+                            .apply();
+                    updateCfCustomDomainEnabled();
+                    refreshConnectionFields();
+                }
+            }
+
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+    }
+
     private int themeIndex(String value) {
         if ("light".equals(value)) return 1;
         if ("dark".equals(value)) return 2;
@@ -303,6 +338,51 @@ public class MainActivity extends AppCompatActivity {
         if ("ru".equals(value)) return 1;
         if ("en".equals(value)) return 2;
         return 0;
+    }
+
+    private int cfModeIndex(String mode) {
+        if (MtProtoProxyEngine.CF_MODE_ON.equals(mode)) return 1;
+        if (MtProtoProxyEngine.CF_MODE_OFF.equals(mode)) return 2;
+        return 0;
+    }
+
+    private String storedCfProxyMode() {
+        String fallback = prefs.getBoolean("cfproxy_enabled", true)
+                ? MtProtoProxyEngine.CF_MODE_AUTO
+                : MtProtoProxyEngine.CF_MODE_OFF;
+        return MtProtoProxyEngine.normalizeCfProxyMode(
+                prefs.getString("cfproxy_mode", fallback));
+    }
+
+    private String selectedCfProxyMode() {
+        if (spCfMode == null) return storedCfProxyMode();
+        int position = spCfMode.getSelectedItemPosition();
+        if (position == 1) return MtProtoProxyEngine.CF_MODE_ON;
+        if (position == 2) return MtProtoProxyEngine.CF_MODE_OFF;
+        return MtProtoProxyEngine.CF_MODE_AUTO;
+    }
+
+    private void updateCfCustomDomainEnabled() {
+        if (etCfDomains == null || cbCfCustomDomain == null) return;
+        boolean cfAvailable = !MtProtoProxyEngine.CF_MODE_OFF.equals(selectedCfProxyMode());
+        etCfDomains.setEnabled(cfAvailable && cbCfCustomDomain.isChecked());
+        cbCfCustomDomain.setEnabled(cfAvailable);
+    }
+
+    private CharSequence coloredTrafficSummary(String up, String down) {
+        return coloredTrafficText(MainUiState.trafficSummary(up, down));
+    }
+
+    private CharSequence coloredTrafficText(String text) {
+        SpannableString span = new SpannableString(text);
+        int down = text.indexOf('↓');
+        if (down > 0) {
+            span.setSpan(new ForegroundColorSpan(getColorValue(R.color.green)),
+                    0, down, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            span.setSpan(new ForegroundColorSpan(getColorValue(R.color.red)),
+                    down, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return span;
     }
 
     private void openSettingsOrWarn() {
@@ -348,20 +428,21 @@ public class MainActivity extends AppCompatActivity {
             if (!secret.matches("[0-9a-f]{32}")) throw new IllegalArgumentException();
             MtProtoConfig.parseDcRules(etDcRules.getText().toString());
 
-            prefs.edit()
+            SharedPreferences.Editor editor = prefs.edit()
                     .putString("custom_ip", valueOrDefault(etCustomIp, MtProtoConfig.DEFAULT_HOST))
                     .putInt("custom_port", port)
                     .putString("mtproto_secret", secret)
                     .putString("dc_rules", etDcRules.getText().toString().trim())
-                    .putBoolean("cfproxy_enabled", cbCfProxy.isChecked())
+                    .putString("cfproxy_mode", selectedCfProxyMode())
+                    .putBoolean("cfproxy_enabled", !MtProtoProxyEngine.CF_MODE_OFF.equals(selectedCfProxyMode()))
                     .putBoolean("cfproxy_custom_enabled", cbCfCustomDomain.isChecked())
                     .putString("cfproxy_domains", cbCfCustomDomain.isChecked()
                             ? etCfDomains.getText().toString().trim() : "")
                     .putString("worker_domains", etWorkerDomains.getText().toString().trim())
                     .putBoolean("verbose_logging", cbVerbose.isChecked())
-                    .putInt("buffer_kb", intOrDefault(etBufferKb, MtProtoConfig.DEFAULT_BUFFER_KB))
-                    .putInt("pool_size", intOrDefault(etPoolSize, MtProtoConfig.DEFAULT_POOL_SIZE))
-                    .apply();
+                    .putBoolean("cf_warmup", cbCfWarmup.isChecked())
+                    .putBoolean("cf_recheck_network", cbCfRecheckNetwork.isChecked());
+            editor.apply();
             refreshConnectionFields();
             return true;
         } catch (Exception e) {
@@ -375,9 +456,30 @@ public class MainActivity extends AppCompatActivity {
         int port = intOrDefault(etCustomPort, MtProtoConfig.DEFAULT_PORT);
         String secret = MtProtoConfig.normalizeSecretHex(etSecret.getText().toString());
         tvAddress.setText(ip + ":" + port);
+        tvRoute.setText(currentRouteLabel());
+        tvCfDomain.setText(currentCfDomainLabel());
         tvPort.setText(String.valueOf(port));
-        tvSecret.setText("dd" + secret);
         tvTgLink.setText(MtProtoConfig.telegramProxyLink(ip, port, secret));
+    }
+
+    private String currentRouteLabel() {
+        if (!splitDomains(etWorkerDomains.getText().toString()).isEmpty()) {
+            return getString(R.string.route_cloudflare_worker);
+        }
+        String mode = selectedCfProxyMode();
+        if (MtProtoProxyEngine.CF_MODE_ON.equals(mode)) return getString(R.string.route_cloudflare_cdn);
+        if (MtProtoProxyEngine.CF_MODE_AUTO.equals(mode)) {
+            return NetworkUtils.isMobileNetwork(this)
+                    ? getString(R.string.route_auto_cf)
+                    : getString(R.string.route_auto_direct);
+        }
+        return getString(R.string.route_direct);
+    }
+
+    private String currentCfDomainLabel() {
+        if (MtProtoProxyEngine.CF_MODE_OFF.equals(selectedCfProxyMode())) return getString(R.string.route_off);
+        String active = CfProxyDomainState.shared().activeDomain(currentCfNetworkProfile());
+        return active.isEmpty() ? getString(R.string.route_searching) : active;
     }
 
     private void updateRunningState(boolean running) {
@@ -397,7 +499,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             tvStatus.setText(R.string.status_stopped);
             tvStatus.setTextColor(getColorValue(R.color.text_secondary));
-            tvTraffic.setText(MainUiState.emptyTrafficSummary());
+            tvTraffic.setText(coloredTrafficText(MainUiState.emptyTrafficSummary()));
             tvUptime.setText("-");
         }
         refreshConnectionFields();
@@ -411,7 +513,7 @@ public class MainActivity extends AppCompatActivity {
         }
         updateRunningState(true);
         MtProtoProxyEngine engine = svc.getEngine();
-        tvTraffic.setText(MainUiState.trafficSummary(
+        tvTraffic.setText(coloredTrafficSummary(
                 TgConstants.humanBytes(engine.bytesUp.get()),
                 TgConstants.humanBytes(engine.bytesDown.get())));
         tvUptime.setText(MainUiState.uptimeSummary(svc.getUptime()));
@@ -419,25 +521,86 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void measurePing() {
-        String target = firstDcIp();
+        List<PingProbe> probes = pingProbes();
         tvPing.setText(R.string.checking);
         new Thread(() -> {
-            long start = System.currentTimeMillis();
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(target, 443), 5000);
-                int ms = (int) (System.currentTimeMillis() - start);
-                int color = ms < 100 ? 0xFF4CAF50 : ms < 300 ? 0xFFFFAB00 : 0xFFF44336;
-                handler.post(() -> {
-                    tvPing.setText(ms + " ms");
-                    tvPing.setTextColor(color);
-                });
-            } catch (Exception e) {
-                handler.post(() -> {
-                    tvPing.setText(R.string.not_available);
-                    tvPing.setTextColor(0xFF9AA5B1);
-                });
+            ArrayList<PingProbe> cfProbes = new ArrayList<>();
+            for (PingProbe probe : probes) {
+                if (probe.isCfProbe()) {
+                    cfProbes.add(probe);
+                    continue;
+                }
+
+                Integer cfMs = connectCfPingProbes(cfProbes);
+                if (cfMs != null) {
+                    postPingResult(cfMs);
+                    return;
+                }
+                cfProbes.clear();
+
+                Integer ms = connectSinglePingProbe(probe);
+                if (ms != null) {
+                    postPingResult(ms);
+                    return;
+                }
             }
+
+            Integer cfMs = connectCfPingProbes(cfProbes);
+            if (cfMs != null) {
+                postPingResult(cfMs);
+                return;
+            }
+            handler.post(() -> {
+                tvPing.setText(R.string.not_available);
+                tvPing.setTextColor(0xFF9AA5B1);
+            });
         }, "tg-ping").start();
+    }
+
+    private Integer connectSinglePingProbe(PingProbe probe) {
+        long start = System.currentTimeMillis();
+        try {
+            probe.connect();
+            return (int) (System.currentTimeMillis() - start);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Integer connectCfPingProbes(List<PingProbe> probes) {
+        if (probes.isEmpty()) return null;
+        String networkProfile = currentCfNetworkProfile();
+        ArrayList<String> domains = new ArrayList<>();
+        for (PingProbe probe : probes) {
+            domains.add(probe.baseDomain);
+        }
+
+        return new ParallelCfConnector<Integer>(
+                CfProxyDomainState.shared(), 2, networkProfile).connect(
+                domains,
+                baseDomain -> {
+                    PingProbe probe = null;
+                    for (PingProbe candidate : probes) {
+                        if (candidate.baseDomain.equals(baseDomain)) {
+                            probe = candidate;
+                            break;
+                        }
+                    }
+                    if (probe == null) throw new IllegalStateException("Missing CF ping probe");
+                    long start = System.currentTimeMillis();
+                    probe.connect(networkProfile);
+                    return (int) (System.currentTimeMillis() - start);
+                },
+                value -> {});
+    }
+
+    private void postPingResult(int ms) {
+        int color = ms < 100 ? 0xFF4CAF50 : ms < 300 ? 0xFFFFAB00 : 0xFFF44336;
+        handler.post(() -> {
+            tvPing.setText(ms + " ms");
+            tvPing.setTextColor(color);
+            refreshConnectionFields();
+        });
     }
 
     private void testDomain(String domain) {
@@ -670,6 +833,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupCopy(TextView tv) {
+        if (tv == null) return;
         tv.setOnClickListener(v -> {
             String text = tv.getText().toString();
             if (text.equals("-")) return;
@@ -745,6 +909,127 @@ public class MainActivity extends AppCompatActivity {
             return MtProtoConfig.parseDcRules(etDcRules.getText().toString()).values().iterator().next();
         } catch (Exception ignored) {
             return "149.154.167.220";
+        }
+    }
+
+    private int firstDcId() {
+        try {
+            return MtProtoConfig.parseDcRules(etDcRules.getText().toString()).keySet().iterator().next();
+        } catch (Exception ignored) {
+            return 2;
+        }
+    }
+
+    private List<PingProbe> pingProbes() {
+        ArrayList<PingProbe> probes = new ArrayList<>();
+        int dc = firstDcId();
+        List<String> workerDomains = splitDomains(etWorkerDomains.getText().toString());
+        for (String domain : workerDomains) {
+            String path = "/apiws?dst=" + Uri.encode(defaultTelegramIp(dc)) + "&dc=" + dc;
+            probes.add(PingProbe.websocket(domain, domain, path, ""));
+        }
+
+        ArrayList<PingProbe> cfProbes = new ArrayList<>();
+        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(selectedCfProxyMode())) {
+            List<String> domains = cbCfCustomDomain.isChecked()
+                    ? splitDomains(etCfDomains.getText().toString())
+                    : FlowsealCfDomains.defaults();
+            if (domains.isEmpty()) domains = FlowsealCfDomains.defaults();
+            domains = CfProxyDomainState.shared()
+                    .orderedDomains(domains, currentCfNetworkProfile(), System.currentTimeMillis());
+            for (String baseDomain : domains) {
+                String domain = "kws" + dc + "." + baseDomain;
+                cfProbes.add(PingProbe.websocket(domain, domain, "/apiws", baseDomain));
+            }
+        }
+
+        PingProbe directProbe = PingProbe.tcp(firstDcIp());
+        String mode = selectedCfProxyMode();
+        boolean cfFirst = MtProtoProxyEngine.CF_MODE_ON.equals(mode)
+                || (MtProtoProxyEngine.CF_MODE_AUTO.equals(mode)
+                && CfProxyDomainState.PROFILE_MOBILE.equals(currentCfNetworkProfile()));
+        if (cfFirst) {
+            probes.addAll(cfProbes);
+            probes.add(directProbe);
+        } else {
+            probes.add(directProbe);
+            probes.addAll(cfProbes);
+        }
+        return probes;
+    }
+
+    private String currentCfNetworkProfile() {
+        return NetworkUtils.isMobileNetwork(this)
+                ? CfProxyDomainState.PROFILE_MOBILE
+                : CfProxyDomainState.PROFILE_WIFI;
+    }
+
+    private static String defaultTelegramIp(int dc) {
+        switch (dc) {
+            case 1: return "149.154.175.50";
+            case 2: return "149.154.167.51";
+            case 3: return "149.154.175.100";
+            case 4: return "149.154.167.91";
+            case 5: return "149.154.171.5";
+            case 203: return "91.105.192.100";
+            default: return "149.154.167.51";
+        }
+    }
+
+    private static final class PingProbe {
+        final String host;
+        final String sni;
+        final String path;
+        final String baseDomain;
+        final boolean websocket;
+
+        private PingProbe(String host, String sni, String path, String baseDomain, boolean websocket) {
+            this.host = host;
+            this.sni = sni;
+            this.path = path;
+            this.baseDomain = baseDomain;
+            this.websocket = websocket;
+        }
+
+        static PingProbe websocket(String host, String sni, String path, String baseDomain) {
+            return new PingProbe(host, sni, path, baseDomain, true);
+        }
+
+        static PingProbe tcp(String host) {
+            return new PingProbe(host, host, "", "", false);
+        }
+
+        boolean isCfProbe() {
+            return websocket && baseDomain != null && !baseDomain.isEmpty();
+        }
+
+        void connect() throws Exception {
+            connect(CfProxyDomainState.PROFILE_DEFAULT);
+        }
+
+        void connect(String networkProfile) throws Exception {
+            if (websocket) {
+                try {
+                    RawWebSocket ws = RawWebSocket.connect(host, sni, 5000, path, true);
+                    try {
+                        CfProxyDomainState.shared()
+                                .markSuccess(baseDomain, networkProfile, System.currentTimeMillis());
+                    } finally {
+                        ws.close();
+                    }
+                } catch (Exception e) {
+                    if (CfProxyDomainState.isTooManyRequests(e)) {
+                        CfProxyDomainState.shared()
+                                .markTooManyRequests(
+                                        baseDomain, networkProfile, System.currentTimeMillis());
+                    }
+                    throw e;
+                }
+                return;
+            }
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(host, 443), 5000);
+            }
         }
     }
 

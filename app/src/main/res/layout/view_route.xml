@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/route_settings"
+        android:textColor="@color/accent"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/cf_mode"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Spinner
+            android:id="@+id/sp_cf_mode"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/edit_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp" />
+
+        <Button
+            android:id="@+id/btn_test_cf"
+            android:layout_width="76dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/btn_start_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:text="@string/test"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/cf_proxy_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:includeFontPadding="false"
+        android:text="@string/cf_auto_domains"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <CheckBox
+            android:id="@+id/cb_cf_custom_domain"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:buttonTint="@color/accent"
+            android:includeFontPadding="false"
+            android:text="@string/cf_custom_domain"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/btn_cf_help"
+            android:layout_width="38dp"
+            android:layout_height="34dp"
+            android:background="@drawable/btn_start_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?android:attr/selectableItemBackground"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="?"
+            android:textColor="@color/button_text"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/et_cf_domains"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:enabled="false"
+        android:hint="@string/cf_domains"
+        android:inputType="textUri"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="13sp" />
+</LinearLayout>

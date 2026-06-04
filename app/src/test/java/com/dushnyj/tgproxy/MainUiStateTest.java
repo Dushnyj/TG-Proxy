@@ -15,13 +15,13 @@ public class MainUiStateTest {
 
     @Test
     public void trafficSummaryUsesOneStableLine() {
-        assertEquals("Up 12 KB | Down 34 KB",
+        assertEquals("↑ 12 KB   ↓ 34 KB",
                 MainUiState.trafficSummary("12 KB", "34 KB"));
     }
 
     @Test
     public void idleTrafficSummaryStillUsesOneStableLine() {
-        assertEquals("Up - | Down -", MainUiState.emptyTrafficSummary());
+        assertEquals("↑ -   ↓ -", MainUiState.emptyTrafficSummary());
     }
 
     @Test

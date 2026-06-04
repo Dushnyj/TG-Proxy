@@ -16,9 +16,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class MtProtoProxyEngine {
+    static final String ROUTE_WORKER = "worker";
+    static final String ROUTE_CF_PROXY = "cf_proxy";
+    static final String ROUTE_DIRECT = "direct";
+    static final String CF_MODE_AUTO = "auto";
+    static final String CF_MODE_ON = "on";
+    static final String CF_MODE_OFF = "off";
+
     private static final int HANDSHAKE_LEN = 64;
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int CLIENT_READ_TIMEOUT_MS = 90_000;
+    private static final int CF_POOL_SIZE_PER_DC = 1;
     private static final int[] TELEGRAM_DCS = {1, 2, 3, 4, 5};
 
     private static final Map<Integer, String> DEFAULT_DC_IPS = new LinkedHashMap<>();
@@ -40,6 +48,8 @@ public final class MtProtoProxyEngine {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ServerSocket serverSocket;
     private Thread acceptThread;
+    private final WarmConnectionPool<RawWebSocket> cfPool =
+            new WarmConnectionPool<>(CF_POOL_SIZE_PER_DC, RawWebSocket::isAlive, RawWebSocket::close);
 
     private String boundIp = MtProtoConfig.DEFAULT_HOST;
     private String secretHex = MtProtoConfig.generateSecretHex();
@@ -47,8 +57,10 @@ public final class MtProtoProxyEngine {
     private Map<Integer, String> dcRedirects = MtProtoConfig.parseDcRules(MtProtoConfig.DEFAULT_DC_RULES);
     private List<String> cfProxyDomains = FlowsealCfDomains.defaults();
     private List<String> cfWorkerDomains = Collections.emptyList();
-    private boolean cfProxyEnabled = true;
+    private String cfProxyMode = CF_MODE_AUTO;
+    private boolean cfWarmupEnabled = true;
     private boolean verbose = false;
+    private volatile String cfNetworkProfile = CfProxyDomainState.PROFILE_WIFI;
 
     public void setBoundIp(String boundIp) {
         this.boundIp = boundIp == null || boundIp.trim().isEmpty()
@@ -73,12 +85,24 @@ public final class MtProtoProxyEngine {
     }
 
     public void setCfProxyEnabled(boolean enabled) {
-        this.cfProxyEnabled = enabled;
+        setCfProxyMode(enabled ? CF_MODE_ON : CF_MODE_OFF);
+    }
+
+    public void setCfProxyMode(String mode) {
+        String normalized = normalizeCfProxyMode(mode);
+        this.cfProxyMode = normalized;
+        if (CF_MODE_OFF.equals(normalized)) cfPool.clear();
     }
 
     public void setCfProxyDomains(List<String> domains) {
         ArrayList<String> normalized = normalizeDomains(domains);
         this.cfProxyDomains = normalized.isEmpty() ? FlowsealCfDomains.defaults() : normalized;
+        cfPool.clear();
+    }
+
+    public void setCfWarmupEnabled(boolean enabled) {
+        this.cfWarmupEnabled = enabled;
+        if (!enabled) cfPool.clear();
     }
 
     public void setCfWorkerDomains(List<String> domains) {
@@ -87,6 +111,16 @@ public final class MtProtoProxyEngine {
 
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
+    }
+
+    public void setMobileNetwork(boolean mobileNetwork) {
+        String nextProfile = mobileNetwork
+                ? CfProxyDomainState.PROFILE_MOBILE
+                : CfProxyDomainState.PROFILE_WIFI;
+        if (!nextProfile.equals(cfNetworkProfile)) {
+            cfPool.clear();
+            cfNetworkProfile = nextProfile;
+        }
     }
 
     public boolean isRunning() {
@@ -101,10 +135,12 @@ public final class MtProtoProxyEngine {
         acceptThread = new Thread(this::acceptLoop, "tg-mtproto-accept");
         acceptThread.setDaemon(true);
         acceptThread.start();
+        warmupCfPool();
     }
 
     public void stop() {
         running.set(false);
+        cfPool.clear();
         closeServerSocket();
         for (Socket socket : activeSockets.keySet()) {
             try { socket.close(); } catch (Exception ignored) {}
@@ -121,7 +157,8 @@ public final class MtProtoProxyEngine {
     }
 
     public void reconnectPool() {
-        // Pools are intentionally avoided on Android for now. New WS sessions are created per MTProto connection.
+        cfPool.clear();
+        warmupCfPool();
     }
 
     private void acceptLoop() {
@@ -188,19 +225,48 @@ public final class MtProtoProxyEngine {
 
     private RawWebSocket connectForDc(int dc, boolean media) {
         String targetIp = dcRedirects.get(dc);
-        boolean directAllowed = targetIp != null
-                && TgRoutePolicy.shouldUseDirectWs(dc, media, dcRedirects);
-        if (directAllowed) {
-            RawWebSocket direct = connectDirectWs(dc, media, targetIp);
-            if (direct != null) return direct;
-        }
-        RawWebSocket fallback = connectViaWorker(dc);
-        if (fallback != null) return fallback;
-        if (cfProxyEnabled) return connectViaCfProxy(dc);
-        if (targetIp != null && !directAllowed) {
-            return connectDirectWs(dc, media, targetIp);
+        for (String route : routePlanForDc(dc, media)) {
+            RawWebSocket ws = null;
+            if (ROUTE_WORKER.equals(route)) {
+                ws = connectViaWorker(dc);
+            } else if (ROUTE_CF_PROXY.equals(route)) {
+                ws = connectViaCfProxy(dc);
+            } else if (ROUTE_DIRECT.equals(route) && targetIp != null) {
+                ws = connectDirectWs(dc, media, targetIp);
+            }
+            if (ws != null) return ws;
         }
         return null;
+    }
+
+    List<String> routePlanForDc(int dc, boolean media) {
+        ArrayList<String> routes = new ArrayList<>();
+        String targetIp = dcRedirects.get(dc);
+        boolean directAllowed = targetIp != null
+                && TgRoutePolicy.shouldUseDirectWs(dc, media, dcRedirects);
+        if (!cfWorkerDomains.isEmpty()) {
+            routes.add(ROUTE_WORKER);
+        }
+
+        if (CF_MODE_ON.equals(cfProxyMode)) {
+            routes.add(ROUTE_CF_PROXY);
+            if (directAllowed) routes.add(ROUTE_DIRECT);
+        } else if (CF_MODE_AUTO.equals(cfProxyMode)) {
+            if (CfProxyDomainState.PROFILE_MOBILE.equals(cfNetworkProfile)) {
+                routes.add(ROUTE_CF_PROXY);
+                if (directAllowed) routes.add(ROUTE_DIRECT);
+            } else {
+                if (directAllowed) routes.add(ROUTE_DIRECT);
+                routes.add(ROUTE_CF_PROXY);
+            }
+        } else if (directAllowed) {
+            routes.add(ROUTE_DIRECT);
+        }
+
+        if (targetIp != null && routes.isEmpty()) {
+            routes.add(ROUTE_DIRECT);
+        }
+        return routes;
     }
 
     private RawWebSocket connectDirectWs(int dc, boolean media, String targetIp) {
@@ -229,14 +295,52 @@ public final class MtProtoProxyEngine {
     }
 
     private RawWebSocket connectViaCfProxy(int dc) {
-        for (String baseDomain : cfProxyDomains) {
-            String domain = "kws" + dc + "." + baseDomain;
-            try {
-                return RawWebSocket.connect(domain, domain, CONNECT_TIMEOUT_MS, null, true);
-            } catch (Exception ignored) {
-            }
+        RawWebSocket ws = cfPool.acquire(cfPoolKey(dc), ignored -> openCfSocket(dc));
+        warmupCfPoolForDc(dc);
+        return ws;
+    }
+
+    private RawWebSocket openCfSocket(int dc) {
+        CfProxyDomainState domainState = CfProxyDomainState.shared();
+        return new ParallelCfConnector<RawWebSocket>(domainState, 2, cfNetworkProfile).connect(
+                cfProxyDomains,
+                baseDomain -> {
+                    String domain = "kws" + dc + "." + baseDomain;
+                    return RawWebSocket.connect(domain, domain, CONNECT_TIMEOUT_MS, null, true);
+                },
+                RawWebSocket::close);
+    }
+
+    List<String> cfWarmupKeys() {
+        ArrayList<String> keys = new ArrayList<>();
+        for (Integer dc : dcRedirects.keySet()) {
+            if (dc != null && dc > 0) keys.add(cfPoolKey(dc));
         }
-        return null;
+        return keys;
+    }
+
+    private String cfPoolKey(int dc) {
+        return cfNetworkProfile + ":" + dc;
+    }
+
+    private int dcFromCfPoolKey(String key) {
+        int colon = key == null ? -1 : key.lastIndexOf(':');
+        if (colon < 0 || colon == key.length() - 1) return 2;
+        try {
+            return Integer.parseInt(key.substring(colon + 1));
+        } catch (NumberFormatException ignored) {
+            return 2;
+        }
+    }
+
+    private void warmupCfPool() {
+        if (!cfWarmupEnabled || !running.get() || CF_MODE_OFF.equals(cfProxyMode) || cfProxyDomains.isEmpty()) return;
+        cfPool.warmup(cfWarmupKeys(), key -> openCfSocket(dcFromCfPoolKey(key)));
+    }
+
+    private void warmupCfPoolForDc(int dc) {
+        if (!cfWarmupEnabled || !running.get() || CF_MODE_OFF.equals(cfProxyMode) || cfProxyDomains.isEmpty()) return;
+        cfPool.warmup(Collections.singletonList(cfPoolKey(dc)), key -> openCfSocket(dc));
     }
 
     private void bridge(Socket client, InputStream clientIn, OutputStream clientOut,
@@ -329,5 +433,10 @@ public final class MtProtoProxyEngine {
             result.add(domain);
         }
         return result;
+    }
+
+    static String normalizeCfProxyMode(String mode) {
+        if (CF_MODE_ON.equals(mode) || CF_MODE_OFF.equals(mode)) return mode;
+        return CF_MODE_AUTO;
     }
 }

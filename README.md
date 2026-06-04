@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-3390EC?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-3390EC?style=for-the-badge">
   <img alt="status" src="https://img.shields.io/badge/status-stable-20A464?style=for-the-badge">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
@@ -24,9 +24,9 @@ TG Proxy поднимает прокси прямо на телефоне, по 
 
 - локальный MTProto-прокси без отдельного приложения-клиента;
 - подключение Telegram одной ссылкой `tg://proxy?...`;
-- Cloudflare Proxy и Cloudflare Worker как резервные маршруты;
-- проверка пинга, счетчики Up/Down и аптайм;
-- уведомление в шторке с трафиком, временем работы и кнопкой остановки;
+- Cloudflare CDN в режимах `Авто`, `Вкл`, `Выкл` и Cloudflare Worker как резервный маршрут;
+- проверка пинга, счетчики `↑`/`↓` и аптайм;
+- уведомление в шторке с трафиком `↑`/`↓` и кнопкой остановки;
 - автозапуск при открытии приложения и после включения устройства;
 - проверка обновлений из GitHub Releases с прогрессом скачивания.
 
@@ -88,8 +88,8 @@ SHA256SUMS.txt
 Версия задается в `app/build.gradle`. Релиз запускается тегом того же номера:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 Workflow состоит из трех этапов: `Проверка`, `Сборка`, `Загрузка релиза`. Текст GitHub Release берется из [CHANGELOG.md](CHANGELOG.md).

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/behavior"
+        android:textColor="@color/accent"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <CheckBox
+        android:id="@+id/cb_smart_sleep"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:layout_marginTop="6dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/smart_sleep"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <CheckBox
+        android:id="@+id/cb_autostart_open"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/autostart_open"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <CheckBox
+        android:id="@+id/cb_autostart_boot"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/autostart_boot"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="@string/autostart_boot_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="10sp" />
+</LinearLayout>
