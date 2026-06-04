@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TG Proxy</string>
+    <string name="app_by">by Dushnyj</string>
+    <string name="menu">Меню</string>
+    <string name="status_stopped">Остановлен</string>
+    <string name="status_active">Активен</string>
+    <string name="status_sleep">Спящий режим</string>
+    <string name="start">Запустить</string>
+    <string name="stop">Остановить</string>
+    <string name="information">Информация</string>
+    <string name="address">IP-адрес</string>
+    <string name="port">Порт</string>
+    <string name="secret">Secret</string>
+    <string name="telegram_link">Ссылка для Telegram</string>
+    <string name="ping">Пинг</string>
+    <string name="traffic">Трафик</string>
+    <string name="uptime">Аптайм</string>
+    <string name="check_ping">Проверить пинг</string>
+    <string name="settings">Настройки</string>
+    <string name="telegram">Telegram</string>
+    <string name="github">GitHub</string>
+    <string name="settings_locked">Остановите прокси, чтобы открыть настройки.</string>
+    <string name="back">Назад</string>
+    <string name="theme">Тема</string>
+    <string name="language">Язык</string>
+    <string name="local_ip">Локальный IP</string>
+    <string name="mtproto_port">Порт MTProto</string>
+    <string name="regenerate">Обновить</string>
+    <string name="dc_rules">Датацентры Telegram (DC -> IP)</string>
+    <string name="dc_rules_hint">2:149.154.167.220\n4:149.154.167.220</string>
+    <string name="cf_proxy">Cloudflare Proxy</string>
+    <string name="enable_cf_proxy">Включить CF-прокси</string>
+    <string name="cf_custom_domain">Свой домен</string>
+    <string name="cf_domains">CF-домены через запятую</string>
+    <string name="worker_domains">Cloudflare Worker домены</string>
+    <string name="test">Тест</string>
+    <string name="runtime">Логи и производительность</string>
+    <string name="verbose_logging">Подробное логирование</string>
+    <string name="buffer_kb">Буфер, КБ</string>
+    <string name="pool_size">Пул WebSocket-сессий</string>
+    <string name="smart_sleep">Умный сон</string>
+    <string name="autostart_open">Автозапуск при открытии</string>
+    <string name="autostart_boot">Автозапуск при включении устройства</string>
+    <string name="autostart_boot_note">На некоторых устройствах Android нужно отдельно разрешить фоновый запуск в настройках системы.</string>
+    <string name="updates">Обновления</string>
+    <string name="check_updates_start">Проверять обновления при запуске</string>
+    <string name="check_now">Проверить сейчас</string>
+    <string name="open_release">Открыть релиз</string>
+    <string name="install_update">Установить обновление</string>
+    <string name="update_available">Доступна версия %1$s.</string>
+    <string name="update_dialog_title">Доступно обновление</string>
+    <string name="update_dialog_message">Найдена версия %1$s. Установить сейчас?</string>
+    <string name="download_started">Загрузка обновления...</string>
+    <string name="download_progress_known">%1$s из %2$s • %3$s/с</string>
+    <string name="download_progress_unknown">%1$s загружено • %2$s/с</string>
+    <string name="download_failed">Не удалось скачать обновление.</string>
+    <string name="installer_started">Открыт установщик Android.</string>
+    <string name="install_permission_title">Нужно разрешение</string>
+    <string name="install_permission_message">Разрешите TG Proxy установку APK из этого источника, затем вернитесь в приложение.</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="up_to_date">Установлена актуальная версия.</string>
+    <string name="about">О проекте</string>
+    <string name="about_text">Исходный код, релизы и описание проекта доступны на GitHub.</string>
+    <string name="github_repo">GitHub: Dushnyj/TG-Proxy</string>
+    <string name="copy_done">Скопировано</string>
+    <string name="saved">Сохранено</string>
+    <string name="invalid_settings">Проверьте порт, secret и DC правила.</string>
+    <string name="not_available">N/A</string>
+    <string name="checking">Проверка...</string>
+    <string name="test_ok">Доступно</string>
+    <string name="test_failed">Недоступно</string>
+    <string name="cf_worker">Cloudflare Worker</string>
+    <string name="cf_proxy_available">CF-прокси: доступен</string>
+    <string name="cf_proxy_unavailable">CF-прокси: недоступен</string>
+    <string name="cf_proxy_auto_available">CF-прокси работает. %1$d из %2$d серверов доступны.</string>
+    <string name="cf_proxy_auto_unavailable">Ни один из автоматических CF-доменов не отвечает.</string>
+    <string name="cf_active_domain">Активный домен: %1$s</string>
+    <string name="cf_domain_all_ok">%1$s: все %2$d серверов доступны</string>
+    <string name="cf_domain_none_ok">%1$s: недоступен</string>
+    <string name="cf_domain_partial_ok">%1$s: работают %2$s</string>
+    <string name="cf_custom_domain_empty">Укажите свой CF-домен.</string>
+    <string name="cf_worker_domain_empty">Укажите домен Cloudflare Worker.</string>
+    <string name="notification_paused">Приостановлен</string>
+    <string name="notification_channel_description">Локальный MTProto-прокси для Telegram</string>
+    <string name="notification_action_start">Запустить</string>
+    <string name="notification_action_stop">Остановить</string>
+    <string name="notification_address_line">Адрес: %1$s</string>
+    <string name="notification_traffic_line">Трафик: %1$s</string>
+
+    <string-array name="theme_options">
+        <item>Как в системе</item>
+        <item>Светлая</item>
+        <item>Тёмная</item>
+    </string-array>
+
+    <string-array name="language_options">
+        <item>Как в системе</item>
+        <item>Русский</item>
+        <item>English</item>
+    </string-array>
+</resources>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/runtime"
+        android:textColor="@color/accent"
+        android:includeFontPadding="false"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <CheckBox
+        android:id="@+id/cb_verbose"
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/verbose_logging"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/buffer_kb"
+        android:textColor="@color/text_secondary"
+        android:includeFontPadding="false"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/et_buffer_kb"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:inputType="number"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:text="@string/pool_size"
+        android:textColor="@color/text_secondary"
+        android:includeFontPadding="false"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/et_pool_size"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/edit_bg"
+        android:inputType="number"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:textSize="13sp" />
+</LinearLayout>

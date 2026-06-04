@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/updates"
+        android:textColor="@color/accent"
+        android:includeFontPadding="false"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <CheckBox
+        android:id="@+id/cb_check_updates"
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:layout_marginTop="5dp"
+        android:buttonTint="@color/accent"
+        android:includeFontPadding="false"
+        android:text="@string/check_updates_start"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tv_update_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/up_to_date"
+        android:textColor="@color/text_secondary"
+        android:includeFontPadding="false"
+        android:textSize="11sp" />
+
+    <ProgressBar
+        android:id="@+id/progress_update"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:layout_marginTop="8dp"
+        android:indeterminate="true"
+        android:max="1000"
+        android:progressTint="@color/accent"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tv_update_progress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_check_update"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_start_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/check_now"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_open_release"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_stop_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:text="@string/open_release"
+            android:textAllCaps="false"
+            android:textColor="@color/button_text"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btn_install_update"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="7dp"
+        android:background="@drawable/btn_start_bg"
+        android:enabled="false"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:text="@string/install_update"
+        android:textAllCaps="false"
+        android:textColor="@color/button_text"
+        android:textSize="12sp" />
+</LinearLayout>

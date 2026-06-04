@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TG Proxy</string>
+    <string name="app_by">by Dushnyj</string>
+    <string name="menu">Menu</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="status_active">Active</string>
+    <string name="status_sleep">Sleep mode</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="information">Information</string>
+    <string name="address">IP address</string>
+    <string name="port">Port</string>
+    <string name="secret">Secret</string>
+    <string name="telegram_link">Telegram link</string>
+    <string name="ping">Ping</string>
+    <string name="traffic">Traffic</string>
+    <string name="uptime">Uptime</string>
+    <string name="check_ping">Check ping</string>
+    <string name="settings">Settings</string>
+    <string name="telegram">Telegram</string>
+    <string name="github">GitHub</string>
+    <string name="settings_locked">Stop the proxy before opening settings.</string>
+    <string name="back">Back</string>
+    <string name="theme">Theme</string>
+    <string name="language">Language</string>
+    <string name="local_ip">Local IP</string>
+    <string name="mtproto_port">MTProto port</string>
+    <string name="regenerate">Regenerate</string>
+    <string name="dc_rules">Telegram datacenters (DC -> IP)</string>
+    <string name="dc_rules_hint">2:149.154.167.220\n4:149.154.167.220</string>
+    <string name="cf_proxy">Cloudflare Proxy</string>
+    <string name="enable_cf_proxy">Enable CF proxy</string>
+    <string name="cf_custom_domain">Own domain</string>
+    <string name="cf_domains">CF domains, comma-separated</string>
+    <string name="worker_domains">Cloudflare Worker domains</string>
+    <string name="test">Test</string>
+    <string name="runtime">Logs and performance</string>
+    <string name="verbose_logging">Verbose logging</string>
+    <string name="buffer_kb">Buffer, KB</string>
+    <string name="pool_size">WebSocket session pool</string>
+    <string name="smart_sleep">Smart sleep</string>
+    <string name="autostart_open">Auto-start on app open</string>
+    <string name="autostart_boot">Auto-start on device boot</string>
+    <string name="autostart_boot_note">Some Android devices also require background startup permission in system settings.</string>
+    <string name="updates">Updates</string>
+    <string name="check_updates_start">Check updates on launch</string>
+    <string name="check_now">Check now</string>
+    <string name="open_release">Open release</string>
+    <string name="install_update">Install update</string>
+    <string name="update_available">Version %1$s is available.</string>
+    <string name="update_dialog_title">Update available</string>
+    <string name="update_dialog_message">Version %1$s was found. Install it now?</string>
+    <string name="download_started">Downloading update...</string>
+    <string name="download_progress_known">%1$s of %2$s • %3$s/s</string>
+    <string name="download_progress_unknown">%1$s downloaded • %2$s/s</string>
+    <string name="download_failed">Could not download update.</string>
+    <string name="installer_started">Android installer opened.</string>
+    <string name="install_permission_title">Permission required</string>
+    <string name="install_permission_message">Allow TG Proxy to install APK files from this source, then return to the app.</string>
+    <string name="open_settings">Open settings</string>
+    <string name="up_to_date">Installed version is current.</string>
+    <string name="about">About</string>
+    <string name="about_text">Source code, releases, and project details are available on GitHub.</string>
+    <string name="github_repo">GitHub: Dushnyj/TG-Proxy</string>
+    <string name="copy_done">Copied</string>
+    <string name="saved">Saved</string>
+    <string name="invalid_settings">Check port, secret, and DC rules.</string>
+    <string name="not_available">N/A</string>
+    <string name="checking">Checking...</string>
+    <string name="test_ok">Reachable</string>
+    <string name="test_failed">Unavailable</string>
+    <string name="cf_worker">Cloudflare Worker</string>
+    <string name="cf_proxy_available">CF proxy: available</string>
+    <string name="cf_proxy_unavailable">CF proxy: unavailable</string>
+    <string name="cf_proxy_auto_available">CF proxy works. %1$d of %2$d servers are available.</string>
+    <string name="cf_proxy_auto_unavailable">None of the automatic CF domains responds.</string>
+    <string name="cf_active_domain">Active domain: %1$s</string>
+    <string name="cf_domain_all_ok">%1$s: all %2$d servers are available</string>
+    <string name="cf_domain_none_ok">%1$s: unavailable</string>
+    <string name="cf_domain_partial_ok">%1$s: working %2$s</string>
+    <string name="cf_custom_domain_empty">Enter your CF domain.</string>
+    <string name="cf_worker_domain_empty">Enter a Cloudflare Worker domain.</string>
+    <string name="notification_paused">Paused</string>
+    <string name="notification_channel_description">Local MTProto proxy for Telegram</string>
+    <string name="notification_action_start">Start</string>
+    <string name="notification_action_stop">Stop</string>
+    <string name="notification_address_line">Address: %1$s</string>
+    <string name="notification_traffic_line">Traffic: %1$s</string>
+
+    <string-array name="theme_options">
+        <item>System</item>
+        <item>Light</item>
+        <item>Dark</item>
+    </string-array>
+
+    <string-array name="language_options">
+        <item>System</item>
+        <item>Русский</item>
+        <item>English</item>
+    </string-array>
+</resources>

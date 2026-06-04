@@ -1,0 +1,5 @@
+-keep class com.dushnyj.tgproxy.** { *; }
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
