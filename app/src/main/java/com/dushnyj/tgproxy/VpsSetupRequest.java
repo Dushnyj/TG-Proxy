@@ -85,6 +85,24 @@ final class VpsSetupRequest {
         return updateExistingRelay;
     }
 
+    VpsSetupRequest withRelayEndpoint(String host, int port, boolean tls, String path) {
+        return builder()
+                .sshHost(sshCredentials.host())
+                .sshPort(sshCredentials.port())
+                .sshUser(sshCredentials.user())
+                .sshPassword(sshCredentials.password())
+                .relayName(relayName)
+                .relayHost(host)
+                .relayPort(port)
+                .relayTls(tls)
+                .relayPath(path)
+                .relayToken(relayToken)
+                .releaseVersion(releaseVersion)
+                .profileKey(profileKey)
+                .updateExistingRelay(updateExistingRelay)
+                .build();
+    }
+
     String publicUrl() {
         return (relayTls ? "https://" : "http://") + relayHost + ":" + relayPort + relayPath;
     }

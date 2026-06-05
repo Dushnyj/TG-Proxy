@@ -61,7 +61,10 @@ final class VpsAutoSetupWizard {
 
             progress(listener, VpsSetupProgress.Stage.VERIFY, 90,
                     "Проверка /healthz, /version и /test-routes");
-            VpsRelayConfig relay = request.relayConfig();
+            VpsSetupRequest effectiveRequest = plan.effectiveRequest() == null
+                    ? request
+                    : plan.effectiveRequest();
+            VpsRelayConfig relay = effectiveRequest.relayConfig();
             VpsRelayCheckResult check = relayVerifier.check(relay, dcRules);
             if (check.status() != VpsRelayCheckResult.Status.OK) {
                 rollback(request, listener);

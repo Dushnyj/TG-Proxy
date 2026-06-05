@@ -34,6 +34,10 @@ public class VpsRelayClientTest {
 
         assertEquals(VpsRelayCheckResult.Status.OK, result.status());
         assertTrue(result.routeReport().contains("DC2 main"));
+        assertTrue(server.lastRoutesBody.contains("\"dc\":1"));
+        assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.167.51\""));
+        assertTrue(server.lastRoutesBody.contains("\"dc\":5"));
+        assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.171.5\""));
     }
 
     @Test
@@ -65,6 +69,18 @@ public class VpsRelayClientTest {
         VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.OUTDATED_VERSION, result.status());
+    }
+
+    @Test
+    public void successfulNonRelayVersionBodyIsReportedAsWrongEndpoint() throws Exception {
+        server = TinyRelayServer.startWithVersionBody("token",
+                "Slovofon service is online.", 200);
+        VpsRelayConfig config = config("token", false);
+
+        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
+        assertEquals("version endpoint returned non-relay response", result.message());
     }
 
     @Test
@@ -110,7 +126,9 @@ public class VpsRelayClientTest {
         private final int protocol;
         private final int minAppProtocol;
         private final int routeStatus;
+        private String rawVersionBody;
         private String pathPrefix = "";
+        private volatile String lastRoutesBody = "";
         private volatile boolean running = true;
         private Thread thread;
 
@@ -137,6 +155,17 @@ public class VpsRelayClientTest {
         static TinyRelayServer startPrefixed(String expectedToken, String pathPrefix, int protocol,
                                              int minAppProtocol, int routeStatus) throws IOException {
             return start(expectedToken, "1.0.0", pathPrefix, protocol, minAppProtocol, routeStatus);
+        }
+
+        static TinyRelayServer startWithVersionBody(String expectedToken, String versionBody,
+                                                    int routeStatus) throws IOException {
+            TinyRelayServer server = new TinyRelayServer(expectedToken, "1.0.0", 1,
+                    1, routeStatus);
+            server.rawVersionBody = versionBody;
+            server.thread = new Thread(server::serve, "tiny-vps-relay-test");
+            server.thread.setDaemon(true);
+            server.thread.start();
+            return server;
         }
 
         private static TinyRelayServer start(String expectedToken, String version,
@@ -186,13 +215,25 @@ public class VpsRelayClientTest {
                     respond(accepted, 401, "unauthorized");
                     return;
                 }
+                int contentLength = parseContentLength(headers.get("content-length"));
+                StringBuilder requestBody = new StringBuilder();
+                for (int i = 0; i < contentLength; i++) {
+                    int ch = reader.read();
+                    if (ch < 0) break;
+                    requestBody.append((char) ch);
+                }
+
                 if ((pathPrefix + "/healthz").equals(path)) {
                     respond(accepted, 200, "ok");
                 } else if ((pathPrefix + "/version").equals(path)) {
-                    respond(accepted, 200, "{\"name\":\"tgproxy-relay\",\"version\":\"" + version + "\","
+                    String body = rawVersionBody == null
+                            ? "{\"name\":\"tgproxy-relay\",\"version\":\"" + version + "\","
                             + "\"protocol\":" + protocol
-                            + ",\"minAppProtocol\":" + minAppProtocol + "}");
+                            + ",\"minAppProtocol\":" + minAppProtocol + "}"
+                            : rawVersionBody;
+                    respond(accepted, 200, body);
                 } else if ((pathPrefix + "/test-routes").equals(path)) {
+                    lastRoutesBody = requestBody.toString();
                     respond(accepted, routeStatus, "DC2 main OK\nDC2 media OK");
                 } else {
                     respond(accepted, 404, "not found");
@@ -211,6 +252,14 @@ public class VpsRelayClientTest {
                     + "Connection: close\r\n\r\n").getBytes("UTF-8"));
             out.write(bytes);
             out.flush();
+        }
+
+        private static int parseContentLength(String value) {
+            try {
+                return value == null ? 0 : Integer.parseInt(value.trim());
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
         }
 
         @Override

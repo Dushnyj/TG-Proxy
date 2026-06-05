@@ -3,7 +3,8 @@ package com.dushnyj.tgproxy;
 final class RoutePingTarget {
     enum Kind {
         TCP,
-        WEBSOCKET
+        WEBSOCKET,
+        VPS_RELAY
     }
 
     private final Kind kind;
@@ -11,24 +12,44 @@ final class RoutePingTarget {
     private final String sni;
     private final int port;
     private final String path;
+    private final int dc;
+    private final boolean media;
+    private final VpsRelayConfig relayConfig;
     private final boolean updatesRouteState;
 
     private RoutePingTarget(Kind kind, String host, String sni, int port,
-                            String path, boolean updatesRouteState) {
+                            String path, int dc, boolean media, VpsRelayConfig relayConfig,
+                            boolean updatesRouteState) {
         this.kind = kind;
         this.host = host == null ? "" : host;
         this.sni = sni == null ? "" : sni;
         this.port = port;
         this.path = path == null ? "" : path;
+        this.dc = dc;
+        this.media = media;
+        this.relayConfig = relayConfig;
         this.updatesRouteState = updatesRouteState;
     }
 
     static RoutePingTarget tcp(String host, int port) {
-        return new RoutePingTarget(Kind.TCP, host, host, port, "", false);
+        return new RoutePingTarget(Kind.TCP, host, host, port, "",
+                0, false, null, false);
     }
 
     static RoutePingTarget websocket(String host, String sni, String path) {
-        return new RoutePingTarget(Kind.WEBSOCKET, host, sni, 443, path, false);
+        return websocket(host, sni, path, 0, false);
+    }
+
+    static RoutePingTarget websocket(String host, String sni, String path,
+                                     int dc, boolean media) {
+        return new RoutePingTarget(Kind.WEBSOCKET, host, sni, 443, path,
+                dc, media, null, false);
+    }
+
+    static RoutePingTarget relay(VpsRelayConfig config, int dc, boolean media) {
+        VpsRelayConfig safeConfig = config == null ? VpsRelayConfig.disabled() : config;
+        return new RoutePingTarget(Kind.VPS_RELAY, safeConfig.host(), safeConfig.host(),
+                safeConfig.port(), safeConfig.path(), dc, media, safeConfig, false);
     }
 
     Kind kind() {
@@ -51,7 +72,26 @@ final class RoutePingTarget {
         return path;
     }
 
+    int dc() {
+        return dc;
+    }
+
+    boolean media() {
+        return media;
+    }
+
+    VpsRelayConfig relayConfig() {
+        return relayConfig;
+    }
+
     boolean updatesRouteState() {
         return updatesRouteState;
+    }
+
+    String safeLabel() {
+        String route = kind.name().toLowerCase();
+        String target = host.isEmpty() ? "-" : host;
+        String scope = dc > 0 ? " dc=" + dc + (media ? ":media" : ":main") : "";
+        return route + " " + target + path + scope;
     }
 }

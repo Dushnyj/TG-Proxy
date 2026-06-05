@@ -74,6 +74,47 @@ public class VpsSetupScriptsTest {
     }
 
     @Test
+    public void auditScriptCanUseExistingRelayPublicUrlAsRouteDomainFallback() {
+        String script = VpsSetupScripts.audit(VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("203.0.113.10")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build());
+
+        assertTrue(script.contains("public_url_host()"));
+        assertTrue(script.contains("public_url_path()"));
+        assertTrue(script.contains("EXISTING_PUBLIC_HOST=$(public_url_host \"$EXISTING_PUBLIC_URL\")"));
+        assertTrue(script.contains("DOMAIN=\"$EXISTING_PUBLIC_HOST\""));
+        assertTrue(script.contains("RELAY_PATH=$(public_url_path \"$EXISTING_PUBLIC_URL\")"));
+        assertTrue(script.indexOf("EXISTING_PUBLIC_URL=$(json_value") <
+                script.indexOf("DOCKER_CADDY_CONTAINER=$(docker_caddy_container_for_domain)"));
+    }
+
+    @Test
+    public void auditScriptCanReplaceIpRelayHostWithExistingRelayPublicDomain() {
+        String script = VpsSetupScripts.audit(VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build());
+
+        assertTrue(script.contains("is_ipv4()"));
+        assertTrue(script.contains("EXISTING_PUBLIC_HOST=$(public_url_host \"$EXISTING_PUBLIC_URL\")"));
+        assertTrue(script.contains("[ -z \"$DOMAIN\" ] || is_ipv4 \"$DOMAIN\""));
+        assertTrue(script.contains("DOMAIN=\"$EXISTING_PUBLIC_HOST\""));
+    }
+
+    @Test
     public void auditScriptDiscoversExistingVpsDomainsForEmptyRelayHostFlow() {
         String script = VpsSetupScripts.audit(VpsSetupRequest.builder()
                 .sshHost("203.0.113.10")
@@ -117,6 +158,9 @@ public class VpsSetupScriptsTest {
 
         assertTrue(script.contains("TG-Proxy-Relay-v1.0.0-linux-${RELAY_ARCH}.tar.gz"));
         assertTrue(script.contains("/etc/tgproxy-relay/config.json"));
+        assertTrue(script.contains("\"1\": \"149.154.175.50\""));
+        assertTrue(script.contains("\"2\": \"149.154.167.51\""));
+        assertTrue(script.contains("\"4\": \"149.154.167.91\""));
         assertTrue(script.contains("systemctl enable --now tgproxy-relay"));
         assertFalse(script.contains("ssh-secret"));
     }
@@ -174,7 +218,68 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
         assertTrue(script.contains("json.load"));
         assertTrue(script.contains("TOKEN_HASH"));
+        assertTrue(script.contains("relay_dc_map = {"));
+        assertTrue(script.contains("'2': '149.154.167.51'"));
+        assertTrue(script.contains("current == '149.154.167.220'"));
+        assertTrue(script.contains("chown root:tgproxy-relay \"$EXISTING_CONFIG\""));
+        assertTrue(script.contains("chmod 0640 \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("systemctl restart tgproxy-relay"));
+        assertTrue(script.indexOf("chmod 0640 \"$EXISTING_CONFIG\"")
+                < script.indexOf("systemctl restart tgproxy-relay"));
+        assertFalse(script.contains("tar -xzf"));
+        assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
+        assertFalse(script.contains("ssh-secret"));
+    }
+
+    @Test
+    public void installScriptRepairsDockerCaddyRouteForExistingRelay() {
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayHost("203.0.113.10")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .build();
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "docker=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://relay.example.com:443/apiws\n"
+                        + "existing_relay_listen=172.18.0.1:18080\n"
+                        + "domain=relay.example.com\n"
+                        + "domain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=yes\n"
+                        + "docker_caddy_domain_match_count=1\n"
+                        + "docker_caddy_domain_matches=/opt/example-app/infra/caddy/Caddyfile\n"
+                        + "docker_caddy_container=example-app-caddy-1\n"
+                        + "docker_caddy_safe_embed=yes\n"
+                        + "docker_caddy_path_exists=no\n"
+                        + "docker_caddy_validate=yes\n");
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        String script = VpsSetupScripts.install(request, plan);
+
+        assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
+        assertTrue(script.contains("TOKEN_HASH"));
+        assertTrue(script.contains("DOCKER_CADDY_TARGET='/opt/example-app/infra/caddy/Caddyfile'"));
+        assertTrue(script.contains("DOCKER_CADDY_CONTAINER='example-app-caddy-1'"));
+        assertTrue(script.contains("ufw allow in on \"$DOCKER_CADDY_BRIDGE\""));
+        assertTrue(script.contains("write_file_in_place \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
+        assertTrue(script.contains("docker cp \"$CADDY_TMP\" \"$DOCKER_CADDY_CONTAINER\":/tmp/tgproxy-caddy-validate"));
+        assertTrue(script.contains("docker restart \"$DOCKER_CADDY_CONTAINER\""));
+        assertFalse(script.contains("install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
+        assertTrue(script.contains("handle /apiws/version"));
+        assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
+        assertTrue(script.indexOf("TGPROXY-RELAY relay.example.com /apiws")
+                < script.indexOf("systemctl restart tgproxy-relay"));
         assertFalse(script.contains("tar -xzf"));
         assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
         assertFalse(script.contains("ssh-secret"));
@@ -213,7 +318,11 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay"));
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
         assertTrue(script.contains("json.load"));
+        assertTrue(script.contains("chown root:tgproxy-relay \"$EXISTING_CONFIG\""));
+        assertTrue(script.contains("chmod 0640 \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("systemctl restart tgproxy-relay"));
+        assertTrue(script.indexOf("chmod 0640 \"$EXISTING_CONFIG\"")
+                < script.indexOf("systemctl restart tgproxy-relay"));
         assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
         assertFalse(script.contains("ssh-secret"));
     }
@@ -305,15 +414,62 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("DOCKER_CADDY_CONTAINER='example-app-caddy-1'"));
         assertTrue(script.contains("DOCKER_HOST_GATEWAY"));
         assertTrue(script.contains("LISTEN=\"${DOCKER_HOST_GATEWAY}:${INTERNAL_RELAY_PORT}\""));
+        assertTrue(script.contains("DOCKER_CADDY_SUBNET"));
+        assertTrue(script.contains("ufw allow in on \"$DOCKER_CADDY_BRIDGE\""));
+        assertTrue(script.contains("write_file_in_place()"));
+        assertTrue(script.contains("with open(dst, 'r+b') as df"));
+        assertTrue(script.contains("docker cp \"$CADDY_TMP\" \"$DOCKER_CADDY_CONTAINER\":/tmp/tgproxy-caddy-validate"));
+        assertTrue(script.contains("docker restart \"$DOCKER_CADDY_CONTAINER\""));
         assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
         assertTrue(script.contains("RELAY_PATH='/apiws'"));
         assertTrue(script.contains("handle /apiws/version"));
         assertTrue(script.contains("handle ' + relay_path + '*"));
-        assertTrue(script.contains("caddy validate --config /etc/caddy/Caddyfile"));
+        assertTrue(script.contains("caddy validate --config /tmp/tgproxy-caddy-validate"));
         assertTrue(script.contains("caddy reload --config /etc/caddy/Caddyfile"));
+        assertFalse(script.contains("install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
         assertFalse(script.contains("/etc/nginx/conf.d/tgproxy-relay-slovofon_duckdns_org.conf"));
         assertFalse(script.contains("systemctl reload nginx"));
         assertFalse(script.contains("ssh-secret"));
+    }
+
+    @Test
+    public void dockerCaddyGatewayProbeDoesNotUseInstallerPositionalParameters() {
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayHost("relay.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build();
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "curl=yes\n"
+                        + "tar=yes\n"
+                        + "python3=yes\n"
+                        + "docker=yes\n"
+                        + "port_443=busy\n"
+                        + "port_18080=free\n"
+                        + "domain=relay.example.com\n"
+                        + "domain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=yes\n"
+                        + "docker_caddy_domain_match_count=1\n"
+                        + "docker_caddy_domain_matches=/opt/example-app/infra/caddy/Caddyfile\n"
+                        + "docker_caddy_container=example-app-caddy-1\n"
+                        + "docker_caddy_safe_embed=yes\n"
+                        + "docker_caddy_path_exists=no\n"
+                        + "docker_caddy_validate=yes\n");
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        String script = VpsSetupScripts.install(request, plan);
+
+        assertFalse(script.contains("$3"));
+        assertTrue(script.contains("sed -n 's/^default.* via"));
     }
 
     @Test

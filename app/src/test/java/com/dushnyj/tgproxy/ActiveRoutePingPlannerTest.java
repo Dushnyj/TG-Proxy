@@ -2,7 +2,9 @@ package com.dushnyj.tgproxy;
 
 import org.junit.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -44,5 +46,42 @@ public class ActiveRoutePingPlannerTest {
         List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(state);
 
         assertEquals(0, targets.size());
+    }
+
+    @Test
+    public void vpsRelayPingUsesAuthenticatedRelayWebsocketPath() {
+        RouteState state = RouteState.active(
+                RouteCandidate.vpsRelay("VPS Relay", "relay.example.com", 443),
+                "relay.example.com", 73, "stable");
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "VPS Relay",
+                "relay.example.com", 443, true, "/apiws", "token", "");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
+                state, relay, dcRules());
+
+        assertEquals(1, targets.size());
+        assertEquals(RoutePingTarget.Kind.VPS_RELAY, targets.get(0).kind());
+        assertEquals("relay.example.com", targets.get(0).host());
+        assertEquals("/apiws", targets.get(0).path());
+        assertEquals(2, targets.get(0).dc());
+    }
+
+    @Test
+    public void vpsRelayPingDoesNotFallbackToPlainTcpWithoutToken() {
+        RouteState state = RouteState.active(
+                RouteCandidate.vpsRelay("VPS Relay", "relay.example.com", 443),
+                "relay.example.com", 73, "stable");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
+                state, VpsRelayConfig.disabled(), dcRules());
+
+        assertEquals(0, targets.size());
+    }
+
+    private Map<Integer, String> dcRules() {
+        LinkedHashMap<Integer, String> rules = new LinkedHashMap<>();
+        rules.put(2, "149.154.167.220");
+        rules.put(4, "149.154.167.220");
+        return rules;
     }
 }

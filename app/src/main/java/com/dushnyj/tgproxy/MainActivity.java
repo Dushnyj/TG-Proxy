@@ -1087,7 +1087,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void scheduleAutoPing(RouteState routeState) {
         if (routeState == null || !routeState.active()) return;
-        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(routeState);
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
+                routeState, activeVpsRelayConfig(), currentDcRulesOrDefault());
         if (targets.isEmpty()) return;
         String routeKey = routeState.key();
         if (!autoPingGate.tryStart(routeKey, System.currentTimeMillis())) return;

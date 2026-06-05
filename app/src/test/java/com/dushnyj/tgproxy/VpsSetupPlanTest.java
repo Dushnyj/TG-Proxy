@@ -361,6 +361,48 @@ public class VpsSetupPlanTest {
     }
 
     @Test
+    public void existingRelayRepairsMissingDockerCaddyRouteWhenEndpointMatches() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "docker=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://relay.example.com:443/apiws\n"
+                        + "existing_relay_listen=172.18.0.1:18080\n"
+                        + "domain=relay.example.com\n"
+                        + "domain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=yes\n"
+                        + "docker_caddy_domain_match_count=1\n"
+                        + "docker_caddy_domain_matches=/opt/example-app/infra/caddy/Caddyfile\n"
+                        + "docker_caddy_container=example-app-caddy-1\n"
+                        + "docker_caddy_safe_embed=yes\n"
+                        + "docker_caddy_path_exists=no\n"
+                        + "docker_caddy_validate=yes\n");
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("203.0.113.10")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertTrue(plan.summary(), plan.canApply());
+        assertEquals(VpsSetupPlan.InstallMode.EXISTING_RELAY_ADD_TOKEN, plan.installMode());
+        assertEquals(VpsSetupPlan.InstallMode.DOCKER_CADDY_EXISTING_SITE, plan.routeRepairMode());
+        assertEquals("/opt/example-app/infra/caddy/Caddyfile", plan.routeTargetPath());
+        assertEquals("example-app-caddy-1", plan.routeTargetContainer());
+        assertTrue(plan.summary().contains("восстановить public route"));
+    }
+
+    @Test
     public void existingRelayCanUpdateBinaryWhenUserConfirmedServerUpdate() {
         VpsSetupAudit audit = VpsSetupAudit.parse(
                 "systemd=yes\n"

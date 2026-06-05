@@ -10,6 +10,12 @@ public final class MtProtoConfig {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 1443;
     public static final String DEFAULT_DC_RULES = "2:149.154.167.220\n4:149.154.167.220";
+    public static final String DEFAULT_RELAY_DC_RULES =
+            "1:149.154.175.50\n"
+                    + "2:149.154.167.51\n"
+                    + "3:149.154.175.100\n"
+                    + "4:149.154.167.91\n"
+                    + "5:149.154.171.5";
     public static final int DEFAULT_BUFFER_KB = 256;
     public static final int DEFAULT_POOL_SIZE = 4;
 
@@ -52,6 +58,10 @@ public final class MtProtoConfig {
 
     public static Map<Integer, String> parseUserDcRules(String text) {
         return parseDcRules(text, false, true);
+    }
+
+    public static Map<Integer, String> relayDcRules() {
+        return parseDcRules(DEFAULT_RELAY_DC_RULES, false, false);
     }
 
     private static Map<Integer, String> parseDcRules(String text, boolean allowDefault,

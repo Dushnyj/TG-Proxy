@@ -22,6 +22,9 @@ final class VpsRelayClient {
             HttpResult version = requestManagement(config, "GET", "/version", "");
             if (isAuthFailure(version.code)) return wrongToken();
             if (!version.isSuccessful()) return unavailable("version failed: " + version.code);
+            if (!isRelayVersionBody(version.body)) {
+                return unavailable("version endpoint returned non-relay response");
+            }
             int protocol = intJson(version.body, "protocol", 0);
             int minAppProtocol = intJson(version.body, "minAppProtocol", 0);
             if (protocol != APP_PROTOCOL || minAppProtocol > APP_PROTOCOL) {
@@ -34,7 +37,7 @@ final class VpsRelayClient {
             if (!health.isSuccessful()) return unavailable("healthz failed: " + health.code);
 
             HttpResult routes = requestManagement(config, "POST", "/test-routes",
-                    testRoutesBody(dcRules));
+                    testRoutesBody(MtProtoConfig.relayDcRules()));
             if (isAuthFailure(routes.code)) return wrongToken();
             if (!routes.isSuccessful()) return unavailable("test-routes failed: " + routes.code);
             return VpsRelayCheckResult.ok(routes.body);
@@ -60,6 +63,10 @@ final class VpsRelayClient {
             if (!version.isSuccessful()) {
                 return VpsRelayInfo.of(VpsRelayCheckResult.Status.UNAVAILABLE,
                         "version failed: " + version.code, "", targetVersion, 0, 0);
+            }
+            if (!isRelayVersionBody(version.body)) {
+                return VpsRelayInfo.of(VpsRelayCheckResult.Status.UNAVAILABLE,
+                        "version endpoint returned non-relay response", "", targetVersion, 0, 0);
             }
             String relayVersion = stringJson(version.body, "version", "");
             int protocol = intJson(version.body, "protocol", 0);
@@ -151,6 +158,17 @@ final class VpsRelayClient {
 
     private static boolean isAuthFailure(int code) {
         return code == 401 || code == 403;
+    }
+
+    private static boolean isRelayVersionBody(String body) {
+        return "tgproxy-relay".equals(stringJson(body, "name", ""))
+                && hasJsonKey(body, "protocol")
+                && hasJsonKey(body, "minAppProtocol");
+    }
+
+    private static boolean hasJsonKey(String json, String key) {
+        if (json == null || key == null) return false;
+        return json.contains("\"" + key + "\"");
     }
 
     private static String testRoutesBody(Map<Integer, String> dcRules) {

@@ -20,14 +20,32 @@ final class VpsSetupPlan {
     private final InstallMode installMode;
     private final String targetPath;
     private final String targetContainer;
+    private final InstallMode routeRepairMode;
+    private final String routeTargetPath;
+    private final String routeTargetContainer;
+    private final VpsSetupRequest routeRepairRequest;
+    private final VpsSetupRequest effectiveRequest;
 
     private VpsSetupPlan(boolean canApply, List<String> lines,
                          InstallMode installMode, String targetPath, String targetContainer) {
+        this(canApply, lines, installMode, targetPath, targetContainer, null, "", "", null, null);
+    }
+
+    private VpsSetupPlan(boolean canApply, List<String> lines,
+                         InstallMode installMode, String targetPath, String targetContainer,
+                         InstallMode routeRepairMode, String routeTargetPath,
+                         String routeTargetContainer, VpsSetupRequest routeRepairRequest,
+                         VpsSetupRequest effectiveRequest) {
         this.canApply = canApply;
         this.lines = Collections.unmodifiableList(new ArrayList<>(lines));
         this.installMode = installMode;
         this.targetPath = targetPath == null ? "" : targetPath;
         this.targetContainer = targetContainer == null ? "" : targetContainer;
+        this.routeRepairMode = routeRepairMode;
+        this.routeTargetPath = routeTargetPath == null ? "" : routeTargetPath;
+        this.routeTargetContainer = routeTargetContainer == null ? "" : routeTargetContainer;
+        this.routeRepairRequest = routeRepairRequest;
+        this.effectiveRequest = effectiveRequest;
     }
 
     static VpsSetupPlan from(VpsSetupRequest request, VpsSetupAudit audit) {
@@ -92,7 +110,9 @@ final class VpsSetupPlan {
         }
         lines.add("Проверить /healthz, /version и /test-routes, затем сохранить Relay.");
         return new VpsSetupPlan(canApply, lines, decision.installMode,
-                decision.targetPath, decision.targetContainer);
+                decision.targetPath, decision.targetContainer, decision.routeRepairMode,
+                decision.routeTargetPath, decision.routeTargetContainer,
+                decision.routeRepairRequest, decision.effectiveRequest);
     }
 
     boolean canApply() {
@@ -113,6 +133,30 @@ final class VpsSetupPlan {
 
     String targetContainer() {
         return targetContainer;
+    }
+
+    InstallMode routeRepairMode() {
+        return routeRepairMode;
+    }
+
+    String routeTargetPath() {
+        return routeTargetPath;
+    }
+
+    String routeTargetContainer() {
+        return routeTargetContainer;
+    }
+
+    VpsSetupRequest routeRepairRequest() {
+        return routeRepairRequest;
+    }
+
+    VpsSetupRequest effectiveRequest() {
+        return effectiveRequest;
+    }
+
+    boolean hasRouteRepair() {
+        return routeRepairMode != null;
     }
 
     String summary() {
@@ -147,6 +191,11 @@ final class VpsSetupPlan {
             lines.add("Существующий Relay опубликован как " + publicUrl
                     + ", новый профиль будет использовать " + request.publicUrl() + ".");
         }
+        Decision routeRepair = planExistingRelayRouteRepair(request, audit, lines);
+        VpsSetupRequest effectiveRequest = existingRelayRouteRequest(request, audit);
+        if (routeRepair != null) {
+            canApply = routeRepair.canApply && canApply;
+        }
         if (request.updateExistingRelay()) {
             if (!isYes(audit.value("curl")) && !isYes(audit.value("wget"))) {
                 lines.add("Для обновления tgproxy-relay нужен curl или wget для загрузки release asset.");
@@ -158,10 +207,62 @@ final class VpsSetupPlan {
             }
             lines.add("Режим установки: обновить tgproxy-relay до " + request.releaseVersion()
                     + ", сохранить существующий config и добавить новый token при необходимости.");
-            return new Decision(canApply, InstallMode.EXISTING_RELAY_UPDATE, config);
+            return new Decision(canApply, InstallMode.EXISTING_RELAY_UPDATE, config,
+                    "", routeRepair, effectiveRequest);
         }
         lines.add("Режим установки: Relay уже установлен, можно добавить новый token без полной автонастройки.");
-        return new Decision(canApply, InstallMode.EXISTING_RELAY_ADD_TOKEN, config);
+        return new Decision(canApply, InstallMode.EXISTING_RELAY_ADD_TOKEN, config,
+                "", routeRepair, effectiveRequest);
+    }
+
+    private static Decision planExistingRelayRouteRepair(VpsSetupRequest request,
+                                                         VpsSetupAudit audit,
+                                                         ArrayList<String> lines) {
+        VpsSetupRequest routeRequest = existingRelayRouteRequest(request, audit);
+        if (routeRequest == null || !routeRequest.reverseProxyMode()) return null;
+        boolean hasWebRouteCandidate = audit.intValue("docker_caddy_domain_match_count") > 0
+                || audit.intValue("caddy_domain_match_count") > 0
+                || audit.intValue("nginx_domain_match_count") > 0;
+        if (!hasWebRouteCandidate) return null;
+        if (isYes(audit.value("docker_caddy_path_exists"))
+                || isYes(audit.value("caddy_path_exists"))
+                || isYes(audit.value("nginx_path_exists"))) {
+            lines.add("Public route " + routeRequest.relayPath() + " уже найден в web stack.");
+            return null;
+        }
+        lines.add("Public route " + routeRequest.relayPath()
+                + " не найден; автонастройка должна восстановить public route.");
+        boolean canApply = true;
+        if (!audit.domainPointsToVps()) {
+            lines.add("DNS домена не указывает на этот VPS; route repair остановлен.");
+            canApply = false;
+        }
+        Decision dockerCaddy = planDockerCaddy(routeRequest, audit, lines, canApply);
+        if (dockerCaddy != null) return dockerCaddy.withRouteRepairRequest(routeRequest);
+        Decision hostCaddy = planHostCaddy(routeRequest, audit, lines, canApply);
+        if (hostCaddy != null) return hostCaddy.withRouteRepairRequest(routeRequest);
+        if (isYes(audit.value("nginx"))
+                && audit.intValue("nginx_domain_match_count") == 1
+                && isYes(audit.value("nginx_safe_embed"))) {
+            String target = firstCsvValue(audit.value("nginx_domain_matches"));
+            if (!target.isEmpty()) {
+                lines.add("nginx: можно восстановить location " + routeRequest.relayPath()
+                        + " в " + valueOrDash(target) + ".");
+                return new Decision(canApply, InstallMode.NGINX_EXISTING_LOCATION, target)
+                        .withRouteRepairRequest(routeRequest);
+            }
+        }
+        lines.add("Не найден безопасный web stack для восстановления public route.");
+        return new Decision(false, null, "");
+    }
+
+    private static VpsSetupRequest existingRelayRouteRequest(VpsSetupRequest request,
+                                                             VpsSetupAudit audit) {
+        if (request == null) return null;
+        if (request.reverseProxyMode()) return request;
+        ExistingEndpoint endpoint = ExistingEndpoint.parse(audit.value("existing_relay_public_url"));
+        if (endpoint == null || !endpoint.reverseProxyMode()) return request;
+        return request.withRelayEndpoint(endpoint.host, endpoint.port, endpoint.tls, endpoint.path);
     }
 
     private static Decision planStandalone(VpsSetupRequest request, VpsSetupAudit audit,
@@ -409,11 +510,54 @@ final class VpsSetupPlan {
         return normalized;
     }
 
+    private static final class ExistingEndpoint {
+        final String host;
+        final int port;
+        final boolean tls;
+        final String path;
+
+        private ExistingEndpoint(String host, int port, boolean tls, String path) {
+            this.host = host;
+            this.port = port;
+            this.tls = tls;
+            this.path = path;
+        }
+
+        static ExistingEndpoint parse(String publicUrl) {
+            String value = publicUrl == null ? "" : publicUrl.trim();
+            if (value.isEmpty()) return null;
+            try {
+                java.net.URI uri = new java.net.URI(value);
+                String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.US);
+                boolean tls = "https".equals(scheme);
+                if (!tls && !"http".equals(scheme)) return null;
+                String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.US);
+                if (host.isEmpty()) return null;
+                int port = uri.getPort() > 0 ? uri.getPort() : (tls ? 443 : 80);
+                String path = uri.getPath() == null || uri.getPath().trim().isEmpty()
+                        ? "/apiws"
+                        : uri.getPath().trim();
+                return new ExistingEndpoint(host, port, tls, path);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+
+        boolean reverseProxyMode() {
+            return tls && port == 443 && host.contains(".") && !host.matches("\\d+\\.\\d+\\.\\d+\\.\\d+");
+        }
+    }
+
     private static final class Decision {
         final boolean canApply;
         final InstallMode installMode;
         final String targetPath;
         final String targetContainer;
+        final InstallMode routeRepairMode;
+        final String routeTargetPath;
+        final String routeTargetContainer;
+        final VpsSetupRequest routeRepairRequest;
+        final VpsSetupRequest effectiveRequest;
 
         Decision(boolean canApply, InstallMode installMode, String targetPath) {
             this(canApply, installMode, targetPath, "");
@@ -421,10 +565,39 @@ final class VpsSetupPlan {
 
         Decision(boolean canApply, InstallMode installMode,
                  String targetPath, String targetContainer) {
+            this(canApply, installMode, targetPath, targetContainer, null);
+        }
+
+        Decision(boolean canApply, InstallMode installMode,
+                 String targetPath, String targetContainer, Decision routeRepair) {
+            this(canApply, installMode, targetPath, targetContainer, routeRepair, null);
+        }
+
+        Decision(boolean canApply, InstallMode installMode,
+                 String targetPath, String targetContainer, Decision routeRepair,
+                 VpsSetupRequest effectiveRequest) {
+            this(canApply, installMode, targetPath, targetContainer,
+                    routeRepair, effectiveRequest, false);
+        }
+
+        private Decision(boolean canApply, InstallMode installMode,
+                         String targetPath, String targetContainer,
+                         Decision routeRepair, VpsSetupRequest effectiveRequest,
+                         boolean unused) {
             this.canApply = canApply;
             this.installMode = installMode;
             this.targetPath = targetPath == null ? "" : targetPath;
             this.targetContainer = targetContainer == null ? "" : targetContainer;
+            this.routeRepairMode = routeRepair == null ? null : routeRepair.installMode;
+            this.routeTargetPath = routeRepair == null ? "" : routeRepair.targetPath;
+            this.routeTargetContainer = routeRepair == null ? "" : routeRepair.targetContainer;
+            this.routeRepairRequest = routeRepair == null ? null : routeRepair.effectiveRequest;
+            this.effectiveRequest = effectiveRequest;
+        }
+
+        Decision withRouteRepairRequest(VpsSetupRequest request) {
+            return new Decision(canApply, installMode, targetPath, targetContainer,
+                    null, request, false);
         }
 
         static Decision empty() {

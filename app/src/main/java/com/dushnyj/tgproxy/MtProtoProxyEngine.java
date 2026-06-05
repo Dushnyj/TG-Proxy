@@ -239,8 +239,11 @@ public final class MtProtoProxyEngine {
     private void handleClient(Socket client) {
         activeSockets.put(client, Boolean.TRUE);
         RawWebSocket ws = null;
+        AtomicLong sessionUp = new AtomicLong();
+        AtomicLong sessionDown = new AtomicLong();
         try {
             connections.incrementAndGet();
+            DiagnosticsLog.record("client accepted " + safeRemote(client));
             client.setSoTimeout(CLIENT_READ_TIMEOUT_MS);
             client.setTcpNoDelay(true);
             client.setKeepAlive(true);
@@ -255,8 +258,12 @@ public final class MtProtoProxyEngine {
                     MtProtoCrypto.parseClientHandshake(handshake, secret);
             if (parsed == null) {
                 errors.incrementAndGet();
+                DiagnosticsLog.record("client handshake rejected " + safeRemote(client));
                 return;
             }
+            DiagnosticsLog.record("client handshake ok dc=" + parsed.dc
+                    + (parsed.media ? ":media" : ":main")
+                    + " proto=" + protoLabel(parsed.protoTag));
 
             int dcIdx = parsed.media ? -parsed.dc : parsed.dc;
             byte[] relayInit = MtProtoCrypto.generateRelayInit(parsed.protoTag, dcIdx);
@@ -268,15 +275,22 @@ public final class MtProtoProxyEngine {
             ws = connectForDc(parsed.dc, parsed.media);
             if (ws == null) {
                 errors.incrementAndGet();
+                DiagnosticsLog.record("client route unavailable dc=" + parsed.dc
+                        + (parsed.media ? ":media" : ":main"));
                 return;
             }
 
             ws.send(relayInit);
-            bridge(client, in, out, ws, crypto, splitter);
+            DiagnosticsLog.record("telegram relay init sent dc=" + parsed.dc
+                    + (parsed.media ? ":media" : ":main"));
+            bridge(client, in, out, ws, crypto, splitter, sessionUp, sessionDown);
         } catch (Exception e) {
             errors.incrementAndGet();
+            DiagnosticsLog.record("client bridge error " + errorSummary(e));
             if (verbose) e.printStackTrace();
         } finally {
+            DiagnosticsLog.record("client closed " + safeRemote(client)
+                    + " up=" + sessionUp.get() + " down=" + sessionDown.get());
             if (ws != null) {
                 try { ws.close(); } catch (Exception ignored) {}
             }
@@ -288,8 +302,12 @@ public final class MtProtoProxyEngine {
     private RawWebSocket connectForDc(int dc, boolean media) {
         RoutePlan plan = routePlanCandidatesForDc(dc, media);
         String scope = routeScope(dc, media);
+        DiagnosticsLog.record("route plan dc=" + dc + (media ? ":media" : ":main")
+                + " " + routePlanKeys(plan));
         for (RouteCandidate route : plan.routes()) {
             RawWebSocket ws = null;
+            DiagnosticsLog.record("route connecting " + route.key()
+                    + " endpoint=" + route.endpoint());
             if (route.type() == RouteType.WORKER) {
                 ws = connectViaWorker(route);
             } else if (route.type() == RouteType.VPS_RELAY) {
@@ -322,6 +340,8 @@ public final class MtProtoProxyEngine {
         try {
             return RawWebSocket.connectRelay(config, dc, media, CONNECT_TIMEOUT_MS);
         } catch (Exception error) {
+            DiagnosticsLog.record("route failed " + route.key()
+                    + " endpoint=" + route.endpoint() + " " + errorSummary(error));
             recordRouteFailure(route, RouteError.classify(error));
             return null;
         }
@@ -347,6 +367,8 @@ public final class MtProtoProxyEngine {
             try {
                 return RawWebSocket.connect(route.endpoint(), domain, CONNECT_TIMEOUT_MS);
             } catch (Exception error) {
+                DiagnosticsLog.record("route failed " + route.key()
+                        + " domain=" + domain + " " + errorSummary(error));
                 recordRouteFailure(route, RouteError.classify(error));
             }
         }
@@ -362,6 +384,8 @@ public final class MtProtoProxyEngine {
                         + "&dc=" + route.dc();
                 return RawWebSocket.connect(workerDomain, workerDomain, CONNECT_TIMEOUT_MS, path, true);
             } catch (Exception error) {
+                DiagnosticsLog.record("route failed " + route.key()
+                        + " worker=" + workerDomain + " " + errorSummary(error));
                 recordRouteFailure(route, RouteError.classify(error));
             }
         }
@@ -386,7 +410,11 @@ public final class MtProtoProxyEngine {
                 domainState,
                 2,
                 cfNetworkProfile,
-                (baseDomain, error) -> recordRouteFailure(route, RouteError.classify(error))).connect(
+                (baseDomain, error) -> {
+                    DiagnosticsLog.record("route failed " + route.key()
+                            + " cf=" + baseDomain + " " + errorSummary(error));
+                    recordRouteFailure(route, RouteError.classify(error));
+                }).connect(
                 cfProxyDomains,
                 baseDomain -> {
                     String domain = "kws" + dc + "." + baseDomain;
@@ -564,7 +592,8 @@ public final class MtProtoProxyEngine {
 
     private void bridge(Socket client, InputStream clientIn, OutputStream clientOut,
                         RawWebSocket ws, MtProtoCrypto.CryptoContext crypto,
-                        MtProtoPacketSplitter splitter) throws InterruptedException {
+                        MtProtoPacketSplitter splitter, AtomicLong sessionUp,
+                        AtomicLong sessionDown) throws InterruptedException {
         AtomicBoolean done = new AtomicBoolean(false);
 
         Thread up = new Thread(() -> {
@@ -575,6 +604,7 @@ public final class MtProtoProxyEngine {
                     if (n < 0) break;
                     byte[] chunk = copy(buf, n);
                     bytesUp.addAndGet(n);
+                    sessionUp.addAndGet(n);
                     byte[] tgCipher = crypto.clientToTelegram(chunk);
                     List<byte[]> frames = splitter.split(tgCipher);
                     if (!frames.isEmpty()) {
@@ -584,7 +614,8 @@ public final class MtProtoProxyEngine {
                 List<byte[]> tail = splitter.flush();
                 if (!tail.isEmpty()) ws.sendBatch(tail);
                 ws.initiateClose();
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                DiagnosticsLog.record("bridge upload stopped " + errorSummary(error));
             } finally {
                 done.set(true);
                 try { client.close(); } catch (Exception ignored) {}
@@ -597,13 +628,15 @@ public final class MtProtoProxyEngine {
                     byte[] payload = ws.recv();
                     if (payload == null) break;
                     bytesDown.addAndGet(payload.length);
+                    sessionDown.addAndGet(payload.length);
                     byte[] clientCipher = crypto.telegramToClient(payload);
                     synchronized (clientOut) {
                         clientOut.write(clientCipher);
                         clientOut.flush();
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                DiagnosticsLog.record("bridge download stopped " + errorSummary(error));
             } finally {
                 done.set(true);
                 try { client.close(); } catch (Exception ignored) {}
@@ -616,6 +649,41 @@ public final class MtProtoProxyEngine {
         down.start();
         up.join();
         down.join();
+    }
+
+    private static String routePlanKeys(RoutePlan plan) {
+        if (plan == null || plan.routes().isEmpty()) return "empty";
+        StringBuilder out = new StringBuilder();
+        for (RouteCandidate route : plan.routes()) {
+            if (out.length() > 0) out.append(" -> ");
+            out.append(route.key());
+        }
+        return out.toString();
+    }
+
+    private static String protoLabel(byte[] protoTag) {
+        int proto = MtProtoCrypto.protoInt(protoTag);
+        if (proto == MtProtoCrypto.PROTO_ABRIDGED_INT) return "abridged";
+        if (proto == MtProtoCrypto.PROTO_INTERMEDIATE_INT) return "intermediate";
+        if (proto == MtProtoCrypto.PROTO_PADDED_INTERMEDIATE_INT) return "padded";
+        return "unknown";
+    }
+
+    private static String safeRemote(Socket socket) {
+        if (socket == null || socket.getRemoteSocketAddress() == null) return "-";
+        return socket.getRemoteSocketAddress().toString();
+    }
+
+    private static String errorSummary(Exception error) {
+        if (error == null) return "unknown";
+        String message = error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return error.getClass().getSimpleName();
+        }
+        String value = message.trim().replace('\r', ' ');
+        int newline = value.indexOf('\n');
+        if (newline >= 0) value = value.substring(0, newline).trim();
+        return error.getClass().getSimpleName() + ": " + value;
     }
 
     private byte[] readExactly(InputStream in, int n) throws Exception {

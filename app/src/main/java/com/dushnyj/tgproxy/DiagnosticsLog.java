@@ -1,5 +1,7 @@
 package com.dushnyj.tgproxy;
 
+import android.util.Log;
+
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -9,6 +11,7 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 final class DiagnosticsLog {
+    private static final String TAG = "TGProxy";
     private static final int MAX_EVENTS = 80;
     private static final ArrayDeque<String> EVENTS = new ArrayDeque<>();
 
@@ -18,6 +21,11 @@ final class DiagnosticsLog {
     static void record(String event) {
         String normalized = singleLine(event);
         if (normalized.isEmpty()) return;
+        try {
+            Log.i(TAG, normalized);
+        } catch (RuntimeException ignored) {
+            // android.util.Log is not available in local JVM unit tests.
+        }
         synchronized (EVENTS) {
             while (EVENTS.size() >= MAX_EVENTS) {
                 EVENTS.removeFirst();

@@ -1,9 +1,15 @@
 package com.dushnyj.tgproxy;
 
 final class VpsSetupScripts {
-    static final String RELAY_VERSION = "1.0.0";
+    static final String RELAY_VERSION = "1.0.1";
     private static final String RELEASE_BASE =
             "https://github.com/Dushnyj/TG-Proxy-Relay/releases/download";
+    private static final String RELAY_DC_MAP_JSON =
+            "{\"1\": \"149.154.175.50\", "
+                    + "\"2\": \"149.154.167.51\", "
+                    + "\"3\": \"149.154.175.100\", "
+                    + "\"4\": \"149.154.167.91\", "
+                    + "\"5\": \"149.154.171.5\"}";
 
     private VpsSetupScripts() {}
 
@@ -83,6 +89,32 @@ final class VpsSetupScripts {
                 + "    pass\n"
                 + "PY\n"
                 + "}\n"
+                + "public_url_host() {\n"
+                + "  v=$(printf '%s' \"$1\" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#/.*$##; s#:[0-9]+$##')\n"
+                + "  printf '%s\\n' \"$v\" | grep -E '^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$' | grep -Ev '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n1\n"
+                + "}\n"
+                + "public_url_path() {\n"
+                + "  v=$(printf '%s' \"$1\" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##')\n"
+                + "  case \"$v\" in */*) p=\"/${v#*/}\" ;; *) return ;; esac\n"
+                + "  p=${p%%\\?*}; p=${p%%#*}\n"
+                + "  [ \"$p\" = \"/\" ] || printf '%s\\n' \"$p\"\n"
+                + "}\n"
+                + "is_ipv4() {\n"
+                + "  printf '%s' \"$1\" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'\n"
+                + "}\n"
+                + "EXISTING_CONFIG=/etc/tgproxy-relay/config.json\n"
+                + "EXISTING_RELAY=no\n"
+                + "[ -f \"$EXISTING_CONFIG\" ] && EXISTING_RELAY=yes\n"
+                + "EXISTING_PUBLIC_URL=$(json_value \"$EXISTING_CONFIG\" publicUrl)\n"
+                + "EXISTING_LISTEN=$(json_value \"$EXISTING_CONFIG\" listen)\n"
+                + "EXISTING_PUBLIC_HOST=$(public_url_host \"$EXISTING_PUBLIC_URL\")\n"
+                + "if [ -n \"$EXISTING_PUBLIC_HOST\" ]; then\n"
+                + "  if [ -z \"$DOMAIN\" ] || is_ipv4 \"$DOMAIN\"; then\n"
+                + "    DOMAIN=\"$EXISTING_PUBLIC_HOST\"\n"
+                + "    RELAY_PATH=$(public_url_path \"$EXISTING_PUBLIC_URL\")\n"
+                + "    [ -z \"$RELAY_PATH\" ] && RELAY_PATH=/apiws\n"
+                + "  fi\n"
+                + "fi\n"
                 + "printf 'os=%s\\n' \"$(. /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-unknown})\"\n"
                 + "printf 'arch=%s\\n' \"$(uname -m)\"\n"
                 + "printf 'systemd=%s\\n' \"$(yn systemctl)\"\n"
@@ -131,11 +163,6 @@ final class VpsSetupScripts {
                 + "DOCKER_CADDY_SAFE_EMBED=no\n"
                 + "[ -n \"$DOCKER_CADDY_TARGET\" ] && [ \"$DOCKER_CADDY_VALIDATE\" = yes ] && DOCKER_CADDY_SAFE_EMBED=yes\n"
                 + "DISCOVERED_DOMAINS=$(discover_domains)\n"
-                + "EXISTING_CONFIG=/etc/tgproxy-relay/config.json\n"
-                + "EXISTING_RELAY=no\n"
-                + "[ -f \"$EXISTING_CONFIG\" ] && EXISTING_RELAY=yes\n"
-                + "EXISTING_PUBLIC_URL=$(json_value \"$EXISTING_CONFIG\" publicUrl)\n"
-                + "EXISTING_LISTEN=$(json_value \"$EXISTING_CONFIG\" listen)\n"
                 + "NGINX_SAFE_EMBED=unknown\n"
                 + "NGINX_PATH_EXISTS=no\n"
                 + "if [ \"$(count_csv \"$NGINX_MATCHES\")\" = \"1\" ]; then\n"
@@ -255,10 +282,12 @@ final class VpsSetupScripts {
                 .append("  \"telegram\": {\n")
                 .append("    \"connectTimeoutMs\": 7000,\n")
                 .append("    \"idleTimeoutSec\": 125,\n")
-                .append("    \"dcMap\": {\"2\": \"149.154.167.220\", \"4\": \"149.154.167.220\"}\n")
+                .append("    \"dcMap\": ").append(RELAY_DC_MAP_JSON).append("\n")
                 .append("  }\n")
                 .append("}\n")
                 .append("EOF\n")
+                .append("$SUDO chmod 0640 /etc/tgproxy-relay/config.json\n")
+                .append("$SUDO chown root:tgproxy-relay /etc/tgproxy-relay/config.json || $SUDO chmod 0644 /etc/tgproxy-relay/config.json\n")
                 .append("$SUDO sh -c 'cat > /etc/systemd/system/tgproxy-relay.service' <<'EOF'\n")
                 .append("[Unit]\n")
                 .append("Description=TG Proxy VPS Relay\n")
@@ -305,9 +334,28 @@ final class VpsSetupScripts {
                 + "  DOCKER_CADDY_CONTAINER=$($SUDO docker ps --format '{{.Names}}\\t{{.Image}}' 2>/dev/null | awk 'tolower($0) ~ /caddy/ {print $1; exit}')\n"
                 + "fi\n"
                 + "[ -n \"$DOCKER_CADDY_CONTAINER\" ] || { echo docker_caddy_container_missing >&2; exit 61; }\n"
-                + "DOCKER_HOST_GATEWAY=$($SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" sh -c \"ip route | awk '/default/ {print \\\\$3; exit}'\" 2>/dev/null)\n"
+                + "DOCKER_HOST_GATEWAY=$($SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" sh -c \"ip route show default | sed -n 's/^default.* via \\([^ ]*\\).*/\\1/p' | head -n1\" 2>/dev/null)\n"
                 + "[ -n \"$DOCKER_HOST_GATEWAY\" ] || { echo docker_caddy_gateway_missing >&2; exit 62; }\n"
-                + "LISTEN=\"${DOCKER_HOST_GATEWAY}:${INTERNAL_RELAY_PORT}\"\n";
+                + "LISTEN=\"${DOCKER_HOST_GATEWAY}:${INTERNAL_RELAY_PORT}\"\n"
+                + "DOCKER_CADDY_BRIDGE=\n"
+                + "DOCKER_CADDY_SUBNET=\n"
+                + "if command -v ip >/dev/null 2>&1; then\n"
+                + "  DOCKER_CADDY_BRIDGE=$(ip -o -4 addr show | awk -v gw=\"$DOCKER_HOST_GATEWAY\" 'index($4, gw \"/\") == 1 {print $2; exit}')\n"
+                + "  if [ -n \"$DOCKER_CADDY_BRIDGE\" ]; then\n"
+                + "    DOCKER_CADDY_CIDR=$(ip -o -4 addr show \"$DOCKER_CADDY_BRIDGE\" | awk '{print $4; exit}')\n"
+                + "    DOCKER_CADDY_SUBNET=$(python3 - \"$DOCKER_CADDY_CIDR\" <<'PY'\n"
+                + "import ipaddress, sys\n"
+                + "try:\n"
+                + "    print(ipaddress.ip_interface(sys.argv[1]).network)\n"
+                + "except Exception:\n"
+                + "    pass\n"
+                + "PY\n"
+                + ")\n"
+                + "  fi\n"
+                + "fi\n"
+                + "if command -v ufw >/dev/null 2>&1 && [ -n \"$DOCKER_CADDY_BRIDGE\" ] && [ -n \"$DOCKER_CADDY_SUBNET\" ]; then\n"
+                + "  $SUDO ufw allow in on \"$DOCKER_CADDY_BRIDGE\" proto tcp from \"$DOCKER_CADDY_SUBNET\" to \"$DOCKER_HOST_GATEWAY\" port \"$INTERNAL_RELAY_PORT\" comment 'TG Proxy Relay Docker Caddy' || true\n"
+                + "fi\n";
     }
 
     private static String dockerCaddyExistingSiteConfig(VpsSetupRequest request) {
@@ -381,10 +429,36 @@ final class VpsSetupScripts {
                 + "with open(tmp, 'w', encoding='utf-8') as fh:\n"
                 + "    fh.writelines(out)\n"
                 + "PY\n"
-                + "$SUDO install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\"\n"
-                + "restore_caddy() { $SUDO install -m 0644 \"$CADDY_ORIGINAL\" \"$DOCKER_CADDY_TARGET\" >/dev/null 2>&1 || true; $SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true; }\n"
-                + "$SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy validate --config /etc/caddy/Caddyfile || { restore_caddy; exit 63; }\n"
-                + "$SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy reload --config /etc/caddy/Caddyfile || { restore_caddy; exit 64; }\n";
+                + dockerCaddyWriteFileInPlaceFunction()
+                + "restore_caddy() { write_file_in_place \"$CADDY_ORIGINAL\" \"$DOCKER_CADDY_TARGET\" >/dev/null 2>&1 || true; $SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || $SUDO docker restart \"$DOCKER_CADDY_CONTAINER\" >/dev/null 2>&1 || true; }\n"
+                + "$SUDO docker cp \"$CADDY_TMP\" \"$DOCKER_CADDY_CONTAINER\":/tmp/tgproxy-caddy-validate\n"
+                + "$SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy validate --config /tmp/tgproxy-caddy-validate || { restore_caddy; exit 63; }\n"
+                + "write_file_in_place \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\"\n"
+                + "if $SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" grep -Fq \"$CADDY_MARKER\" /etc/caddy/Caddyfile 2>/dev/null; then\n"
+                + "  $SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy reload --config /etc/caddy/Caddyfile || { restore_caddy; exit 64; }\n"
+                + "else\n"
+                + "  $SUDO docker restart \"$DOCKER_CADDY_CONTAINER\" || { restore_caddy; exit 64; }\n"
+                + "fi\n"
+                + "$SUDO docker exec \"$DOCKER_CADDY_CONTAINER\" caddy validate --config /etc/caddy/Caddyfile || { restore_caddy; exit 63; }\n";
+    }
+
+    private static String dockerCaddyWriteFileInPlaceFunction() {
+        return "write_file_in_place() {\n"
+                + "  SRC=\"$1\"\n"
+                + "  DST=\"$2\"\n"
+                + "  $SUDO env SRC=\"$SRC\" DST=\"$DST\" python3 - <<'PY'\n"
+                + "import os\n"
+                + "src = os.environ['SRC']\n"
+                + "dst = os.environ['DST']\n"
+                + "with open(src, 'rb') as sf:\n"
+                + "    data = sf.read()\n"
+                + "with open(dst, 'r+b') as df:\n"
+                + "    df.truncate(0)\n"
+                + "    df.write(data)\n"
+                + "    df.flush()\n"
+                + "    os.fsync(df.fileno())\n"
+                + "PY\n"
+                + "}\n";
     }
 
     private static String caddyExistingSiteConfig(VpsSetupRequest request, String targetPath) {
@@ -479,12 +553,16 @@ final class VpsSetupScripts {
                 + sudoPrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
+                + "DOMAIN=" + shellQuote(request.relayHost()) + "\n"
+                + "RELAY_PATH=" + shellQuote(request.relayPath()) + "\n"
+                + "INTERNAL_RELAY_PORT=" + request.internalRelayPort() + "\n"
                 + "[ -f \"$EXISTING_CONFIG\" ] || { echo existing_relay_config_missing >&2; exit 51; }\n"
                 + "[ -x /opt/tgproxy-relay/tgproxy-relay ] || { echo tgproxy_relay_binary_missing >&2; exit 52; }\n"
                 + "command -v python3 >/dev/null 2>&1 || { echo python3_required >&2; exit 53; }\n"
                 + "TOKEN_HASH=$($SUDO /opt/tgproxy-relay/tgproxy-relay -token \"$TOKEN\" -print-token-hash)\n"
                 + "TMP_CONFIG=$(mktemp)\n"
-                + "cleanup() { rm -f \"$TMP_CONFIG\"; }\n"
+                + "TMPDIR=$(mktemp -d)\n"
+                + "cleanup() { rm -f \"$TMP_CONFIG\"; rm -rf \"$TMPDIR\"; }\n"
                 + "trap cleanup EXIT\n"
                 + "$SUDO env TOKEN_HASH=\"$TOKEN_HASH\" EXISTING_CONFIG=\"$EXISTING_CONFIG\" TMP_CONFIG=\"$TMP_CONFIG\" python3 - <<'PY'\n"
                 + "import json, os, time\n"
@@ -499,11 +577,14 @@ final class VpsSetupScripts {
                 + "exists = any(isinstance(item, dict) and item.get('hash') == token_hash for item in tokens)\n"
                 + "if not exists:\n"
                 + "    tokens.append({'name': 'phone-' + time.strftime('%Y%m%d%H%M%S'), 'hash': token_hash})\n"
+                + relayDcMapPythonRepair()
                 + "with open(tmp, 'w', encoding='utf-8') as fh:\n"
                 + "    json.dump(cfg, fh, indent=2, ensure_ascii=False)\n"
                 + "    fh.write('\\n')\n"
                 + "PY\n"
                 + "$SUDO install -m 0640 \"$TMP_CONFIG\" \"$EXISTING_CONFIG\"\n"
+                + existingConfigPermissions()
+                + routeRepairScript(request, plan)
                 + "$SUDO systemctl restart tgproxy-relay\n";
     }
 
@@ -518,6 +599,9 @@ final class VpsSetupScripts {
                 + sudoPrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
+                + "DOMAIN=" + shellQuote(request.relayHost()) + "\n"
+                + "RELAY_PATH=" + shellQuote(request.relayPath()) + "\n"
+                + "INTERNAL_RELAY_PORT=" + request.internalRelayPort() + "\n"
                 + "VERSION=" + shellQuote(version) + "\n"
                 + "[ -f \"$EXISTING_CONFIG\" ] || { echo existing_relay_config_missing >&2; exit 51; }\n"
                 + "command -v python3 >/dev/null 2>&1 || { echo python3_required >&2; exit 53; }\n"
@@ -552,12 +636,67 @@ final class VpsSetupScripts {
                 + "exists = any(isinstance(item, dict) and item.get('hash') == token_hash for item in tokens)\n"
                 + "if not exists:\n"
                 + "    tokens.append({'name': 'phone-' + time.strftime('%Y%m%d%H%M%S'), 'hash': token_hash})\n"
+                + relayDcMapPythonRepair()
                 + "with open(tmp, 'w', encoding='utf-8') as fh:\n"
                 + "    json.dump(cfg, fh, indent=2, ensure_ascii=False)\n"
                 + "    fh.write('\\n')\n"
                 + "PY\n"
                 + "$SUDO install -m 0640 \"$TMP_CONFIG\" \"$EXISTING_CONFIG\"\n"
+                + existingConfigPermissions()
+                + routeRepairScript(request, plan)
                 + "$SUDO systemctl restart tgproxy-relay\n";
+    }
+
+    private static String existingConfigPermissions() {
+        return "$SUDO chmod 0640 \"$EXISTING_CONFIG\"\n"
+                + "$SUDO chown root:tgproxy-relay \"$EXISTING_CONFIG\" || $SUDO chmod 0644 \"$EXISTING_CONFIG\"\n";
+    }
+
+    private static String relayDcMapPythonRepair() {
+        return "relay_dc_map = {\n"
+                + "    '1': '149.154.175.50',\n"
+                + "    '2': '149.154.167.51',\n"
+                + "    '3': '149.154.175.100',\n"
+                + "    '4': '149.154.167.91',\n"
+                + "    '5': '149.154.171.5',\n"
+                + "}\n"
+                + "telegram = cfg.setdefault('telegram', {})\n"
+                + "if not isinstance(telegram, dict):\n"
+                + "    raise SystemExit('invalid_telegram_config')\n"
+                + "dc_map = telegram.get('dcMap')\n"
+                + "if not isinstance(dc_map, dict):\n"
+                + "    dc_map = {}\n"
+                + "for dc, ip in relay_dc_map.items():\n"
+                + "    current = str(dc_map.get(dc, '')).strip()\n"
+                + "    if not current or current == '149.154.167.220':\n"
+                + "        dc_map[dc] = ip\n"
+                + "telegram['dcMap'] = dc_map\n";
+    }
+
+    private static String routeRepairScript(VpsSetupRequest request, VpsSetupPlan plan) {
+        if (request == null || plan == null || !plan.hasRouteRepair()) return "";
+        VpsSetupRequest routeRequest = plan.routeRepairRequest() == null
+                ? request
+                : plan.routeRepairRequest();
+        VpsSetupPlan.InstallMode mode = plan.routeRepairMode();
+        String prelude = "DOMAIN=" + shellQuote(routeRequest.relayHost()) + "\n"
+                + "RELAY_PATH=" + shellQuote(routeRequest.relayPath()) + "\n"
+                + "INTERNAL_RELAY_PORT=" + routeRequest.internalRelayPort() + "\n";
+        if (mode == VpsSetupPlan.InstallMode.DOCKER_CADDY_EXISTING_SITE) {
+            return prelude
+                    + dockerCaddyPrelude(plan.routeTargetPath(), plan.routeTargetContainer())
+                    + dockerCaddyExistingSiteConfig(routeRequest);
+        }
+        if (mode == VpsSetupPlan.InstallMode.CADDY_EXISTING_SITE) {
+            return prelude + caddyExistingSiteConfig(routeRequest, plan.routeTargetPath());
+        }
+        if (mode == VpsSetupPlan.InstallMode.NGINX_EXISTING_LOCATION) {
+            return prelude + nginxExistingLocationConfig(routeRequest, plan.routeTargetPath());
+        }
+        if (mode == VpsSetupPlan.InstallMode.NGINX_NEW_SERVER) {
+            return prelude + nginxReverseProxyConfig(routeRequest);
+        }
+        return "";
     }
 
     static String rollback() {

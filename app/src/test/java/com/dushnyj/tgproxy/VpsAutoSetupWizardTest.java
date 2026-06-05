@@ -99,6 +99,62 @@ public class VpsAutoSetupWizardTest {
         assertNotNull(store.selectedRelay("mobile:mccmnc:25001"));
     }
 
+    @Test
+    public void existingRelaySetupVerifiesExistingPublicUrlWhenRelayHostWasEmpty() throws Exception {
+        FakeSshClient ssh = new FakeSshClient(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "docker=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://relay.example.com:443/apiws\n"
+                        + "existing_relay_listen=172.18.0.1:18080\n"
+                        + "domain=relay.example.com\n"
+                        + "domain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=yes\n"
+                        + "docker_caddy_domain_match_count=1\n"
+                        + "docker_caddy_domain_matches=/opt/example-app/infra/caddy/Caddyfile\n"
+                        + "docker_caddy_container=example-app-caddy-1\n"
+                        + "docker_caddy_safe_embed=yes\n"
+                        + "docker_caddy_path_exists=yes\n"
+                        + "docker_caddy_validate=yes\n");
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        final VpsRelayConfig[] checked = new VpsRelayConfig[1];
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshPort(22)
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayName("Work VPS")
+                .relayHost("")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .profileKey("wifi:ssid:home")
+                .build();
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh,
+                (config, dcRules) -> {
+                    checked[0] = config;
+                    return VpsRelayCheckResult.ok("{}");
+                },
+                store,
+                dcRules());
+
+        VpsRelayConfig saved = wizard.run(request, approvingListener());
+
+        assertNotNull(checked[0]);
+        assertEquals("relay.example.com", checked[0].host());
+        assertEquals(443, checked[0].port());
+        assertTrue(checked[0].tls());
+        assertEquals("relay.example.com", saved.host());
+        assertEquals("relay.example.com", store.selectedRelay("wifi:ssid:home").host());
+    }
+
     private static VpsAutoSetupWizard.Listener approvingListener() {
         return new VpsAutoSetupWizard.Listener() {
             @Override public void onProgress(VpsSetupProgress progress) {}
