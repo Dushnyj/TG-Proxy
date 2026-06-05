@@ -43,8 +43,12 @@ final class RouteCandidate {
     }
 
     static RouteCandidate vpsRelay(String name, String host, int port) {
+        return vpsRelay(name, host, port, 0, false);
+    }
+
+    static RouteCandidate vpsRelay(String name, String host, int port, int dc, boolean media) {
         boolean configured = !normalize(host).isEmpty() && port > 0 && port <= 65535;
-        return new RouteCandidate(RouteType.VPS_RELAY, 0, false,
+        return new RouteCandidate(RouteType.VPS_RELAY, dc, media,
                 configured ? host : name, port, configured,
                 configured ? "" : "vps relay is not configured");
     }

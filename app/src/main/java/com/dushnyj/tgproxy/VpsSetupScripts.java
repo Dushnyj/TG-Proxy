@@ -1,7 +1,7 @@
 package com.dushnyj.tgproxy;
 
 final class VpsSetupScripts {
-    static final String RELAY_VERSION = "1.0.1";
+    static final String RELAY_VERSION = "1.0.2";
     private static final String RELEASE_BASE =
             "https://github.com/Dushnyj/TG-Proxy-Relay/releases/download";
     private static final String RELAY_DC_MAP_JSON =
@@ -9,7 +9,8 @@ final class VpsSetupScripts {
                     + "\"2\": \"149.154.167.51\", "
                     + "\"3\": \"149.154.175.100\", "
                     + "\"4\": \"149.154.167.91\", "
-                    + "\"5\": \"149.154.171.5\"}";
+                    + "\"5\": \"149.154.171.5\", "
+                    + "\"203\": \"91.105.192.100\"}";
 
     private VpsSetupScripts() {}
 
@@ -659,6 +660,7 @@ final class VpsSetupScripts {
                 + "    '3': '149.154.175.100',\n"
                 + "    '4': '149.154.167.91',\n"
                 + "    '5': '149.154.171.5',\n"
+                + "    '203': '91.105.192.100',\n"
                 + "}\n"
                 + "telegram = cfg.setdefault('telegram', {})\n"
                 + "if not isinstance(telegram, dict):\n"

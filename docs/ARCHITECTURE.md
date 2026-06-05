@@ -71,4 +71,4 @@ minimumSupportedProtocol
 features
 ```
 
-TG Proxy Android `1.0.2` ожидает совместимую серверную версию `TG Proxy VPS Relay 1.0.0`.
+TG Proxy Android `1.0.4` ожидает совместимую серверную версию `TG Proxy VPS Relay 1.0.2`.

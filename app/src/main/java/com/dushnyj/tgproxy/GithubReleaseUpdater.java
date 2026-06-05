@@ -30,7 +30,7 @@ public final class GithubReleaseUpdater {
     public interface InstallCallback {
         void onPermissionRequired(Intent intent);
         void onProgress(long downloaded, long total, long bytesPerSecond);
-        void onInstallerStarted();
+        void onInstallerReady(Intent intent);
         void onError(Exception error);
     }
 
@@ -100,15 +100,20 @@ public final class GithubReleaseUpdater {
 
                 Uri uri = FileProvider.getUriForFile(context,
                         context.getPackageName() + ".provider", apk);
-                Intent install = new Intent(Intent.ACTION_VIEW);
+                Intent install = new Intent(installIntentAction());
                 install.setDataAndType(uri, "application/vnd.android.package-archive");
-                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                callback.onInstallerStarted();
-                context.startActivity(install);
+                install.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+                install.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                callback.onInstallerReady(install);
             } catch (Exception e) {
                 callback.onError(e);
             }
         }, "tg-update-install").start();
+    }
+
+    static String installIntentAction() {
+        return Intent.ACTION_INSTALL_PACKAGE;
     }
 
     public static boolean canInstallPackages(Context context) {

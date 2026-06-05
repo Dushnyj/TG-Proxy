@@ -1,5 +1,6 @@
 package com.dushnyj.tgproxy;
 
+import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
@@ -28,7 +29,7 @@ final class RouteProbeClient {
             RawWebSocket ws = RawWebSocket.connectRelay(target.relayConfig(),
                     target.dc(), target.media(), timeoutMs);
             try {
-                sendSyntheticMtProtoInit(ws, target);
+                verifyTelegramDcResponse(ws, target, timeoutMs);
             } finally {
                 try { ws.close(); } catch (Exception ignored) {}
             }
@@ -38,7 +39,7 @@ final class RouteProbeClient {
             RawWebSocket ws = RawWebSocket.connect(
                     target.host(), target.sni(), timeoutMs, target.path(), true);
             try {
-                sendSyntheticMtProtoInit(ws, target);
+                verifyTelegramDcResponse(ws, target, timeoutMs);
             } finally {
                 try { ws.close(); } catch (Exception ignored) {}
             }
@@ -49,12 +50,27 @@ final class RouteProbeClient {
         }
     }
 
-    private static void sendSyntheticMtProtoInit(RawWebSocket ws, RoutePingTarget target)
+    private static void verifyTelegramDcResponse(RawWebSocket ws, RoutePingTarget target, int timeoutMs)
             throws Exception {
         if (ws == null || target == null || target.dc() <= 0) return;
+        ws.setReadTimeout(timeoutMs);
         int dcIdx = target.media() ? -target.dc() : target.dc();
-        ws.send(MtProtoCrypto.generateRelayInit(
-                MtProtoCrypto.PROTO_TAG_INTERMEDIATE, dcIdx));
+        byte[] relayInit = MtProtoCrypto.generateRelayInit(
+                MtProtoCrypto.PROTO_TAG_INTERMEDIATE, dcIdx);
+        MtProtoCrypto.TelegramTransport transport = MtProtoCrypto.telegramTransport(relayInit);
+        byte[] nonce = MtProtoPingProbe.randomNonce();
+        ws.send(relayInit);
+        ws.send(MtProtoPingProbe.encryptedReqPqMulti(
+                transport, nonce, MtProtoPingProbe.messageId(System.currentTimeMillis())));
+        ByteArrayOutputStream plain = new ByteArrayOutputStream();
+        long deadline = System.currentTimeMillis() + Math.max(1_000L, timeoutMs);
+        while (System.currentTimeMillis() <= deadline) {
+            byte[] encryptedResponse = ws.recv();
+            if (encryptedResponse == null || encryptedResponse.length == 0) break;
+            plain.write(transport.decrypt(encryptedResponse));
+            if (MtProtoPingProbe.isValidResPq(plain.toByteArray(), nonce)) return;
+        }
+        throw new java.io.IOException("telegram dc response is invalid");
     }
 
     private static String firstLine(String message) {

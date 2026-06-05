@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -17,7 +18,9 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
 import android.text.style.ForegroundColorSpan;
+import android.text.style.URLSpan;
 import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -65,6 +68,7 @@ import java.util.zip.ZipOutputStream;
 public class MainActivity extends AppCompatActivity {
     private static final String REPO_URL = "https://github.com/Dushnyj/TG-Proxy";
     private static final int REQUEST_IMPORT_FILE = 1101;
+    private static final int REQUEST_INSTALL_UPDATE = 1102;
     private static final String STATE_SCREEN = "screen";
     private static final String STATE_SECTION = "settings_section";
     private static final String STATE_DIAGNOSTICS_RETURN = "diagnostics_return";
@@ -116,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
     private GithubReleaseUpdater.ReleaseInfo lastRelease;
     private String updateDialogVersion = "";
     private boolean pendingInstallAfterPermission;
+    private String pendingInstallVersion = "";
     private boolean spinnerInit;
     private boolean profileControlReady;
     private boolean profileSelectorReady;
@@ -245,6 +250,8 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, getString(R.string.import_failed,
                         e.getMessage()), Toast.LENGTH_LONG).show();
             }
+        } else if (requestCode == REQUEST_INSTALL_UPDATE) {
+            verifyPendingUpdateInstall();
         }
     }
 
@@ -1386,11 +1393,18 @@ public class MainActivity extends AppCompatActivity {
                 handler.post(() -> updateDownloadProgress(downloaded, total, bytesPerSecond));
             }
 
-            @Override public void onInstallerStarted() {
+            @Override public void onInstallerReady(Intent intent) {
                 handler.post(() -> {
                     tvUpdateStatus.setText(R.string.installer_started);
                     progressUpdate.setIndeterminate(false);
                     progressUpdate.setProgress(progressUpdate.getMax());
+                    pendingInstallVersion = lastRelease == null ? "" : lastRelease.version;
+                    try {
+                        startActivityForResult(intent, REQUEST_INSTALL_UPDATE);
+                    } catch (Exception e) {
+                        tvUpdateStatus.setText(R.string.download_failed);
+                        Toast.makeText(MainActivity.this, R.string.download_failed, Toast.LENGTH_LONG).show();
+                    }
                 });
             }
 
@@ -1426,6 +1440,44 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    private void verifyPendingUpdateInstall() {
+        String expected = pendingInstallVersion == null ? "" : pendingInstallVersion.trim();
+        if (expected.isEmpty()) return;
+        String installed = installedVersionName();
+        if (expected.equals(installed)) {
+            pendingInstallVersion = "";
+            tvUpdateStatus.setText(R.string.update_installed_restart);
+            btnInstallUpdate.setEnabled(false);
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.update_installed_title)
+                    .setMessage(R.string.update_installed_message)
+                    .setPositiveButton(R.string.restart_app, (dialog, which) -> restartApp())
+                    .setNegativeButton(android.R.string.ok, null)
+                    .show();
+        } else {
+            tvUpdateStatus.setText(getString(R.string.update_install_not_applied, installed));
+        }
+    }
+
+    private String installedVersionName() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionName == null ? "" : info.versionName;
+        } catch (Exception ignored) {
+            return BuildConfig.VERSION_NAME;
+        }
+    }
+
+    private void restartApp() {
+        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+        }
+        finishAffinity();
+        Runtime.getRuntime().exit(0);
     }
 
     private void exportSafeProfile() {
@@ -1512,7 +1564,7 @@ public class MainActivity extends AppCompatActivity {
     private void shareTransferPayload(String payload) {
         String text = payload;
         try {
-            text = SettingsTransfer.toDeepLink(payload);
+            text = shareableImportText(SettingsTransfer.toDeepLink(payload));
         } catch (Exception ignored) {
         }
         Intent intent = new Intent(Intent.ACTION_SEND);
@@ -1545,10 +1597,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         TextView text = new TextView(this);
-        text.setText(link);
+        SpannableString clickableLink = new SpannableString(link);
+        clickableLink.setSpan(new URLSpan(link), 0, link.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setText(clickableLink);
         text.setTextColor(getColorValue(R.color.text_secondary));
+        text.setLinkTextColor(getColorValue(R.color.accent));
         text.setTextSize(12f);
-        text.setTextIsSelectable(true);
+        text.setLinksClickable(true);
+        text.setMovementMethod(LinkMovementMethod.getInstance());
+        text.setOnLongClickListener(v -> {
+            copy(link);
+            Toast.makeText(this, R.string.copy_done, Toast.LENGTH_SHORT).show();
+            return true;
+        });
         layout.addView(image);
         layout.addView(text);
         new AlertDialog.Builder(this)
@@ -1574,13 +1635,19 @@ public class MainActivity extends AppCompatActivity {
             Intent intent = new Intent(Intent.ACTION_SEND);
             intent.setType("image/png");
             intent.putExtra(Intent.EXTRA_STREAM, uri);
-            intent.putExtra(Intent.EXTRA_TEXT, link);
+            intent.putExtra(Intent.EXTRA_TEXT, shareableImportText(link));
+            intent.putExtra(Intent.EXTRA_HTML_TEXT, "<a href=\"" + link + "\">TG Proxy import</a>");
+            intent.putExtra(Intent.EXTRA_TITLE, "TG Proxy import QR");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(intent, getString(R.string.share_qr)));
         } catch (Exception e) {
             Toast.makeText(this, getString(R.string.import_failed,
                     e.getMessage()), Toast.LENGTH_LONG).show();
         }
+    }
+
+    private String shareableImportText(String link) {
+        return "TG Proxy import:\n" + (link == null ? "" : link);
     }
 
     private void saveTransferPayload(String payload, String fileName) {
@@ -1631,7 +1698,6 @@ public class MainActivity extends AppCompatActivity {
                     ? SettingsTransfer.parseDeepLink(payload.trim(), password)
                     : SettingsTransfer.parse(payload, password);
             applyImportedSettings(imported);
-            Toast.makeText(this, R.string.import_applied, Toast.LENGTH_LONG).show();
         } catch (SettingsTransferException e) {
             String message = e.getMessage() == null ? "" : e.getMessage();
             if (message.contains("password") && (password == null || password.trim().isEmpty())) {
@@ -1653,13 +1719,53 @@ public class MainActivity extends AppCompatActivity {
         try {
             SettingsTransfer.Imported imported = SettingsTransfer.parseDeepLink(raw, "");
             applyImportedSettings(imported);
-            Toast.makeText(this, R.string.import_applied, Toast.LENGTH_LONG).show();
         } catch (SettingsTransferException e) {
             showImportSettingsDialog(raw);
         }
     }
 
     private void applyImportedSettings(SettingsTransfer.Imported imported) {
+        if (imported == null) return;
+        VpsRelayConfig relay = imported.data().relayConfig();
+        if (relay != null && relay.isUsable()) {
+            showRelayImportTargetDialog(imported);
+            return;
+        }
+        applyImportedSettingsNow(imported, "");
+    }
+
+    private void showRelayImportTargetDialog(SettingsTransfer.Imported imported) {
+        NetworkProfileStore store = NetworkProfileStore.fromPreferences(prefs);
+        NetworkProfileRecord current = store.ensureProfile(
+                NetworkProfileIdentifier.current(this), System.currentTimeMillis());
+        List<VpsRelayImportTarget.Option> options =
+                VpsRelayImportTarget.options(current, store.profilesSnapshot());
+        String[] labels = new String[options.size()];
+        for (int i = 0; i < options.size(); i++) {
+            labels[i] = relayImportTargetLabel(options.get(i));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.import_relay_target_title)
+                .setItems(labels, (dialog, which) -> {
+                    if (which < 0 || which >= options.size()) return;
+                    applyImportedSettingsNow(imported, options.get(which).profileKey());
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private String relayImportTargetLabel(VpsRelayImportTarget.Option option) {
+        if (option == null || option.kind() == VpsRelayImportTarget.Kind.ALL_NETWORKS) {
+            return getString(R.string.import_relay_all_networks);
+        }
+        String name = option.displayName().isEmpty() ? option.profileKey() : option.displayName();
+        if (option.kind() == VpsRelayImportTarget.Kind.CURRENT_NETWORK) {
+            return getString(R.string.import_relay_current_network, name);
+        }
+        return getString(R.string.import_relay_saved_network, name);
+    }
+
+    private void applyImportedSettingsNow(SettingsTransfer.Imported imported, String relayProfileKey) {
         if (imported == null) return;
         SettingsTransfer.Data data = imported.data();
         if (imported.kind() != SettingsTransfer.Kind.VPS_RELAY) {
@@ -1676,7 +1782,8 @@ public class MainActivity extends AppCompatActivity {
         }
         VpsRelayConfig relay = data.relayConfig();
         if (relay != null && relay.isUsable()) {
-            VpsRelayConfig boundRelay = relay.withProfileKey(vpsRelayProfileKeyForUi());
+            String targetProfileKey = relayProfileKey == null ? "" : relayProfileKey.trim();
+            VpsRelayConfig boundRelay = relay.withProfileKey(targetProfileKey);
             fillVpsRelayForm(boundRelay);
             saveVpsRelaySettings(boundRelay);
         }
@@ -1685,6 +1792,7 @@ public class MainActivity extends AppCompatActivity {
         }
         refreshVpsRelaySelector();
         refreshConnectionFields();
+        Toast.makeText(this, R.string.import_applied, Toast.LENGTH_LONG).show();
         if (relay != null && relay.isUsable()) testVpsRelay();
     }
 
@@ -2855,6 +2963,9 @@ public class MainActivity extends AppCompatActivity {
         if (pendingInstallAfterPermission && GithubReleaseUpdater.canInstallPackages(this)) {
             pendingInstallAfterPermission = false;
             installLastRelease();
+        }
+        if (pendingInstallVersion != null && !pendingInstallVersion.trim().isEmpty()) {
+            handler.postDelayed(this::verifyPendingUpdateInstall, 800L);
         }
     }
 

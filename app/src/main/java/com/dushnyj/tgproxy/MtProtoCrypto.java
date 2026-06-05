@@ -47,7 +47,7 @@ public final class MtProtoCrypto {
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .getShort();
             int dc = Math.abs((int) dcRaw);
-            if (dc < 1 || dc > 5) return null;
+            if (!MtProtoConfig.isValidDc(dc)) return null;
             return new ClientHandshake(dc, dcRaw < 0, protoTag, clientPrekeyIv);
         } catch (Exception ignored) {
             return null;
@@ -110,6 +110,10 @@ public final class MtProtoCrypto {
 
         return new CryptoContext(clientDecryptor, clientEncryptor,
                 telegramEncryptor, telegramDecryptor);
+    }
+
+    public static TelegramTransport telegramTransport(byte[] relayInit) {
+        return new TelegramTransport(relayInit);
     }
 
     public static int protoInt(byte[] protoTag) {
@@ -197,6 +201,34 @@ public final class MtProtoCrypto {
 
         public synchronized byte[] telegramToClient(byte[] telegramCipher) {
             return clientEncryptor.update(telegramDecryptor.update(telegramCipher));
+        }
+    }
+
+    public static final class TelegramTransport {
+        private final AesCtrStream encryptor;
+        private final AesCtrStream decryptor;
+
+        private TelegramTransport(byte[] relayInit) {
+            byte[] safeInit = relayInit == null || relayInit.length < HANDSHAKE_LEN
+                    ? new byte[HANDSHAKE_LEN] : relayInit;
+            encryptor = new AesCtrStream(
+                    Arrays.copyOfRange(safeInit, SKIP_LEN, SKIP_LEN + PREKEY_LEN),
+                    Arrays.copyOfRange(safeInit, SKIP_LEN + PREKEY_LEN,
+                            SKIP_LEN + PREKEY_LEN + IV_LEN));
+            byte[] reversed = reverse(Arrays.copyOfRange(safeInit, SKIP_LEN,
+                    SKIP_LEN + PREKEY_LEN + IV_LEN));
+            decryptor = new AesCtrStream(
+                    Arrays.copyOfRange(reversed, 0, PREKEY_LEN),
+                    Arrays.copyOfRange(reversed, PREKEY_LEN, PREKEY_LEN + IV_LEN));
+            encryptor.update(ZERO_64);
+        }
+
+        public synchronized byte[] encrypt(byte[] plain) {
+            return encryptor.update(plain == null ? new byte[0] : plain);
+        }
+
+        public synchronized byte[] decrypt(byte[] cipher) {
+            return decryptor.update(cipher == null ? new byte[0] : cipher);
         }
     }
 

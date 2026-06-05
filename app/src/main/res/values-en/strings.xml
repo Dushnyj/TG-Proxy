@@ -103,6 +103,10 @@
     <string name="import_password_hint">Password if profile is encrypted</string>
     <string name="import_applied">Settings imported</string>
     <string name="import_failed">Import failed: %1$s</string>
+    <string name="import_relay_target_title">Where should VPS Relay be added?</string>
+    <string name="import_relay_all_networks">All networks</string>
+    <string name="import_relay_current_network">Current network: %1$s</string>
+    <string name="import_relay_saved_network">%1$s</string>
     <string name="export_password_title">Export password</string>
     <string name="export_password_required">Enter a password for full export.</string>
     <string name="save_export">Save file</string>
@@ -173,6 +177,11 @@
     <string name="download_progress_unknown">%1$s downloaded • %2$s/s</string>
     <string name="download_failed">Could not download update.</string>
     <string name="installer_started">Android installer opened.</string>
+    <string name="update_installed_title">Update installed</string>
+    <string name="update_installed_message">Android installed the new version. Restart TG Proxy to open the updated app.</string>
+    <string name="update_installed_restart">Update installed. App restart is required.</string>
+    <string name="update_install_not_applied">Update was not applied. Installed version: %1$s.</string>
+    <string name="restart_app">Restart</string>
     <string name="install_permission_title">Permission required</string>
     <string name="install_permission_message">Allow TG Proxy to install APK files from this source, then return to the app.</string>
     <string name="open_settings">Open settings</string>

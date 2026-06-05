@@ -31,6 +31,17 @@ public class MtProtoCryptoTest {
     }
 
     @Test
+    public void parsesMediaDc203ClientHandshake() throws Exception {
+        byte[] init = clientInit(SECRET, (short) -203, MtProtoCrypto.PROTO_TAG_PADDED_INTERMEDIATE);
+
+        MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
+
+        assertNotNull(parsed);
+        assertEquals(203, parsed.dc);
+        assertEquals(true, parsed.media);
+    }
+
+    @Test
     public void generatedRelayInitIsPlainObfuscatedInitForTelegramDc() throws Exception {
         byte[] relayInit = MtProtoCrypto.generateRelayInit(
                 MtProtoCrypto.PROTO_TAG_INTERMEDIATE, -2);

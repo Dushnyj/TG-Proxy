@@ -26,4 +26,10 @@ public class GithubReleaseUpdaterTest {
 
         assertEquals("universal", GithubReleaseUpdater.selectReleaseApkUrl(names, urls));
     }
+
+    @Test
+    public void selfUpdateUsesPackageInstallerAction() {
+        assertEquals("android.intent.action.INSTALL_PACKAGE",
+                GithubReleaseUpdater.installIntentAction());
+    }
 }

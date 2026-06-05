@@ -261,6 +261,7 @@ public final class MtProtoProxyEngine {
                 DiagnosticsLog.record("client handshake rejected " + safeRemote(client));
                 return;
             }
+            client.setSoTimeout(0);
             DiagnosticsLog.record("client handshake ok dc=" + parsed.dc
                     + (parsed.media ? ":media" : ":main")
                     + " proto=" + protoLabel(parsed.protoTag));

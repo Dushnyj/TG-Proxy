@@ -23,7 +23,7 @@ public class RawWebSocket {
     private static final int OP_PING   = 0x9;
     private static final int OP_PONG   = 0xA;
 
-    private static final int RECV_TIMEOUT_MS = 90_000;
+    private static final int RECV_TIMEOUT_MS = 300_000;
 
     private final InputStream  in;
     private final OutputStream out;
@@ -302,6 +302,10 @@ public class RawWebSocket {
 
     public boolean isAlive() {
         return !closed && socket != null && !socket.isClosed() && socket.isConnected();
+    }
+
+    public void setReadTimeout(int timeoutMs) throws IOException {
+        if (socket != null) socket.setSoTimeout(Math.max(1, timeoutMs));
     }
 
     private void closeQuiet() {

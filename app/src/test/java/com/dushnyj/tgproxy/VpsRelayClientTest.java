@@ -38,6 +38,8 @@ public class VpsRelayClientTest {
         assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.167.51\""));
         assertTrue(server.lastRoutesBody.contains("\"dc\":5"));
         assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.171.5\""));
+        assertTrue(server.lastRoutesBody.contains("\"dc\":203"));
+        assertTrue(server.lastRoutesBody.contains("\"ip\":\"91.105.192.100\""));
     }
 
     @Test

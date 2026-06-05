@@ -65,6 +65,18 @@ public class SettingsTransferTest {
         assertEquals("relay.example.com", imported.data().relayConfig().host());
     }
 
+    @Test
+    public void parseAcceptsDeeplinkEmbeddedInSharedText() throws Exception {
+        String exported = SettingsTransfer.exportVpsRelay(sampleData().relayConfig());
+        String deeplink = SettingsTransfer.toDeepLink(exported);
+
+        SettingsTransfer.Imported imported = SettingsTransfer.parse(
+                "TG Proxy import:\n" + deeplink + "\n", "");
+
+        assertEquals(SettingsTransfer.Kind.VPS_RELAY, imported.kind());
+        assertEquals("relay-token", imported.data().relayConfig().token());
+    }
+
     private static SettingsTransfer.Data sampleData() {
         return SettingsTransfer.Data.builder()
                 .profileName("Tele2 LTE")

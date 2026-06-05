@@ -85,7 +85,8 @@ final class SettingsTransfer {
 
     static Imported parse(String raw, String password) throws SettingsTransferException {
         String normalized = raw == null ? "" : raw.trim();
-        if (normalized.startsWith(DEEPLINK_PREFIX)) return parseDeepLink(normalized, password);
+        String embeddedDeepLink = extractDeepLink(normalized);
+        if (!embeddedDeepLink.isEmpty()) return parseDeepLink(embeddedDeepLink, password);
         if (normalized.startsWith(ENC_HEADER)) {
             return parse(decrypt(normalized, password), "");
         }
@@ -95,6 +96,21 @@ final class SettingsTransfer {
         LinkedHashMap<String, String> fields = parseFields(normalized, PLAIN_HEADER);
         Kind kind = Kind.fromWire(fields.get("kind"));
         return new Imported(kind, Data.fromFields(fields));
+    }
+
+    private static String extractDeepLink(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        int start = value.indexOf(DEEPLINK_PREFIX);
+        if (start < 0) return "";
+        int end = value.length();
+        for (int i = start; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (Character.isWhitespace(ch) || ch == '<' || ch == '"' || ch == '\'') {
+                end = i;
+                break;
+            }
+        }
+        return value.substring(start, end);
     }
 
     static String toDeepLink(String payload) throws SettingsTransferException {

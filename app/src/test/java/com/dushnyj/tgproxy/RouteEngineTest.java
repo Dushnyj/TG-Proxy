@@ -109,6 +109,47 @@ public class RouteEngineTest {
         assertEquals(cf.key(), plan.requiresWarmupBeforeSwitch());
     }
 
+    @Test
+    public void vpsRelayStatsAreScopedByDcAndMedia() {
+        RouteEngine engine = new RouteEngine();
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.mobile("25001"))
+                .routePreference(RoutePreference.RELAY_FIRST)
+                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .dcRedirects(dcRules())
+                .build();
+
+        RouteCandidate mainDc2 = engine.buildCandidates(settings, 2, false).get(0);
+        RouteCandidate mediaDc2 = engine.buildCandidates(settings, 2, true).get(0);
+        RouteCandidate mainDc4 = engine.buildCandidates(settings, 4, false).get(0);
+
+        assertEquals("vps_relay:dc2", mainDc2.key());
+        assertEquals("vps_relay:dc2:media", mediaDc2.key());
+        assertEquals("vps_relay:dc4", mainDc4.key());
+    }
+
+    @Test
+    public void mediaRelayFailureDoesNotCooldownMainRelayRoute() {
+        RouteEngine engine = new RouteEngine();
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.mobile("25001"))
+                .routePreference(RoutePreference.RELAY_FIRST)
+                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .dcRedirects(dcRules())
+                .build();
+        RouteCandidate mediaRelay = RouteCandidate.vpsRelay(
+                "VPS Relay", "relay.example.com", 443, 2, true);
+        Map<String, RouteStats> stats = new LinkedHashMap<>();
+        RouteStats mediaStats = new RouteStats();
+        mediaStats.recordFailure(RouteError.TIMEOUT, 10_000L);
+        stats.put(mediaRelay.key(), mediaStats);
+
+        RoutePlan mainPlan = engine.plan(settings, 2, false, "", stats, 11_000L);
+
+        assertEquals(RouteType.VPS_RELAY, mainPlan.selected().type());
+        assertEquals("vps_relay:dc2", mainPlan.selected().key());
+    }
+
     private static Map<Integer, String> dcRules() {
         LinkedHashMap<Integer, String> rules = new LinkedHashMap<>();
         rules.put(2, "149.154.167.220");

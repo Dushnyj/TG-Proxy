@@ -112,6 +112,10 @@
     <string name="import_password_hint">Пароль, если профиль зашифрован</string>
     <string name="import_applied">Настройки импортированы</string>
     <string name="import_failed">Импорт не выполнен: %1$s</string>
+    <string name="import_relay_target_title">Куда добавить VPS Relay?</string>
+    <string name="import_relay_all_networks">Все сети</string>
+    <string name="import_relay_current_network">Текущая сеть: %1$s</string>
+    <string name="import_relay_saved_network">%1$s</string>
     <string name="export_password_title">Пароль для экспорта</string>
     <string name="export_password_required">Введите пароль для полного экспорта.</string>
     <string name="save_export">Сохранить файл</string>
@@ -191,6 +195,11 @@
     <string name="download_progress_unknown">%1$s загружено • %2$s/с</string>
     <string name="download_failed">Не удалось скачать обновление.</string>
     <string name="installer_started">Открыт установщик Android.</string>
+    <string name="update_installed_title">Обновление установлено</string>
+    <string name="update_installed_message">Android установил новую версию. Перезапустите TG Proxy, чтобы открыть обновлённое приложение.</string>
+    <string name="update_installed_restart">Обновление установлено. Нужен перезапуск приложения.</string>
+    <string name="update_install_not_applied">Обновление не применилось. Установленная версия: %1$s.</string>
+    <string name="restart_app">Перезапустить</string>
     <string name="install_permission_title">Нужно разрешение</string>
     <string name="install_permission_message">Разрешите TG Proxy установку APK из этого источника, затем вернитесь в приложение.</string>
     <string name="open_settings">Открыть настройки</string>

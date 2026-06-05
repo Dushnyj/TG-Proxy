@@ -220,6 +220,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("TOKEN_HASH"));
         assertTrue(script.contains("relay_dc_map = {"));
         assertTrue(script.contains("'2': '149.154.167.51'"));
+        assertTrue(script.contains("'203': '91.105.192.100'"));
         assertTrue(script.contains("current == '149.154.167.220'"));
         assertTrue(script.contains("chown root:tgproxy-relay \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("chmod 0640 \"$EXISTING_CONFIG\""));

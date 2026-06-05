@@ -15,7 +15,8 @@ public final class MtProtoConfig {
                     + "2:149.154.167.51\n"
                     + "3:149.154.175.100\n"
                     + "4:149.154.167.91\n"
-                    + "5:149.154.171.5";
+                    + "5:149.154.171.5\n"
+                    + "203:91.105.192.100";
     public static final int DEFAULT_BUFFER_KB = 256;
     public static final int DEFAULT_POOL_SIZE = 4;
 
@@ -144,7 +145,7 @@ public final class MtProtoConfig {
         return true;
     }
 
-    private static boolean isValidDc(int dc) {
+    static boolean isValidDc(int dc) {
         return (dc >= 1 && dc <= 5) || dc == 203;
     }
 

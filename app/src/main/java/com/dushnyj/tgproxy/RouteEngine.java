@@ -53,7 +53,8 @@ final class RouteEngine {
 
         ArrayList<RouteCandidate> vps = new ArrayList<>();
         if (s.vpsRelayEnabled) {
-            vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort));
+            vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort,
+                    dc, media));
         }
 
         ArrayList<RouteCandidate> worker = new ArrayList<>();
