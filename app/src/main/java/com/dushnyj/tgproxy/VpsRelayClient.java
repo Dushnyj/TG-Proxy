@@ -37,7 +37,7 @@ final class VpsRelayClient {
             if (!health.isSuccessful()) return unavailable("healthz failed: " + health.code);
 
             HttpResult routes = requestManagement(config, "POST", "/test-routes",
-                    testRoutesBody(MtProtoConfig.relayDcRules()));
+                    testRoutesBody(dcRules));
             if (isAuthFailure(routes.code)) return wrongToken();
             if (!routes.isSuccessful()) return unavailable("test-routes failed: " + routes.code);
             return VpsRelayCheckResult.ok(routes.body);

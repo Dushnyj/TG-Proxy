@@ -34,12 +34,8 @@ public class VpsRelayClientTest {
 
         assertEquals(VpsRelayCheckResult.Status.OK, result.status());
         assertTrue(result.routeReport().contains("DC2 main"));
-        assertTrue(server.lastRoutesBody.contains("\"dc\":1"));
-        assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.167.51\""));
-        assertTrue(server.lastRoutesBody.contains("\"dc\":5"));
-        assertTrue(server.lastRoutesBody.contains("\"ip\":\"149.154.171.5\""));
-        assertTrue(server.lastRoutesBody.contains("\"dc\":203"));
-        assertTrue(server.lastRoutesBody.contains("\"ip\":\"91.105.192.100\""));
+        assertEquals("{\"dcs\":[{\"dc\":2,\"ip\":\"149.154.167.220\"}]}",
+                server.lastRoutesBody);
     }
 
     @Test

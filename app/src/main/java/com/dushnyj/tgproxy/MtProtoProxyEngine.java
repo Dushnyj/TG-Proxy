@@ -262,28 +262,29 @@ public final class MtProtoProxyEngine {
                 return;
             }
             client.setSoTimeout(0);
-            DiagnosticsLog.record("client handshake ok dc=" + parsed.dc
-                    + (parsed.media ? ":media" : ":main")
+            DiagnosticsLog.record("client handshake ok dcRaw=" + parsed.dcRaw
+                    + " dc=" + parsed.dc
+                    + " media=" + parsed.media
                     + " proto=" + protoLabel(parsed.protoTag));
 
-            int dcIdx = parsed.media ? -parsed.dc : parsed.dc;
+            int dcIdx = parsed.dcRaw;
             byte[] relayInit = MtProtoCrypto.generateRelayInit(parsed.protoTag, dcIdx);
             MtProtoCrypto.CryptoContext crypto =
                     MtProtoCrypto.buildCryptoContext(parsed.clientPrekeyIv, secret, relayInit);
             MtProtoPacketSplitter splitter =
                     new MtProtoPacketSplitter(relayInit, MtProtoCrypto.protoInt(parsed.protoTag));
 
-            ws = connectForDc(parsed.dc, parsed.media);
+            ws = connectForDc(parsed.dcRaw, parsed.dc, parsed.media);
             if (ws == null) {
                 errors.incrementAndGet();
-                DiagnosticsLog.record("client route unavailable dc=" + parsed.dc
-                        + (parsed.media ? ":media" : ":main"));
+                DiagnosticsLog.record("client route unavailable dcRaw=" + parsed.dcRaw
+                        + " dc=" + parsed.dc + " media=" + parsed.media);
                 return;
             }
 
             ws.send(relayInit);
-            DiagnosticsLog.record("telegram relay init sent dc=" + parsed.dc
-                    + (parsed.media ? ":media" : ":main"));
+            DiagnosticsLog.record("telegram relay init sent dcRaw=" + parsed.dcRaw
+                    + " dc=" + parsed.dc + " media=" + parsed.media);
             bridge(client, in, out, ws, crypto, splitter, sessionUp, sessionDown);
         } catch (Exception e) {
             errors.incrementAndGet();
@@ -300,11 +301,16 @@ public final class MtProtoProxyEngine {
         }
     }
 
-    private RawWebSocket connectForDc(int dc, boolean media) {
+    private RawWebSocket connectForDc(int dcRaw, int dc, boolean media) {
         RoutePlan plan = routePlanCandidatesForDc(dc, media);
         String scope = routeScope(dc, media);
-        DiagnosticsLog.record("route plan dc=" + dc + (media ? ":media" : ":main")
-                + " " + routePlanKeys(plan));
+        DiagnosticsLog.record("route plan dcRaw=" + dcRaw + " dc=" + dc
+                + " media=" + media + " " + routePlanKeys(plan));
+        if (plan.isEmpty()) {
+            DiagnosticsLog.record("route unsupported dcRaw=" + dcRaw
+                    + " dc=" + dc + " media=" + media);
+            return null;
+        }
         for (RouteCandidate route : plan.routes()) {
             RawWebSocket ws = null;
             DiagnosticsLog.record("route connecting " + route.key()

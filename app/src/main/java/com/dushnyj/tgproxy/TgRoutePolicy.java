@@ -9,7 +9,7 @@ public final class TgRoutePolicy {
     private static final String FLOWSEAL_REACHABLE_IP = "149.154.167.220";
 
     public static boolean canUseDirectWs(int dc) {
-        return dc == 2 || dc == 4;
+        return MtProtoConfig.isValidDc(dc);
     }
 
     public static String[] targetIpsForDirectWs(int dc) {

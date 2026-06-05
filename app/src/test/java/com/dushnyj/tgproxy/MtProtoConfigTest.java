@@ -46,6 +46,13 @@ public class MtProtoConfigTest {
     }
 
     @Test
+    public void acceptsFuturePositiveDcRule() {
+        Map<Integer, String> rules = MtProtoConfig.parseUserDcRules("204:203.0.113.10");
+
+        assertEquals("203.0.113.10", rules.get(204));
+    }
+
+    @Test
     public void validatesSingleUserDcRule() {
         Map<Integer, String> rules = MtProtoConfig.parseUserDcRules("4:149.154.167.220");
 
@@ -76,6 +83,11 @@ public class MtProtoConfigTest {
     @Test(expected = IllegalArgumentException.class)
     public void rejectsInvalidUserDcIp() {
         MtProtoConfig.parseUserDcRules("2:999.154.167.220");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsZeroDcRule() {
+        MtProtoConfig.parseUserDcRules("0:149.154.167.220");
     }
 
     @Test(expected = IllegalArgumentException.class)

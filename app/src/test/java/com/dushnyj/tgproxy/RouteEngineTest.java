@@ -150,6 +150,38 @@ public class RouteEngineTest {
         assertEquals("vps_relay:dc2", mainPlan.selected().key());
     }
 
+    @Test
+    public void unknownDcWithoutMappingDoesNotBuildSpeculativeRoutes() {
+        RouteEngine engine = new RouteEngine();
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.mobile("25001"))
+                .routePreference(RoutePreference.RELAY_FIRST)
+                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .publicCfDomains(Arrays.asList("public.example"))
+                .workerDomains(Arrays.asList("worker.example"))
+                .build();
+
+        RoutePlan plan = engine.plan(settings, 204, true, "", new LinkedHashMap<>(), 11_000L);
+
+        assertTrue(plan.isEmpty());
+    }
+
+    @Test
+    public void futureDcWithExplicitMappingCanUseDirectWs() {
+        RouteEngine engine = new RouteEngine();
+        LinkedHashMap<Integer, String> dcRules = new LinkedHashMap<>();
+        dcRules.put(204, "203.0.113.10");
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.wifi("home"))
+                .dcRedirects(dcRules)
+                .build();
+
+        RoutePlan plan = engine.plan(settings, 204, false, "", new LinkedHashMap<>(), 11_000L);
+
+        assertEquals(RouteType.DIRECT_WS, plan.selected().type());
+        assertEquals("direct_ws:dc204", plan.selected().key());
+    }
+
     private static Map<Integer, String> dcRules() {
         LinkedHashMap<Integer, String> rules = new LinkedHashMap<>();
         rules.put(2, "149.154.167.220");

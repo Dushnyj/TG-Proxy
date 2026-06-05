@@ -50,8 +50,8 @@ public class DiagnosticsRouteMatrixTest {
         assertTrue(reportText.contains("DC2 media"));
         assertTrue(reportText.contains("DC4 main"));
         assertTrue(reportText.contains("DC4 media"));
+        assertTrue(reportText.contains("DC203 main"));
         assertTrue(reportText.contains("DC203 media"));
-        assertFalse(reportText.contains("DC203 main"));
 
         assertTrue(reportText.contains("Direct WS"));
         assertTrue(reportText.contains("VPS Relay"));

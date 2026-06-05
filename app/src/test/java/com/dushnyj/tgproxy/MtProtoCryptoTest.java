@@ -25,6 +25,7 @@ public class MtProtoCryptoTest {
         MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
 
         assertNotNull(parsed);
+        assertEquals(-4, parsed.dcRaw);
         assertEquals(4, parsed.dc);
         assertEquals(true, parsed.media);
         assertArrayEquals(MtProtoCrypto.PROTO_TAG_PADDED_INTERMEDIATE, parsed.protoTag);
@@ -37,7 +38,21 @@ public class MtProtoCryptoTest {
         MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
 
         assertNotNull(parsed);
+        assertEquals(-203, parsed.dcRaw);
         assertEquals(203, parsed.dc);
+        assertEquals(true, parsed.media);
+    }
+
+    @Test
+    public void parsesFutureDcClientHandshakeWithoutWhitelist() throws Exception {
+        byte[] init = clientInit(SECRET, (short) -204,
+                MtProtoCrypto.PROTO_TAG_PADDED_INTERMEDIATE);
+
+        MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
+
+        assertNotNull(parsed);
+        assertEquals(-204, parsed.dcRaw);
+        assertEquals(204, parsed.dc);
         assertEquals(true, parsed.media);
     }
 

@@ -146,7 +146,7 @@ public final class MtProtoConfig {
     }
 
     static boolean isValidDc(int dc) {
-        return (dc >= 1 && dc <= 5) || dc == 203;
+        return dc > 0 && dc <= Short.MAX_VALUE;
     }
 
     private MtProtoConfig() {

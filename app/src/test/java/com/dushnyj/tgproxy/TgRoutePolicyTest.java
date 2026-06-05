@@ -12,13 +12,13 @@ import static org.junit.Assert.assertTrue;
 public class TgRoutePolicyTest {
 
     @Test
-    public void directWsUsesOnlyReachableFlowsealDcs() {
+    public void directWsAcceptsAnyPositiveConfiguredDc() {
         assertTrue(TgRoutePolicy.canUseDirectWs(2));
         assertTrue(TgRoutePolicy.canUseDirectWs(4));
+        assertTrue(TgRoutePolicy.canUseDirectWs(203));
+        assertTrue(TgRoutePolicy.canUseDirectWs(204));
 
-        assertFalse(TgRoutePolicy.canUseDirectWs(1));
-        assertFalse(TgRoutePolicy.canUseDirectWs(3));
-        assertFalse(TgRoutePolicy.canUseDirectWs(5));
+        assertFalse(TgRoutePolicy.canUseDirectWs(0));
     }
 
     @Test

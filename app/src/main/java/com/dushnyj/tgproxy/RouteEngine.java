@@ -45,6 +45,11 @@ final class RouteEngine {
 
     List<RouteCandidate> buildCandidates(Settings settings, int dc, boolean media) {
         Settings s = settings == null ? Settings.builder().build() : settings;
+        if (!MtProtoConfig.isValidDc(dc)) return Collections.emptyList();
+        boolean knownRawTelegramDc = MtProtoConfig.relayDcRules().containsKey(dc);
+        boolean hasDirectMapping = s.dcRedirects.containsKey(dc);
+        if (!knownRawTelegramDc && !hasDirectMapping) return Collections.emptyList();
+
         ArrayList<RouteCandidate> direct = new ArrayList<>();
         String targetIp = s.dcRedirects.get(dc);
         if (targetIp != null && TgRoutePolicy.shouldUseDirectWs(dc, media, s.dcRedirects)) {
@@ -52,23 +57,27 @@ final class RouteEngine {
         }
 
         ArrayList<RouteCandidate> vps = new ArrayList<>();
-        if (s.vpsRelayEnabled) {
+        if (s.vpsRelayEnabled && knownRawTelegramDc) {
             vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort,
                     dc, media));
         }
 
         ArrayList<RouteCandidate> worker = new ArrayList<>();
-        if (!s.workerDomains.isEmpty()) {
+        if (!s.workerDomains.isEmpty() && knownRawTelegramDc) {
             worker.add(RouteCandidate.worker(dc, s.workerDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> customCf = new ArrayList<>();
-        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode) && !s.customCfDomains.isEmpty()) {
+        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+                && !s.customCfDomains.isEmpty()
+                && knownRawTelegramDc) {
             customCf.add(RouteCandidate.customCloudflare(dc, s.customCfDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> publicCf = new ArrayList<>();
-        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode) && !s.publicCfDomains.isEmpty()) {
+        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+                && !s.publicCfDomains.isEmpty()
+                && knownRawTelegramDc) {
             publicCf.add(RouteCandidate.publicCloudflare(dc, "public-cf"));
         }
 

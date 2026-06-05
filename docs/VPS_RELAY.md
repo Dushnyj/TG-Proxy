@@ -31,7 +31,7 @@ Token           token, выданный владельцем Relay
 ## Автонастройка VPS
 
 Автонастройка выполняется по SSH и работает с Relay release assets из `Dushnyj/TG-Proxy-Relay`.
-TG Proxy Android `1.0.4` устанавливает совместимую серверную версию `TG Proxy VPS Relay 1.0.2`.
+TG Proxy Android `1.0.5` устанавливает совместимую серверную версию `TG Proxy VPS Relay 1.0.2`.
 
 Приложение сначала выполняет read-only audit:
 

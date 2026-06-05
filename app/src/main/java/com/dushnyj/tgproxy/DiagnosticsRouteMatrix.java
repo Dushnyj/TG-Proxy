@@ -29,12 +29,8 @@ final class DiagnosticsRouteMatrix {
         ArrayList<Row> rows = new ArrayList<>();
         for (Integer dc : dcRedirects.keySet()) {
             if (dc == null || dc <= 0) continue;
-            if (dc == 203) {
-                rows.add(buildRow(safeSettings, dc, true, safeStats, nowMs));
-            } else {
-                rows.add(buildRow(safeSettings, dc, false, safeStats, nowMs));
-                rows.add(buildRow(safeSettings, dc, true, safeStats, nowMs));
-            }
+            rows.add(buildRow(safeSettings, dc, false, safeStats, nowMs));
+            rows.add(buildRow(safeSettings, dc, true, safeStats, nowMs));
         }
         return Collections.unmodifiableList(rows);
     }

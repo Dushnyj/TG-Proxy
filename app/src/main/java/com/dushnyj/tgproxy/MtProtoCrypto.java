@@ -48,7 +48,7 @@ public final class MtProtoCrypto {
                     .getShort();
             int dc = Math.abs((int) dcRaw);
             if (!MtProtoConfig.isValidDc(dc)) return null;
-            return new ClientHandshake(dc, dcRaw < 0, protoTag, clientPrekeyIv);
+            return new ClientHandshake((int) dcRaw, dc, dcRaw < 0, protoTag, clientPrekeyIv);
         } catch (Exception ignored) {
             return null;
         }
@@ -168,12 +168,15 @@ public final class MtProtoCrypto {
     }
 
     public static final class ClientHandshake {
+        public final int dcRaw;
         public final int dc;
         public final boolean media;
         public final byte[] protoTag;
         public final byte[] clientPrekeyIv;
 
-        private ClientHandshake(int dc, boolean media, byte[] protoTag, byte[] clientPrekeyIv) {
+        private ClientHandshake(int dcRaw, int dc, boolean media, byte[] protoTag,
+                                byte[] clientPrekeyIv) {
+            this.dcRaw = dcRaw;
             this.dc = dc;
             this.media = media;
             this.protoTag = Arrays.copyOf(protoTag, protoTag.length);
