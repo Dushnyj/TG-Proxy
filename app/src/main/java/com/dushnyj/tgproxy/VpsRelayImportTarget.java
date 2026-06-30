@@ -37,7 +37,7 @@ final class VpsRelayImportTarget {
         if (store == null) throw new IllegalArgumentException("store is required");
         VpsRelayConfig safeRelay = relay == null ? VpsRelayConfig.disabled() : relay;
         String profileKey = option == null ? "" : option.profileKey();
-        return store.saveRelay(safeRelay.withProfileKey(profileKey), profileKey);
+        return store.saveUsableRelay(safeRelay.withProfileKey(profileKey), profileKey);
     }
 
     static final class Option {

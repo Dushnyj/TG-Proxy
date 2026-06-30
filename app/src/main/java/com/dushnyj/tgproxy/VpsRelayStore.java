@@ -51,6 +51,24 @@ final class VpsRelayStore {
         return record;
     }
 
+    synchronized Record saveUsableRelay(VpsRelayConfig relay, String profileKey) {
+        if (relay == null || !relay.isUsable()) return null;
+        return saveRelay(relay, profileKey);
+    }
+
+    synchronized boolean deleteRelay(String relayId) {
+        String id = normalize(relayId);
+        if (id.isEmpty() || !relays.containsKey(id)) return false;
+        relays.remove(id);
+        ArrayList<String> removeBindings = new ArrayList<>();
+        for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
+            if (id.equals(entry.getValue())) removeBindings.add(entry.getKey());
+        }
+        for (String key : removeBindings) profileBindings.remove(key);
+        persist();
+        return true;
+    }
+
     synchronized void bindProfile(String profileKey, String relayId) {
         String key = normalize(profileKey);
         String id = normalize(relayId);

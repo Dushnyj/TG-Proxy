@@ -1,11 +1,15 @@
 package com.dushnyj.tgproxy;
 
 final class ServiceState {
+    static final long ROUTE_EVIDENCE_MAX_AGE_MS = 60_000L;
+
     enum Status {
         STOPPED,
         STARTING,
         ACTIVE,
         DEGRADED,
+        RETRYING,
+        DEAD,
         SLEEP,
         RECONNECTING
     }
@@ -35,14 +39,30 @@ final class ServiceState {
     static ServiceState from(boolean serviceStarted, boolean engineRunning,
                              boolean localPortListening, boolean paused,
                              RouteState routeState) {
+        return from(serviceStarted, engineRunning, localPortListening, paused, routeState,
+                !engineRunning, false, System.currentTimeMillis());
+    }
+
+    static ServiceState from(boolean serviceStarted, boolean engineRunning,
+                             boolean localPortListening, boolean paused,
+                             RouteState routeState, boolean retrying, long nowMs) {
+        return from(serviceStarted, engineRunning, localPortListening, paused, routeState,
+                false, retrying, nowMs);
+    }
+
+    static ServiceState from(boolean serviceStarted, boolean engineRunning,
+                             boolean localPortListening, boolean paused,
+                             RouteState routeState, boolean starting, boolean retrying,
+                             long nowMs) {
         Status status;
         if (!serviceStarted) {
             status = Status.STOPPED;
         } else if (paused) {
             status = Status.SLEEP;
         } else if (!engineRunning) {
-            status = Status.STARTING;
-        } else if (!localPortListening || routeState == null || !routeState.active()) {
+            status = retrying ? Status.RETRYING : (starting ? Status.STARTING : Status.DEAD);
+        } else if (!localPortListening || routeState == null || !routeState.active()
+                || !routeState.isFresh(nowMs, ROUTE_EVIDENCE_MAX_AGE_MS)) {
             status = Status.DEGRADED;
         } else {
             status = Status.ACTIVE;

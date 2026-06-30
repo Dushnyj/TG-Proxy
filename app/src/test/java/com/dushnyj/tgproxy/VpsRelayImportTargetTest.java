@@ -7,6 +7,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 public class VpsRelayImportTargetTest {
     @Test
@@ -55,5 +56,16 @@ public class VpsRelayImportTargetTest {
 
         assertNotNull(store.selectedRelay("mobile:mccmnc:25001"));
         assertEquals(null, store.selectedRelay("wifi:ssid:home"));
+    }
+
+    @Test
+    public void applyingInvalidRelayDoesNotCreateEmptySavedEntry() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayConfig relay = VpsRelayConfig.manual(false, "Draft",
+                "", 443, true, "/apiws", "", "");
+
+        assertNull(VpsRelayImportTarget.apply(store, relay,
+                new VpsRelayImportTarget.Option(VpsRelayImportTarget.Kind.ALL_NETWORKS, "", "All")));
+        assertEquals(0, store.relays().size());
     }
 }

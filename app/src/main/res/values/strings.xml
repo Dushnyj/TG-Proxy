@@ -8,6 +8,8 @@
     <string name="status_sleep">Спящий режим</string>
     <string name="status_starting">Запуск</string>
     <string name="status_degraded">Проблема</string>
+    <string name="status_retrying">Перезапуск</string>
+    <string name="status_dead">Нет ответа</string>
     <string name="start">Запустить</string>
     <string name="stop">Остановить</string>
     <string name="information">Информация</string>
@@ -80,6 +82,10 @@
     <string name="vps_relay_none">Нет сохранённых Relay</string>
     <string name="vps_relay_new">Новый</string>
     <string name="vps_relay_save">Сохранить Relay</string>
+    <string name="vps_relay_delete">Удалить</string>
+    <string name="vps_relay_deleted">Relay удалён</string>
+    <string name="vps_relay_delete_title">Удалить VPS Relay?</string>
+    <string name="vps_relay_delete_message">Relay будет удалён из списка и отвязан от всех профилей сети.</string>
     <string name="vps_setup_idle">Настройка VPS не запущена</string>
     <string name="vps_setup_wait_ssh">Введите SSH-данные VPS для начала настройки</string>
     <string name="vps_relay_selected">Relay выбран для текущего профиля</string>
@@ -230,6 +236,7 @@
     <string name="notification_action_start">Запустить</string>
     <string name="notification_action_stop">Остановить</string>
     <string name="notification_address_line">Адрес: %1$s</string>
+    <string name="notification_status_line">Статус: %1$s</string>
     <string name="notification_uptime_line">Аптайм: %1$s</string>
     <string name="notification_traffic_line">Трафик: %1$s</string>
 

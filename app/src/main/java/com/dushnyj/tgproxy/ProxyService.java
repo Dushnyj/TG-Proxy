@@ -59,6 +59,7 @@ public class ProxyService extends Service {
     private Runnable notificationTicker = null;
     private Runnable engineStartRetry = null;
     private Bitmap notificationLargeIcon;
+    private volatile boolean engineStartInProgress = false;
     private boolean recheckOnNetworkChange = true;
     private static final long RECONNECT_DEBOUNCE_MS = 2500;
     private static final long ENGINE_START_RETRY_MS = 5000;
@@ -249,6 +250,7 @@ public class ProxyService extends Service {
 
         startTime = System.currentTimeMillis();
         paused = false;
+        engineStartInProgress = true;
         startForeground(NOTIF_ID, buildNotification());
         DiagnosticsLog.record("service start requested " + boundIp + ":" + port);
 
@@ -287,6 +289,7 @@ public class ProxyService extends Service {
     public void onDestroy() {
         instance = null;
         DiagnosticsLog.record("service destroyed");
+        engineStartInProgress = false;
         cancelEngineStartRetry();
         cancelPendingReconnect();
         stopNotificationTicker();
@@ -328,6 +331,7 @@ public class ProxyService extends Service {
     }
 
     private Notification buildNotification() {
+        ServiceState state = diagnosticsSnapshot().serviceState();
         PendingIntent pi = contentPendingIntent();
         PendingIntent actionPi = paused
                 ? servicePendingIntent(ACTION_RESUME, 3)
@@ -344,9 +348,11 @@ public class ProxyService extends Service {
         }
         String traffic = MainUiState.trafficSummary(up, down);
         String uptime = MainUiState.uptimeSummary(getUptime());
-        CharSequence compact = colorTrafficInText(address + " • " + traffic, address.length() + 3);
+        String status = serviceStatusLabel(state.status());
+        CharSequence compact = colorTrafficInText(status + " • " + address + " • " + traffic, -1);
         CharSequence details = colorTrafficInText(
-                getString(R.string.notification_address_line, address)
+                getString(R.string.notification_status_line, status)
+                        + "\n" + getString(R.string.notification_address_line, address)
                         + "\n" + getString(R.string.notification_uptime_line, uptime)
                         + "\n" + getString(R.string.notification_traffic_line, traffic),
                 -1);
@@ -370,6 +376,16 @@ public class ProxyService extends Service {
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .addAction(R.drawable.ic_notification, actionLabel, actionPi);
         return builder.build();
+    }
+
+    private String serviceStatusLabel(ServiceState.Status status) {
+        if (status == ServiceState.Status.ACTIVE) return getString(R.string.status_active);
+        if (status == ServiceState.Status.SLEEP) return getString(R.string.status_sleep);
+        if (status == ServiceState.Status.DEGRADED) return getString(R.string.status_degraded);
+        if (status == ServiceState.Status.RETRYING) return getString(R.string.status_retrying);
+        if (status == ServiceState.Status.DEAD) return getString(R.string.status_dead);
+        if (status == ServiceState.Status.STARTING) return getString(R.string.status_starting);
+        return getString(R.string.status_stopped);
     }
 
     private PendingIntent contentPendingIntent() {
@@ -407,16 +423,7 @@ public class ProxyService extends Service {
 
     private VpsRelayConfig vpsRelayConfigFromPrefs(String profileKey) {
         VpsRelayConfig selected = VpsRelayStore.fromPreferences(prefs).selectedRelay(profileKey);
-        if (selected != null) return selected;
-        return VpsRelayConfig.manual(
-                prefs.getBoolean("vps_relay_enabled", false),
-                prefs.getString("vps_relay_name", "VPS Relay"),
-                prefs.getString("vps_relay_host", ""),
-                prefs.getInt("vps_relay_port", 443),
-                prefs.getBoolean("vps_relay_tls", true),
-                prefs.getString("vps_relay_path", "/apiws"),
-                prefs.getString("vps_relay_token", ""),
-                prefs.getString("vps_relay_profile_key", ""));
+        return selected == null ? VpsRelayConfig.disabled() : selected;
     }
 
     private CharSequence colorTrafficInText(String text, int trafficStartHint) {
@@ -445,15 +452,24 @@ public class ProxyService extends Service {
     }
 
     private void startEngineAsync() {
+        engineStartInProgress = true;
         new Thread(() -> {
             try {
                 MtProtoProxyEngine current = engine;
-                if (current == null) return;
+                if (current == null) {
+                    engineStartInProgress = false;
+                    return;
+                }
+                if (current.isRunning() && !current.isListening()) {
+                    current.stop();
+                }
                 current.start(port);
+                engineStartInProgress = false;
                 DiagnosticsLog.record("engine started " + boundIp + ":" + port);
                 cancelEngineStartRetry();
                 refreshNotification();
             } catch (Exception e) {
+                engineStartInProgress = false;
                 DiagnosticsLog.record("engine start failed " + errorSummary(e));
                 scheduleEngineStartRetry();
             }
@@ -465,7 +481,7 @@ public class ProxyService extends Service {
         if (engineStartRetry != null) return;
         engineStartRetry = () -> {
             engineStartRetry = null;
-            if (engine != null && !engine.isRunning() && !paused) {
+            if (engineNeedsStart()) {
                 DiagnosticsLog.record("engine start retry");
                 startEngineAsync();
             }
@@ -493,7 +509,10 @@ public class ProxyService extends Service {
                 engineRunning,
                 localPortListening,
                 paused,
-                routeState);
+                routeState,
+                engineStartInProgress,
+                engineStartRetry != null,
+                System.currentTimeMillis());
         Map<String, RouteStats> stats = currentEngine == null
                 ? java.util.Collections.emptyMap()
                 : currentEngine.routeStatsSnapshot();
@@ -510,10 +529,20 @@ public class ProxyService extends Service {
                 startTime <= 0L ? 0L : getUptime());
     }
 
+    void resetDiagnosticsState() {
+        MtProtoProxyEngine currentEngine = engine;
+        if (currentEngine != null) {
+            currentEngine.resetDiagnosticsState();
+        }
+        DiagnosticsLog.record("service diagnostics state reset");
+        refreshNotification();
+    }
+
     private void startNotificationTicker() {
         stopNotificationTicker();
         notificationTicker = new Runnable() {
             @Override public void run() {
+                watchdogTick();
                 refreshNotification();
                 if (engine != null) {
                     handler.postDelayed(this, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
@@ -528,6 +557,19 @@ public class ProxyService extends Service {
             handler.removeCallbacks(notificationTicker);
             notificationTicker = null;
         }
+    }
+
+    private void watchdogTick() {
+        if (paused || engineStartInProgress || engineStartRetry != null) return;
+        if (engineNeedsStart()) {
+            DiagnosticsLog.record("watchdog detected inactive engine listener");
+            scheduleEngineStartRetry();
+        }
+    }
+
+    private boolean engineNeedsStart() {
+        MtProtoProxyEngine current = engine;
+        return current != null && !paused && !current.isListening();
     }
 
     private static java.util.List<String> splitDomains(String text) {

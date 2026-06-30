@@ -4,8 +4,12 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class MtProtoProxyEngineRouteTest {
 
@@ -116,5 +120,74 @@ public class MtProtoProxyEngineRouteTest {
 
         engine.setMobileNetwork(true);
         assertEquals(Arrays.asList("mobile:name:mobile:2", "mobile:name:mobile:4"), engine.cfWarmupKeys());
+    }
+
+    @Test
+    public void currentRouteStateIsInactiveUntilRouteHasVerifiedSuccess() {
+        MtProtoProxyEngine engine = new MtProtoProxyEngine();
+        engine.setDcRules("2:149.154.167.220");
+        engine.setCfProxyMode(MtProtoProxyEngine.CF_MODE_OFF);
+
+        RouteState state = engine.currentRouteState();
+
+        assertFalse(state.active());
+        assertEquals("no verified route", state.reason());
+    }
+
+    @Test
+    public void currentRouteStateUsesLastRouteSuccessAsVerificationTime() {
+        MtProtoProxyEngine engine = new MtProtoProxyEngine();
+        engine.setDcRules("2:149.154.167.220");
+        engine.setCfProxyMode(MtProtoProxyEngine.CF_MODE_OFF);
+        RouteCandidate direct = RouteCandidate.directWs(2, false, "149.154.167.220");
+        RouteStats stats = new RouteStats();
+        long verifiedAt = System.currentTimeMillis() - 10_000L;
+        stats.recordSuccess(verifiedAt, 80);
+        Map<String, RouteStats> routeStats = new LinkedHashMap<>();
+        routeStats.put(direct.key(), stats);
+
+        engine.replaceRouteStats(routeStats);
+        RouteState state = engine.currentRouteState();
+
+        assertEquals(direct.key(), state.key());
+        assertEquals(verifiedAt, state.verifiedAtMs());
+    }
+
+    @Test
+    public void routeStatsFromPreviousNetworkGenerationAreIgnored() {
+        MtProtoProxyEngine engine = new MtProtoProxyEngine();
+        RouteCandidate direct = RouteCandidate.directWs(2, false, "149.154.167.220");
+        long oldGeneration = engine.routeGeneration();
+
+        engine.setNetworkProfile(NetworkProfile.mobile("25001", "MTS"));
+        engine.recordRouteSuccess(direct, 80, oldGeneration);
+        engine.recordRouteFailure(direct, RouteError.TIMEOUT, oldGeneration);
+
+        assertTrue(engine.routeStatsSnapshot().isEmpty());
+    }
+
+    @Test
+    public void routeStatsFromCurrentNetworkGenerationAreRecorded() {
+        MtProtoProxyEngine engine = new MtProtoProxyEngine();
+        RouteCandidate direct = RouteCandidate.directWs(2, false, "149.154.167.220");
+        long generation = engine.routeGeneration();
+
+        engine.recordRouteSuccess(direct, 80, generation);
+
+        assertEquals(1, engine.routeStatsSnapshot().get(direct.key()).successCount());
+    }
+
+    @Test
+    public void resetDiagnosticsStateClearsRouteEvidenceAndStartsNewGeneration() {
+        MtProtoProxyEngine engine = new MtProtoProxyEngine();
+        RouteCandidate direct = RouteCandidate.directWs(2, false, "149.154.167.220");
+        long generation = engine.routeGeneration();
+
+        engine.recordRouteSuccess(direct, 80, generation);
+        engine.resetDiagnosticsState();
+
+        assertTrue(engine.routeStatsSnapshot().isEmpty());
+        assertFalse(engine.currentRouteState().active());
+        assertTrue(engine.routeGeneration() > generation);
     }
 }

@@ -82,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
     private View btnOpenSettings, btnBackMain, btnOpenDiagnostics, btnOpenGithub, btnOpenTelegram, btnMainMenu;
     private Button btnTestCf, btnTestWorker;
     private Button btnVpsRelayTest;
-    private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayAutoSetup;
+    private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
     private Button btnCreateProfile, btnSaveProfile, btnDeleteProfile;
@@ -296,6 +296,7 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelayTest = findViewById(R.id.btn_vps_relay_test);
         btnVpsRelayNew = findViewById(R.id.btn_vps_relay_new);
         btnVpsRelaySave = findViewById(R.id.btn_vps_relay_save);
+        btnVpsRelayDelete = findViewById(R.id.btn_vps_relay_delete);
         btnVpsRelayAutoSetup = findViewById(R.id.btn_vps_relay_auto_setup);
         btnCfHelp = findViewById(R.id.btn_cf_help);
         btnWorkerHelp = findViewById(R.id.btn_worker_help);
@@ -460,6 +461,7 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show();
             }
         });
+        btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
         btnVpsRelayAutoSetup.setOnClickListener(v -> showVpsAutoSetupDialog());
         btnCfHelp.setOnClickListener(v -> openLink("https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/CfProxy.md"));
         btnWorkerHelp.setOnClickListener(v -> openLink("https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/CfWorker.md"));
@@ -1011,6 +1013,12 @@ public class MainActivity extends AppCompatActivity {
             } else if (state.status() == ServiceState.Status.DEGRADED) {
                 tvStatus.setText(R.string.status_degraded);
                 tvStatus.setTextColor(getColorValue(R.color.warning));
+            } else if (state.status() == ServiceState.Status.RETRYING) {
+                tvStatus.setText(R.string.status_retrying);
+                tvStatus.setTextColor(getColorValue(R.color.warning));
+            } else if (state.status() == ServiceState.Status.DEAD) {
+                tvStatus.setText(R.string.status_dead);
+                tvStatus.setTextColor(getColorValue(R.color.red));
             } else {
                 tvStatus.setText(R.string.status_starting);
                 tvStatus.setTextColor(getColorValue(R.color.warning));
@@ -1060,7 +1068,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateStats() {
         ProxyService svc = ProxyService.getInstance();
-        if (svc == null || svc.getEngine() == null) {
+        if (svc == null) {
             updateRunningState(false);
             return;
         }
@@ -1071,10 +1079,11 @@ public class MainActivity extends AppCompatActivity {
         tvMainProfile.setText(currentMainProfileLabel(snapshot.networkProfile()));
         updateRouteQuality(routeState);
         updateDisplayedPing(routeState);
-        tvConnections.setText(MainUiState.connectionSummary(engine.activeConnectionCount()));
+        tvConnections.setText(MainUiState.connectionSummary(
+                engine == null ? 0 : engine.activeConnectionCount()));
         tvTraffic.setText(coloredTrafficSummary(
-                TgConstants.humanBytes(engine.bytesUp.get()),
-                TgConstants.humanBytes(engine.bytesDown.get())));
+                TgConstants.humanBytes(engine == null ? 0L : engine.bytesUp.get()),
+                TgConstants.humanBytes(engine == null ? 0L : engine.bytesDown.get())));
         tvUptime.setText(MainUiState.uptimeSummary(svc.getUptime()));
         scheduleAutoPing(routeState);
         svc.refreshNotification();
@@ -1904,6 +1913,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetDiagnostics() {
         DiagnosticsLog.clear();
+        ProxyService svc = ProxyService.getInstance();
+        if (svc != null) svc.resetDiagnosticsState();
+        autoPingGate.reset();
+        lastMeasuredPingMs = -1;
+        lastMeasuredPingAt = 0L;
+        lastMeasuredPingKey = "";
         refreshDiagnosticsScreen();
         Toast.makeText(this, R.string.diagnostics_reset_done, Toast.LENGTH_SHORT).show();
     }
@@ -2350,8 +2365,7 @@ public class MainActivity extends AppCompatActivity {
     private VpsRelayConfig activeVpsRelayConfig() {
         String profileKey = currentProfileRecord().key();
         VpsRelayConfig selected = VpsRelayStore.fromPreferences(prefs).selectedRelay(profileKey);
-        if (selected != null) return selected;
-        return currentVpsRelayConfig();
+        return selected == null ? VpsRelayConfig.disabled() : selected;
     }
 
     private String vpsRelayProfileKeyForUi() {
@@ -2391,6 +2405,7 @@ public class MainActivity extends AppCompatActivity {
                         profileBound ? vpsRelayProfileKeyForUi() : ""));
             }
         }
+        setEnabled(btnVpsRelayDelete, index >= 0);
     }
 
     private void fillVpsRelayForm(VpsRelayConfig relay) {
@@ -2430,6 +2445,35 @@ public class MainActivity extends AppCompatActivity {
         refreshVpsRelaySelector();
         refreshConnectionFields();
         return true;
+    }
+
+    private void confirmDeleteSelectedVpsRelay() {
+        String relayId = selectedVpsRelayId();
+        if (relayId.isEmpty()) return;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_relay_delete_title)
+                .setMessage(R.string.vps_relay_delete_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.vps_relay_delete, (dialog, which) -> deleteSelectedVpsRelay(relayId))
+                .show();
+    }
+
+    private void deleteSelectedVpsRelay(String relayId) {
+        if (prefs == null) return;
+        VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
+        if (!store.deleteRelay(relayId)) return;
+        clearVpsRelayForm();
+        refreshVpsRelaySelector();
+        refreshConnectionFields();
+        Toast.makeText(this, R.string.vps_relay_deleted, Toast.LENGTH_SHORT).show();
+    }
+
+    private String selectedVpsRelayId() {
+        if (spVpsRelaySaved == null || vpsRelaySelectorIds.isEmpty()) return "";
+        int index = spVpsRelaySaved.getSelectedItemPosition();
+        if (index < 0 || index >= vpsRelaySelectorIds.size()) return "";
+        String relayId = vpsRelaySelectorIds.get(index);
+        return relayId == null ? "" : relayId;
     }
 
     private void applyVpsSetupProgress(VpsSetupProgress progress) {
@@ -2775,7 +2819,7 @@ public class MainActivity extends AppCompatActivity {
         if (relay == null) return;
         VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
         String profileKey = relay.profileKey().isEmpty() ? "" : relay.profileKey();
-        if (relay.isUsable()) store.saveRelay(relay, profileKey);
+        if (relay.isUsable()) store.saveUsableRelay(relay, profileKey);
         else store.bindProfile(profileKey, "");
     }
 

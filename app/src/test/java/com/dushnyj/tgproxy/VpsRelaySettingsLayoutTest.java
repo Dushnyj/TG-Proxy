@@ -31,6 +31,7 @@ public class VpsRelaySettingsLayoutTest {
         assertId(document, "sp_vps_relay_saved");
         assertId(document, "btn_vps_relay_new");
         assertId(document, "btn_vps_relay_save");
+        assertId(document, "btn_vps_relay_delete");
         assertId(document, "btn_vps_relay_auto_setup");
         assertId(document, "progress_vps_setup");
         assertId(document, "tv_vps_setup_status");

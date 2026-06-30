@@ -51,6 +51,7 @@ public final class MtProtoProxyEngine {
     private final ConcurrentHashMap<String, String> activeEndpointByScope = new ConcurrentHashMap<>();
     private final RouteEngine routeEngine = new RouteEngine();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong routeGeneration = new AtomicLong(1L);
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private final WarmConnectionPool<CfSocket> cfPool =
@@ -69,6 +70,7 @@ public final class MtProtoProxyEngine {
     private volatile VpsRelayConfig vpsRelayConfig = VpsRelayConfig.disabled();
     private volatile NetworkProfile networkProfile =
             NetworkProfile.wifi(CfProxyDomainState.PROFILE_WIFI);
+    private volatile String networkProfileKey = networkProfile.key();
     private volatile String cfNetworkProfile = networkProfile.cfProfileId();
     private volatile RoutePreference routePreference = RoutePreference.AUTO;
     private volatile Runnable routeStatsChangedListener;
@@ -140,11 +142,17 @@ public final class MtProtoProxyEngine {
 
     public void setNetworkProfile(NetworkProfile profile) {
         NetworkProfile next = profile == null ? NetworkProfile.defaultProfile() : profile;
+        String nextProfileKey = next.key();
         String nextCfProfile = next.cfProfileId();
-        if (!nextCfProfile.equals(cfNetworkProfile)) {
-            cfPool.clear();
+        if (!nextProfileKey.equals(networkProfileKey)) {
+            routeGeneration.incrementAndGet();
             activeRouteByScope.clear();
             activeEndpointByScope.clear();
+            closeActiveClientSockets();
+            networkProfileKey = nextProfileKey;
+        }
+        if (!nextCfProfile.equals(cfNetworkProfile)) {
+            cfPool.clear();
             cfNetworkProfile = nextCfProfile;
         }
         networkProfile = next;
@@ -167,6 +175,10 @@ public final class MtProtoProxyEngine {
 
     void setRouteStatsChangedListener(Runnable listener) {
         this.routeStatsChangedListener = listener;
+    }
+
+    long routeGeneration() {
+        return routeGeneration.get();
     }
 
     public boolean isRunning() {
@@ -204,10 +216,14 @@ public final class MtProtoProxyEngine {
         activeRouteByScope.clear();
         activeEndpointByScope.clear();
         closeServerSocket();
+        closeActiveClientSockets();
+        activeSockets.clear();
+    }
+
+    private void closeActiveClientSockets() {
         for (Socket socket : activeSockets.keySet()) {
             try { socket.close(); } catch (Exception ignored) {}
         }
-        activeSockets.clear();
     }
 
     public void pause() {
@@ -266,6 +282,7 @@ public final class MtProtoProxyEngine {
                     + " dc=" + parsed.dc
                     + " media=" + parsed.media
                     + " proto=" + protoLabel(parsed.protoTag));
+            long sessionGeneration = routeGeneration.get();
 
             int dcIdx = parsed.dcRaw;
             byte[] relayInit = MtProtoCrypto.generateRelayInit(parsed.protoTag, dcIdx);
@@ -274,7 +291,7 @@ public final class MtProtoProxyEngine {
             MtProtoPacketSplitter splitter =
                     new MtProtoPacketSplitter(relayInit, MtProtoCrypto.protoInt(parsed.protoTag));
 
-            ws = connectForDc(parsed.dcRaw, parsed.dc, parsed.media);
+            ws = connectForDc(parsed.dcRaw, parsed.dc, parsed.media, sessionGeneration);
             if (ws == null) {
                 errors.incrementAndGet();
                 DiagnosticsLog.record("client route unavailable dcRaw=" + parsed.dcRaw
@@ -301,7 +318,7 @@ public final class MtProtoProxyEngine {
         }
     }
 
-    private RawWebSocket connectForDc(int dcRaw, int dc, boolean media) {
+    private RawWebSocket connectForDc(int dcRaw, int dc, boolean media, long generation) {
         RoutePlan plan = routePlanCandidatesForDc(dc, media);
         String scope = routeScope(dc, media);
         DiagnosticsLog.record("route plan dcRaw=" + dcRaw + " dc=" + dc
@@ -316,17 +333,22 @@ public final class MtProtoProxyEngine {
             DiagnosticsLog.record("route connecting " + route.key()
                     + " endpoint=" + route.endpoint());
             if (route.type() == RouteType.WORKER) {
-                ws = connectViaWorker(route);
+                ws = connectViaWorker(route, generation);
             } else if (route.type() == RouteType.VPS_RELAY) {
-                ws = connectViaVpsRelay(route, dc, media);
+                ws = connectViaVpsRelay(route, dc, media, generation);
             } else if (route.type() == RouteType.PUBLIC_CLOUDFLARE
                     || route.type() == RouteType.CUSTOM_CLOUDFLARE) {
-                ws = connectViaCfProxy(dc, scope, route);
+                ws = connectViaCfProxy(dc, scope, route, generation);
             } else if (route.type() == RouteType.DIRECT_WS) {
-                ws = connectDirectWs(route);
+                ws = connectDirectWs(route, generation);
             }
             if (ws != null) {
-                recordRouteSuccess(route, -1);
+                if (isStaleGeneration(generation)) {
+                    try { ws.close(); } catch (Exception ignored) {}
+                    DiagnosticsLog.record("route stale generation ignored " + route.key());
+                    return null;
+                }
+                recordRouteSuccess(route, -1, generation);
                 DiagnosticsLog.record("route connected " + route.key() + " endpoint=" + route.endpoint());
                 activeRouteByScope.put(scope, route.key());
                 if (route.type() != RouteType.PUBLIC_CLOUDFLARE
@@ -341,7 +363,11 @@ public final class MtProtoProxyEngine {
         return null;
     }
 
-    private RawWebSocket connectViaVpsRelay(RouteCandidate route, int dc, boolean media) {
+    private boolean isStaleGeneration(long generation) {
+        return generation != routeGeneration.get();
+    }
+
+    private RawWebSocket connectViaVpsRelay(RouteCandidate route, int dc, boolean media, long generation) {
         VpsRelayConfig config = vpsRelayConfig;
         if (config == null || !config.isAllowedForProfile(networkProfile.key())) return null;
         try {
@@ -349,7 +375,7 @@ public final class MtProtoProxyEngine {
         } catch (Exception error) {
             DiagnosticsLog.record("route failed " + route.key()
                     + " endpoint=" + route.endpoint() + " " + errorSummary(error));
-            recordRouteFailure(route, RouteError.classify(error));
+            recordRouteFailure(route, RouteError.classify(error), generation);
             return null;
         }
     }
@@ -368,7 +394,7 @@ public final class MtProtoProxyEngine {
                 activeRouteByScope.get(routeScope(dc, media)), routeStats, System.currentTimeMillis());
     }
 
-    private RawWebSocket connectDirectWs(RouteCandidate route) {
+    private RawWebSocket connectDirectWs(RouteCandidate route, long generation) {
         String[] domains = TgConstants.wsDomains(route.dc(), route.media());
         for (String domain : domains) {
             try {
@@ -376,13 +402,13 @@ public final class MtProtoProxyEngine {
             } catch (Exception error) {
                 DiagnosticsLog.record("route failed " + route.key()
                         + " domain=" + domain + " " + errorSummary(error));
-                recordRouteFailure(route, RouteError.classify(error));
+                recordRouteFailure(route, RouteError.classify(error), generation);
             }
         }
         return null;
     }
 
-    private RawWebSocket connectViaWorker(RouteCandidate route) {
+    private RawWebSocket connectViaWorker(RouteCandidate route, long generation) {
         String dst = DEFAULT_DC_IPS.get(route.dc());
         if (dst == null || cfWorkerDomains.isEmpty()) return null;
         for (String workerDomain : cfWorkerDomains) {
@@ -393,25 +419,31 @@ public final class MtProtoProxyEngine {
             } catch (Exception error) {
                 DiagnosticsLog.record("route failed " + route.key()
                         + " worker=" + workerDomain + " " + errorSummary(error));
-                recordRouteFailure(route, RouteError.classify(error));
+                recordRouteFailure(route, RouteError.classify(error), generation);
             }
         }
         return null;
     }
 
-    private RawWebSocket connectViaCfProxy(int dc, String scope, RouteCandidate route) {
-        CfSocket cfSocket = cfPool.acquire(cfPoolKey(dc), ignored -> openCfSocket(dc, route));
+    private RawWebSocket connectViaCfProxy(int dc, String scope, RouteCandidate route, long generation) {
+        CfSocket cfSocket = cfPool.acquire(cfPoolKey(dc), ignored -> openCfSocket(dc, route, generation));
         warmupCfPoolForDc(dc);
         if (cfSocket == null) return null;
-        activeEndpointByScope.put(scope, cfSocket.baseDomain);
+        if (!isStaleGeneration(generation)) {
+            activeEndpointByScope.put(scope, cfSocket.baseDomain);
+        }
         return cfSocket.socket;
     }
 
     private CfSocket openCfSocket(int dc) {
-        return openCfSocket(dc, RouteCandidate.publicCloudflare(dc, "public-cf"));
+        return openCfSocket(dc, RouteCandidate.publicCloudflare(dc, "public-cf"), routeGeneration.get());
     }
 
     private CfSocket openCfSocket(int dc, RouteCandidate route) {
+        return openCfSocket(dc, route, routeGeneration.get());
+    }
+
+    private CfSocket openCfSocket(int dc, RouteCandidate route, long generation) {
         CfProxyDomainState domainState = CfProxyDomainState.shared();
         return new ParallelCfConnector<CfSocket>(
                 domainState,
@@ -420,7 +452,7 @@ public final class MtProtoProxyEngine {
                 (baseDomain, error) -> {
                     DiagnosticsLog.record("route failed " + route.key()
                             + " cf=" + baseDomain + " " + errorSummary(error));
-                    recordRouteFailure(route, RouteError.classify(error));
+                    recordRouteFailure(route, RouteError.classify(error), generation);
                 }).connect(
                 cfProxyDomains,
                 baseDomain -> {
@@ -474,6 +506,10 @@ public final class MtProtoProxyEngine {
         if (plan.isEmpty()) return RouteState.inactive("no available route");
         RouteCandidate selected = routeForActiveKey(plan, activeRouteByScope.get(scope));
         if (selected == null) selected = plan.selected();
+        RouteStats stats = routeStats.get(selected.key());
+        if (stats == null || stats.lastSuccessMs() <= 0L) {
+            return RouteState.inactive("no verified route");
+        }
         String endpoint = activeEndpointByScope.get(scope);
         if (endpoint == null || endpoint.isEmpty()) endpoint = selected.endpoint();
         if (selected.type() == RouteType.PUBLIC_CLOUDFLARE
@@ -481,14 +517,22 @@ public final class MtProtoProxyEngine {
             String active = CfProxyDomainState.shared().activeDomain(cfNetworkProfile);
             if (!active.isEmpty()) endpoint = active;
         }
-        RouteStats stats = routeStats.get(selected.key());
-        int ping = stats == null ? -1 : stats.medianLatencyMs();
-        String quality = stats == null || stats.totalFailures() == 0 ? "stable" : stats.lastError().name();
-        return RouteState.active(selected, endpoint, ping, quality);
+        int ping = stats.medianLatencyMs();
+        String quality = stats.totalFailures() == 0 ? "stable" : stats.lastError().name();
+        return RouteState.active(selected, endpoint, ping, quality, stats.lastSuccessMs());
     }
 
     Map<String, RouteStats> routeStatsSnapshot() {
         return new LinkedHashMap<>(routeStats);
+    }
+
+    void resetDiagnosticsState() {
+        routeGeneration.incrementAndGet();
+        routeStats.clear();
+        activeRouteByScope.clear();
+        activeEndpointByScope.clear();
+        cfPool.clear();
+        notifyRouteStatsChanged();
     }
 
     int activeConnectionCount() {
@@ -515,7 +559,11 @@ public final class MtProtoProxyEngine {
     }
 
     private void recordRouteSuccess(RouteCandidate route, int latencyMs) {
-        if (route == null) return;
+        recordRouteSuccess(route, latencyMs, routeGeneration.get());
+    }
+
+    void recordRouteSuccess(RouteCandidate route, int latencyMs, long generation) {
+        if (route == null || isStaleGeneration(generation)) return;
         routeStats.computeIfAbsent(route.key(), ignored -> new RouteStats())
                 .recordSuccess(System.currentTimeMillis(), latencyMs);
         DiagnosticsLog.record("route success " + route.key()
@@ -524,7 +572,11 @@ public final class MtProtoProxyEngine {
     }
 
     private void recordRouteFailure(RouteCandidate route, RouteError error) {
-        if (route == null) return;
+        recordRouteFailure(route, error, routeGeneration.get());
+    }
+
+    void recordRouteFailure(RouteCandidate route, RouteError error, long generation) {
+        if (route == null || isStaleGeneration(generation)) return;
         RouteError normalized = error == null ? RouteError.UNKNOWN : error;
         routeStats.computeIfAbsent(route.key(), ignored -> new RouteStats())
                 .recordFailure(normalized, System.currentTimeMillis());

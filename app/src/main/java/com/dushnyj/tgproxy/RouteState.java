@@ -7,24 +7,32 @@ final class RouteState {
     private final int pingMs;
     private final String quality;
     private final String reason;
+    private final long verifiedAtMs;
 
     private RouteState(boolean active, RouteCandidate candidate, String activeEndpoint,
-                       int pingMs, String quality, String reason) {
+                       int pingMs, String quality, String reason, long verifiedAtMs) {
         this.active = active;
         this.candidate = candidate;
         this.activeEndpoint = activeEndpoint == null ? "" : activeEndpoint;
         this.pingMs = pingMs;
         this.quality = quality == null ? "" : quality;
         this.reason = reason == null ? "" : reason;
+        this.verifiedAtMs = Math.max(0L, verifiedAtMs);
     }
 
     static RouteState active(RouteCandidate candidate, String activeEndpoint,
                              int pingMs, String quality) {
-        return new RouteState(candidate != null, candidate, activeEndpoint, pingMs, quality, "");
+        return active(candidate, activeEndpoint, pingMs, quality, System.currentTimeMillis());
+    }
+
+    static RouteState active(RouteCandidate candidate, String activeEndpoint,
+                             int pingMs, String quality, long verifiedAtMs) {
+        return new RouteState(candidate != null, candidate, activeEndpoint, pingMs, quality, "",
+                verifiedAtMs);
     }
 
     static RouteState inactive(String reason) {
-        return new RouteState(false, null, "", -1, "", reason);
+        return new RouteState(false, null, "", -1, "", reason, 0L);
     }
 
     boolean active() {
@@ -57,6 +65,18 @@ final class RouteState {
 
     String reason() {
         return reason;
+    }
+
+    long verifiedAtMs() {
+        return verifiedAtMs;
+    }
+
+    boolean isFresh(long nowMs, long maxAgeMs) {
+        if (!active) return false;
+        if (verifiedAtMs <= 0L) return false;
+        long now = Math.max(0L, nowMs);
+        if (now < verifiedAtMs) return true;
+        return now - verifiedAtMs <= Math.max(0L, maxAgeMs);
     }
 
     String displayName() {

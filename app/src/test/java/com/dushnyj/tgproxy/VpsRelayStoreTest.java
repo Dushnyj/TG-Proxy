@@ -62,5 +62,32 @@ public class VpsRelayStoreTest {
         assertEquals(null, store.selectedRelay("wifi:ssid:home"));
         assertEquals(1, store.relays().size());
     }
+
+    @Test
+    public void deletingRelayRemovesEveryProfileBinding() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Relay",
+                "relay.example.com", 443, true, "/apiws", "token", "");
+        VpsRelayStore.Record record = store.saveRelay(relay, "wifi:ssid:home");
+        store.bindProfile("mobile:mccmnc:25001", record.id());
+
+        assertTrue(store.deleteRelay(record.id()));
+
+        assertEquals(0, store.relays().size());
+        assertNull(store.selectedRelay("wifi:ssid:home"));
+        assertNull(store.selectedRelay("mobile:mccmnc:25001"));
+    }
+
+    @Test
+    public void disabledDraftIsNotSavedAsRelayProfile() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayConfig draft = VpsRelayConfig.manual(false, "Draft",
+                "", 443, true, "/apiws", "", "");
+
+        assertNull(store.saveUsableRelay(draft, "wifi:ssid:home"));
+
+        assertEquals(0, store.relays().size());
+        assertNull(store.selectedRelay("wifi:ssid:home"));
+    }
 }
 
