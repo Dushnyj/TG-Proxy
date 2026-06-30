@@ -1,15 +1,10 @@
-name: TG Proxy Android CI and Release
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release TG Proxy Android {0}', github.event.inputs.tag) || startsWith(github.ref, 'refs/tags/') && format('Release TG Proxy Android {0}', github.ref_name) || format('Verify TG Proxy Android {0}', github.ref_name) }}
+name: Release TG Proxy Android
+run-name: Release TG Proxy Android ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       tag:
@@ -27,7 +22,6 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
-      is_release: ${{ steps.version.outputs.is_release }}
 
     steps:
       - name: Checkout
@@ -39,30 +33,21 @@ jobs:
         id: version
         shell: bash
         run: |
-          IS_RELEASE="false"
-          TAG=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.tag }}"
-            IS_RELEASE="true"
-          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          else
             TAG="${GITHUB_REF_NAME}"
-            IS_RELEASE="true"
           fi
           GRADLE_VERSION="$(grep -E 'versionName "' app/build.gradle | sed -E 's/.*versionName "([^"]+)".*/\1/')"
-          VERSION="$GRADLE_VERSION"
-          if [ "$IS_RELEASE" = "true" ]; then
-            VERSION="${TAG#v}"
-            if [ "$VERSION" != "$GRADLE_VERSION" ]; then
-              echo "Tag version $VERSION does not match Gradle versionName $GRADLE_VERSION" >&2
-              exit 1
-            fi
+          VERSION="${TAG#v}"
+          if [ "$VERSION" != "$GRADLE_VERSION" ]; then
+            echo "Tag version $VERSION does not match Gradle versionName $GRADLE_VERSION" >&2
+            exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Validate Android signing secrets
-        if: steps.version.outputs.is_release == 'true'
         shell: bash
         run: |
           test -n "${{ secrets.ANDROID_SIGNING_KEY_B64 }}"
@@ -89,7 +74,6 @@ jobs:
     name: Build signed Android APKs
     runs-on: ubuntu-latest
     needs: check
-    if: needs.check.outputs.is_release == 'true'
 
     steps:
       - name: Checkout
@@ -182,7 +166,6 @@ jobs:
   publish:
     name: Publish Android GitHub Release
     runs-on: ubuntu-latest
-    if: needs.check.outputs.is_release == 'true'
     needs:
       - check
       - build-android
