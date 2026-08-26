@@ -18,15 +18,10 @@ public final class TgRoutePolicy {
     }
 
     public static boolean shouldUseDirectWs(int dc, boolean media, Map<Integer, String> dcRedirects) {
-        if (!canUseDirectWs(dc)) return false;
-        if (media && dc == 2 && dcRedirects != null) {
-            String dc2 = dcRedirects.get(2);
-            String dc4 = dcRedirects.get(4);
-            if (FLOWSEAL_REACHABLE_IP.equals(dc2) && FLOWSEAL_REACHABLE_IP.equals(dc4)) {
-                return false;
-            }
-        }
-        return true;
+        // Main/media ordering is expressed by TgConstants.wsDomains(). Suppressing DC2 media
+        // here left a Direct-only installation with no candidate at all, even though the same
+        // mapping is supported by tg-ws-proxy.
+        return canUseDirectWs(dc);
     }
 
     public static boolean allowDirectTelegramFallback(String dst, int port) {

@@ -44,6 +44,33 @@ public class NetworkProfileStoreTest {
     }
 
     @Test
+    public void uiLookupDoesNotRecordAnotherNetworkActivation() {
+        NetworkProfileStore store = NetworkProfileStore.inMemory();
+        NetworkProfile profile = NetworkProfile.wifi("home");
+        NetworkProfileRecord first = store.ensureProfile(profile, 1_000L);
+        String before = store.exportProfiles();
+
+        NetworkProfileRecord lookedUp = store.profileOrCreate(profile, 2_000L);
+
+        assertEquals(first.lastSeenMs(), lookedUp.lastSeenMs());
+        assertEquals(first.seenCount(), lookedUp.seenCount());
+        assertEquals(before, store.exportProfiles());
+    }
+
+    @Test
+    public void uiLookupCreatesMissingProfileOnce() {
+        NetworkProfileStore store = NetworkProfileStore.inMemory();
+        NetworkProfile profile = NetworkProfile.mobile("25020", "T2 BLACK");
+
+        NetworkProfileRecord created = store.profileOrCreate(profile, 3_000L);
+
+        assertEquals(profile.key(), created.key());
+        assertEquals(3_000L, created.lastSeenMs());
+        assertEquals(1, created.seenCount());
+        assertEquals(created.key(), store.profile(profile.key()).key());
+    }
+
+    @Test
     public void keepsRouteStatsPerProfile() {
         NetworkProfileStore store = NetworkProfileStore.inMemory();
         NetworkProfile wifi = NetworkProfile.wifi("home");
@@ -136,5 +163,19 @@ public class NetworkProfileStoreTest {
 
         assertEquals(null, store.profile(home.key()));
         assertEquals(1, store.profilesSnapshot().size());
+    }
+
+    @Test
+    public void opaqueWifiDoesNotAbsorbAmbiguousLegacyHiddenPreference() {
+        String legacy = "wifi%3Ahidden\tWIFI\thidden\tHome\tRELAY_FIRST\t1\t2\t3";
+        NetworkProfileStore store = NetworkProfileStore.inMemory(legacy);
+        NetworkProfile opaque = NetworkProfile.opaqueWifi("opaque_a1b2c3d4");
+
+        NetworkProfileRecord current = store.ensureProfile(opaque, 3_000L);
+
+        assertEquals("wifi:opaque:a1b2c3d4", current.key());
+        assertEquals(RoutePreference.AUTO, current.routePreference());
+        assertEquals(RoutePreference.RELAY_FIRST,
+                store.profile("wifi:hidden").routePreference());
     }
 }

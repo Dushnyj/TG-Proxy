@@ -5,20 +5,30 @@ import org.bouncycastle.crypto.modes.SICBlockCipher;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.bouncycastle.crypto.params.ParametersWithIV;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Splits the encrypted client stream into transport packets suitable for Telegram WebSocket
+ * messages. Both encrypted and decrypted views use primitive, bounded buffers: a forged length
+ * header must never turn a local client connection into an Android OOM.
+ */
 public final class MtProtoPacketSplitter {
+    static final int MAX_PACKET_LEN = RawWebSocket.MAX_MESSAGE_LEN;
+
     private final SICBlockCipher decryptor;
     private final int proto;
-    private final ArrayList<Byte> cipherBuf = new ArrayList<>();
-    private final ArrayList<Byte> plainBuf = new ArrayList<>();
-    private boolean disabled = false;
+    private byte[] cipherBuf = new byte[64 * 1024];
+    private byte[] plainBuf = new byte[64 * 1024];
+    private int buffered;
+    private final boolean passthrough;
 
     public MtProtoPacketSplitter(byte[] relayInit, int proto) {
+        if (relayInit == null || relayInit.length < 56) {
+            throw new IllegalArgumentException("relay init is too short");
+        }
         decryptor = new SICBlockCipher(new AESEngine());
         decryptor.init(true, new ParametersWithIV(
                 new KeyParameter(Arrays.copyOfRange(relayInit, 8, 40)),
@@ -27,107 +37,144 @@ public final class MtProtoPacketSplitter {
         byte[] ignored = new byte[64];
         decryptor.processBytes(zero, 0, zero.length, ignored, 0);
         this.proto = proto;
+        this.passthrough = proto != MtProtoCrypto.PROTO_ABRIDGED_INT
+                && proto != MtProtoCrypto.PROTO_INTERMEDIATE_INT
+                && proto != MtProtoCrypto.PROTO_PADDED_INTERMEDIATE_INT;
     }
 
-    public List<byte[]> split(byte[] chunk) {
+    public List<byte[]> split(byte[] chunk) throws IOException {
         ArrayList<byte[]> parts = new ArrayList<>();
         if (chunk == null || chunk.length == 0) return parts;
-        if (disabled) {
+        if (passthrough) {
+            if (chunk.length > MAX_PACKET_LEN) throw tooLarge(chunk.length);
             parts.add(chunk);
             return parts;
         }
 
-        byte[] plain = new byte[chunk.length];
-        decryptor.processBytes(chunk, 0, chunk.length, plain, 0);
-        append(cipherBuf, chunk);
-        append(plainBuf, plain);
-
-        int offset = 0;
-        while (offset < cipherBuf.size()) {
-            Integer packetLen = nextPacketLen(offset, cipherBuf.size() - offset);
-            if (packetLen == null) break;
-            if (packetLen <= 0) {
-                parts.add(toByteArray(cipherBuf, offset, cipherBuf.size() - offset));
-                offset = cipherBuf.size();
-                disabled = true;
-                break;
+        int inputOffset = 0;
+        while (inputOffset < chunk.length) {
+            if (buffered == MAX_PACKET_LEN) {
+                int emitted = drainPackets(parts);
+                if (emitted == 0 && buffered == MAX_PACKET_LEN) {
+                    throw tooLarge(buffered);
+                }
             }
-            parts.add(toByteArray(cipherBuf, offset, packetLen));
+
+            int take = Math.min(chunk.length - inputOffset, MAX_PACKET_LEN - buffered);
+            ensureCapacity(buffered + take);
+            System.arraycopy(chunk, inputOffset, cipherBuf, buffered, take);
+            decryptor.processBytes(chunk, inputOffset, take, plainBuf, buffered);
+            buffered += take;
+            inputOffset += take;
+            drainPackets(parts);
+        }
+        return parts;
+    }
+
+    /** A clean TCP half-close is valid only on an MTProto transport-packet boundary. */
+    public List<byte[]> flush() throws IOException {
+        if (buffered != 0) {
+            int truncated = buffered;
+            buffered = 0;
+            throw new PacketException("truncated MTProto packet: " + truncated + " buffered bytes");
+        }
+        return new ArrayList<>();
+    }
+
+    int bufferedBytes() {
+        return buffered;
+    }
+
+    private int drainPackets(List<byte[]> parts) throws IOException {
+        int offset = 0;
+        int emitted = 0;
+        while (offset < buffered) {
+            Integer packetLen = nextPacketLen(offset, buffered - offset);
+            if (packetLen == null) break;
+            if (packetLen <= 0) throw new PacketException("invalid zero-length MTProto packet");
+            parts.add(Arrays.copyOfRange(cipherBuf, offset, offset + packetLen));
             offset += packetLen;
+            emitted++;
         }
-        if (offset > 0) {
-            removePrefix(cipherBuf, offset);
-            removePrefix(plainBuf, offset);
-        }
-        return parts;
+        if (offset > 0) removePrefix(offset);
+        return emitted;
     }
 
-    public List<byte[]> flush() {
-        ArrayList<byte[]> parts = new ArrayList<>();
-        if (!cipherBuf.isEmpty()) {
-            parts.add(toByteArray(cipherBuf, 0, cipherBuf.size()));
-            cipherBuf.clear();
-            plainBuf.clear();
-        }
-        return parts;
-    }
-
-    private Integer nextPacketLen(int offset, int available) {
+    private Integer nextPacketLen(int offset, int available) throws IOException {
         if (available <= 0) return null;
         if (proto == MtProtoCrypto.PROTO_ABRIDGED_INT) {
             return nextAbridgedLen(offset, available);
         }
-        if (proto == MtProtoCrypto.PROTO_INTERMEDIATE_INT
-                || proto == MtProtoCrypto.PROTO_PADDED_INTERMEDIATE_INT) {
-            return nextIntermediateLen(offset, available);
-        }
-        return 0;
+        return nextIntermediateLen(offset, available);
     }
 
-    private Integer nextAbridgedLen(int offset, int available) {
-        int first = plainBuf.get(offset) & 0xFF;
-        int payloadLen;
+    private Integer nextAbridgedLen(int offset, int available) throws IOException {
+        int first = plainBuf[offset] & 0xFF;
+        long payloadLen;
         int headerLen;
         if (first == 0x7F || first == 0xFF) {
             if (available < 4) return null;
-            payloadLen = (plainBuf.get(offset + 1) & 0xFF)
-                    | ((plainBuf.get(offset + 2) & 0xFF) << 8)
-                    | ((plainBuf.get(offset + 3) & 0xFF) << 16);
-            payloadLen *= 4;
+            long words = (plainBuf[offset + 1] & 0xFFL)
+                    | ((plainBuf[offset + 2] & 0xFFL) << 8)
+                    | ((plainBuf[offset + 3] & 0xFFL) << 16);
+            payloadLen = words * 4L;
             headerLen = 4;
         } else {
-            payloadLen = (first & 0x7F) * 4;
+            payloadLen = (first & 0x7FL) * 4L;
             headerLen = 1;
         }
-        if (payloadLen <= 0) return 0;
-        int packetLen = headerLen + payloadLen;
-        return available < packetLen ? null : packetLen;
+        return checkedPacketLength(headerLen, payloadLen, available);
     }
 
-    private Integer nextIntermediateLen(int offset, int available) {
+    private Integer nextIntermediateLen(int offset, int available) throws IOException {
         if (available < 4) return null;
-        byte[] lenBytes = toByteArray(plainBuf, offset, 4);
-        int payloadLen = ByteBuffer.wrap(lenBytes)
-                .order(ByteOrder.LITTLE_ENDIAN)
-                .getInt() & 0x7FFFFFFF;
-        if (payloadLen <= 0) return 0;
-        int packetLen = 4 + payloadLen;
-        return available < packetLen ? null : packetLen;
+        long payloadLen = (plainBuf[offset] & 0xFFL)
+                | ((plainBuf[offset + 1] & 0xFFL) << 8)
+                | ((plainBuf[offset + 2] & 0xFFL) << 16)
+                | ((plainBuf[offset + 3] & 0xFFL) << 24);
+        // The high bit requests a transport quick acknowledgement and is not part of length.
+        payloadLen &= 0x7FFFFFFFL;
+        return checkedPacketLength(4, payloadLen, available);
     }
 
-    private static void append(ArrayList<Byte> target, byte[] source) {
-        for (byte b : source) target.add(b);
-    }
-
-    private static byte[] toByteArray(ArrayList<Byte> source, int offset, int len) {
-        byte[] result = new byte[len];
-        for (int i = 0; i < len; i++) {
-            result[i] = source.get(offset + i);
+    private static Integer checkedPacketLength(int headerLen, long payloadLen, int available)
+            throws IOException {
+        if (payloadLen <= 0L) throw new PacketException("invalid zero-length MTProto packet");
+        long packetLen = headerLen + payloadLen;
+        if (packetLen > MAX_PACKET_LEN || packetLen > Integer.MAX_VALUE) {
+            throw tooLarge(packetLen);
         }
-        return result;
+        return available < packetLen ? null : (int) packetLen;
     }
 
-    private static void removePrefix(ArrayList<Byte> list, int count) {
-        list.subList(0, count).clear();
+    private void ensureCapacity(int wanted) throws IOException {
+        if (wanted < 0 || wanted > MAX_PACKET_LEN) throw tooLarge(wanted);
+        if (wanted <= cipherBuf.length) return;
+        int next = cipherBuf.length;
+        while (next < wanted) {
+            next = Math.min(MAX_PACKET_LEN, Math.max(next + 1, next << 1));
+        }
+        cipherBuf = Arrays.copyOf(cipherBuf, next);
+        plainBuf = Arrays.copyOf(plainBuf, next);
+    }
+
+    private void removePrefix(int count) {
+        int remaining = buffered - count;
+        if (remaining > 0) {
+            System.arraycopy(cipherBuf, count, cipherBuf, 0, remaining);
+            System.arraycopy(plainBuf, count, plainBuf, 0, remaining);
+        }
+        buffered = remaining;
+    }
+
+    private static PacketException tooLarge(long length) {
+        return new PacketException("MTProto packet exceeds " + MAX_PACKET_LEN
+                + " bytes: " + length);
+    }
+
+    static final class PacketException extends IOException {
+        PacketException(String message) {
+            super(message);
+        }
     }
 }

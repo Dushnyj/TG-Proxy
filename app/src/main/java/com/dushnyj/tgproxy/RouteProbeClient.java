@@ -1,9 +1,12 @@
 package com.dushnyj.tgproxy;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 
 final class RouteProbeClient {
     private RouteProbeClient() {}
@@ -25,23 +28,24 @@ final class RouteProbeClient {
     }
 
     static void connect(RoutePingTarget target, int timeoutMs) throws Exception {
+        ConnectBudget budget = new ConnectBudget(Math.max(1_000L, timeoutMs));
         if (target.kind() == RoutePingTarget.Kind.VPS_RELAY) {
             RawWebSocket ws = RawWebSocket.connectRelay(target.relayConfig(),
-                    target.dc(), target.media(), timeoutMs);
+                    target.dc(), target.media(), target.test(), budget, timeoutMs, null);
             try {
-                verifyTelegramDcResponse(ws, target, timeoutMs);
+                verifyTelegramDcResponse(ws, target, budget, timeoutMs);
             } finally {
-                try { ws.close(); } catch (Exception ignored) {}
+                try { ws.abort(); } catch (Exception ignored) {}
             }
             return;
         }
         if (target.kind() == RoutePingTarget.Kind.WEBSOCKET) {
             RawWebSocket ws = RawWebSocket.connect(
-                    target.host(), target.sni(), timeoutMs, target.path(), true);
+                    target.host(), target.sni(), target.path(), budget, timeoutMs);
             try {
-                verifyTelegramDcResponse(ws, target, timeoutMs);
+                verifyTelegramDcResponse(ws, target, budget, timeoutMs);
             } finally {
-                try { ws.close(); } catch (Exception ignored) {}
+                try { ws.abort(); } catch (Exception ignored) {}
             }
             return;
         }
@@ -50,27 +54,60 @@ final class RouteProbeClient {
         }
     }
 
-    private static void verifyTelegramDcResponse(RawWebSocket ws, RoutePingTarget target, int timeoutMs)
+    private static void verifyTelegramDcResponse(RawWebSocket ws, RoutePingTarget target,
+                                                 ConnectBudget budget, int timeoutMs)
             throws Exception {
         if (ws == null || target == null || target.dc() <= 0) return;
-        ws.setReadTimeout(timeoutMs);
-        int dcIdx = target.media() ? -target.dc() : target.dc();
+        verifyTelegramDcResponse(ws, target.dc(), target.media(), budget, timeoutMs);
+    }
+
+    static void verifyTelegramDcResponse(RawWebSocket ws, int dc, boolean media, int timeoutMs)
+            throws Exception {
+        verifyTelegramDcResponse(ws, dc, media,
+                new ConnectBudget(Math.max(1_000L, timeoutMs)), timeoutMs);
+    }
+
+    static void verifyTelegramDcResponse(RawWebSocket ws, int dc, boolean media,
+                                         ConnectBudget budget, int timeoutMs)
+            throws Exception {
+        if (ws == null || dc <= 0) throw new java.io.IOException("invalid Telegram probe target");
+        if (budget == null) budget = new ConnectBudget(Math.max(1_000L, timeoutMs));
+        ScheduledFuture<?> deadlineAbort = ws.abortAtDeadline(budget);
+        int dcIdx = media ? -dc : dc;
         byte[] relayInit = MtProtoCrypto.generateRelayInit(
                 MtProtoCrypto.PROTO_TAG_INTERMEDIATE, dcIdx);
         MtProtoCrypto.TelegramTransport transport = MtProtoCrypto.telegramTransport(relayInit);
         byte[] nonce = MtProtoPingProbe.randomNonce();
-        ws.send(relayInit);
-        ws.send(MtProtoPingProbe.encryptedReqPqMulti(
-                transport, nonce, MtProtoPingProbe.messageId(System.currentTimeMillis())));
-        ByteArrayOutputStream plain = new ByteArrayOutputStream();
-        long deadline = System.currentTimeMillis() + Math.max(1_000L, timeoutMs);
-        while (System.currentTimeMillis() <= deadline) {
-            byte[] encryptedResponse = ws.recv();
-            if (encryptedResponse == null || encryptedResponse.length == 0) break;
-            plain.write(transport.decrypt(encryptedResponse));
-            if (MtProtoPingProbe.isValidResPq(plain.toByteArray(), nonce)) return;
+        try {
+            ws.send(relayInit);
+            ws.send(MtProtoPingProbe.encryptedReqPqMulti(
+                    transport, nonce, MtProtoPingProbe.messageId(System.currentTimeMillis())));
+            ByteArrayOutputStream plain = new ByteArrayOutputStream();
+            while (budget.hasTime()) {
+                byte[] encryptedResponse;
+                try {
+                    encryptedResponse = ws.recv(budget, timeoutMs);
+                } catch (IOException error) {
+                    throw normalizeReadFailure(error, budget.hasTime());
+                }
+                if (encryptedResponse == null || encryptedResponse.length == 0) break;
+                plain.write(transport.decrypt(encryptedResponse));
+                if (MtProtoPingProbe.isValidResPq(plain.toByteArray(), nonce)) return;
+            }
+        } finally {
+            if (deadlineAbort != null) deadlineAbort.cancel(false);
         }
         throw new java.io.IOException("telegram dc response is invalid");
+    }
+
+    static IOException normalizeReadFailure(IOException error, boolean budgetHasTime) {
+        if (error instanceof RawWebSocket.WebSocketCloseException || budgetHasTime) {
+            return error;
+        }
+        SocketTimeoutException timeout =
+                new SocketTimeoutException("telegram probe deadline exceeded");
+        timeout.initCause(error);
+        return timeout;
     }
 
     private static String firstLine(String message) {

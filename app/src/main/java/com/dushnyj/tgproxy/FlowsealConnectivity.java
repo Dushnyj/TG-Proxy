@@ -6,6 +6,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public final class FlowsealConnectivity {
     public static final int[] TEST_DCS = {1, 2, 3, 4, 5, 203};
@@ -87,7 +91,9 @@ public final class FlowsealConnectivity {
         ArrayList<Probe> result = new ArrayList<>();
         for (int dc : TEST_DCS) {
             String host = "kws" + dc + "." + domain;
-            result.add(new Probe(dc, host, host, host, "/apiws"));
+            String mediaHost = host;
+            result.add(new Probe(dc, host, host, host, "/apiws",
+                    mediaHost, mediaHost, "/apiws"));
         }
         return result;
     }
@@ -97,7 +103,9 @@ public final class FlowsealConnectivity {
         for (int dc : TEST_DCS) {
             String dst = DEFAULT_DC_IPS.get(dc);
             String path = "/apiws?dst=" + url(dst) + "&dc=" + dc + "&media=0";
-            result.add(new Probe(dc, domain, domain, domain, path));
+            String mediaPath = "/apiws?dst=" + url(dst) + "&dc=" + dc + "&media=1";
+            result.add(new Probe(dc, domain, domain, domain, path,
+                    domain, domain, mediaPath));
         }
         return result;
     }
@@ -112,25 +120,56 @@ public final class FlowsealConnectivity {
 
     private static Result runCases(String domain, List<Probe> probes) {
         Result result = new Result(domain);
+        if (probes == null || probes.isEmpty()) return result;
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(4, probes.size()));
+        ArrayList<Future<ProbeResult>> futures = new ArrayList<>();
         for (Probe probe : probes) {
+            futures.add(executor.submit((Callable<ProbeResult>) () -> testProbe(domain, probe)));
+        }
+        for (Future<ProbeResult> future : futures) {
             try {
-                RawWebSocket ws = RawWebSocket.connect(
-                        probe.connectHost,
-                        probe.sniHost,
-                        5000,
-                        probe.path,
-                        true);
-                ws.close();
-                result.statuses.put(probe.dc, "OK");
+                ProbeResult checked = future.get();
+                result.statuses.put(checked.dc, checked.status);
             } catch (Exception e) {
-                if (CfProxyDomainState.isTooManyRequests(e)) {
-                    CfProxyDomainState.shared().markTooManyRequests(domain, System.currentTimeMillis());
-                }
-                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                result.statuses.put(probe.dc, trim(msg));
+                result.statuses.put(0, trim(e.getClass().getSimpleName()));
             }
         }
+        executor.shutdownNow();
         return result;
+    }
+
+    private static ProbeResult testProbe(String baseDomain, Probe probe) {
+        String main = testProbeScope(baseDomain, probe, false);
+        String media = testProbeScope(baseDomain, probe, true);
+        if ("OK".equals(main) && "OK".equals(media)) return new ProbeResult(probe.dc, "OK");
+        if (!"OK".equals(main) && !"OK".equals(media)) {
+            return new ProbeResult(probe.dc, "main: " + main + "; media: " + media);
+        }
+        return new ProbeResult(probe.dc, "OK".equals(main)
+                ? "media: " + media : "main: " + main);
+    }
+
+    private static String testProbeScope(String baseDomain, Probe probe, boolean media) {
+        RawWebSocket ws = null;
+        try {
+            ws = RawWebSocket.connect(
+                    media ? probe.mediaConnectHost : probe.connectHost,
+                    media ? probe.mediaSniHost : probe.sniHost,
+                    5000,
+                    media ? probe.mediaPath : probe.path);
+            RouteProbeClient.verifyTelegramDcResponse(ws, probe.dc, media, 5000);
+            return "OK";
+        } catch (Exception error) {
+            if (CfProxyDomainState.isTooManyRequests(error)) {
+                CfProxyDomainState.shared().markTooManyRequests(
+                        baseDomain, System.currentTimeMillis());
+            }
+            String message = error.getMessage() == null
+                    ? error.getClass().getSimpleName() : error.getMessage();
+            return trim(message);
+        } finally {
+            if (ws != null) try { ws.abort(); } catch (Exception ignored) {}
+        }
     }
 
     private static String trim(String value) {
@@ -152,13 +191,30 @@ public final class FlowsealConnectivity {
         public final String sniHost;
         public final String requestHost;
         public final String path;
+        public final String mediaConnectHost;
+        public final String mediaSniHost;
+        public final String mediaPath;
 
-        Probe(int dc, String connectHost, String sniHost, String requestHost, String path) {
+        Probe(int dc, String connectHost, String sniHost, String requestHost, String path,
+              String mediaConnectHost, String mediaSniHost, String mediaPath) {
             this.dc = dc;
             this.connectHost = connectHost;
             this.sniHost = sniHost;
             this.requestHost = requestHost;
             this.path = path;
+            this.mediaConnectHost = mediaConnectHost;
+            this.mediaSniHost = mediaSniHost;
+            this.mediaPath = mediaPath;
+        }
+    }
+
+    private static final class ProbeResult {
+        final int dc;
+        final String status;
+
+        ProbeResult(int dc, String status) {
+            this.dc = dc;
+            this.status = status == null ? "failed" : status;
         }
     }
 

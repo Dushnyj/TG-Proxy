@@ -36,6 +36,16 @@ final class NetworkProfile {
         return new NetworkProfile(Kind.WIFI, "hidden");
     }
 
+    static NetworkProfile opaqueWifi(String opaqueId) {
+        String normalized = normalize(opaqueId);
+        if (!normalized.startsWith("opaque_")) normalized = "opaque_" + normalized;
+        String suffix = normalized.substring("opaque_".length());
+        String label = suffix.length() >= 4
+                ? "Wi-Fi • " + suffix.substring(0, 4).toUpperCase(Locale.US)
+                : "Wi-Fi (имя скрыто)";
+        return new NetworkProfile(Kind.WIFI, normalized, label);
+    }
+
     static NetworkProfile mobile(String id) {
         return new NetworkProfile(Kind.MOBILE, id);
     }
@@ -63,7 +73,10 @@ final class NetworkProfile {
     String key() {
         switch (kind) {
             case WIFI:
-                return isHiddenWifiId(id) ? "wifi:hidden" : "wifi:ssid:" + id;
+                if (isHiddenWifiId(id)) return "wifi:hidden";
+                if (isOpaqueWifiId(id)) return "wifi:opaque:"
+                        + id.substring("opaque_".length());
+                return "wifi:ssid:" + id;
             case MOBILE:
                 return isMccMnc(id) ? "mobile:mccmnc:" + id : "mobile:name:" + id;
             case MANUAL:
@@ -105,6 +118,10 @@ final class NetworkProfile {
         return kind == Kind.WIFI && isHiddenWifiId(id);
     }
 
+    boolean isOpaqueWifi() {
+        return kind == Kind.WIFI && isOpaqueWifiId(id);
+    }
+
     String legacyKey() {
         return kind.name().toLowerCase(Locale.US) + ":" + id;
     }
@@ -131,9 +148,19 @@ final class NetworkProfile {
                 || "unknown_ssid".equals(value);
     }
 
+    private static boolean isOpaqueWifiId(String value) {
+        return value != null && value.startsWith("opaque_") && value.length() > "opaque_".length();
+    }
+
     private static String wifiDisplayName(String id) {
         if (isHiddenWifiId(id)) {
             return "Wi-Fi (имя скрыто)";
+        }
+        if (isOpaqueWifiId(id)) {
+            String suffix = id.substring("opaque_".length());
+            return suffix.length() >= 4
+                    ? "Wi-Fi • " + suffix.substring(0, 4).toUpperCase(Locale.US)
+                    : "Wi-Fi (имя скрыто)";
         }
         return titleCase(id.replace('_', ' ')).replace("Wifi", "WiFi");
     }

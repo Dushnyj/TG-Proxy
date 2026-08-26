@@ -78,6 +78,51 @@ public class ActiveRoutePingPlannerTest {
         assertEquals(0, targets.size());
     }
 
+    @Test
+    public void testEnvironmentPingKeepsTestScopeForRelay() {
+        RouteState state = RouteState.active(
+                RouteCandidate.vpsRelay("VPS Relay", "relay.example.com", 443,
+                        3, true, true),
+                "relay.example.com", 73, "stable");
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "VPS Relay",
+                "relay.example.com", 443, true, "/apiws", "token", "");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
+                state, relay, dcRules());
+
+        assertEquals(1, targets.size());
+        assertEquals(true, targets.get(0).test());
+        assertEquals(true, targets.get(0).media());
+        assertEquals(3, targets.get(0).dc());
+    }
+
+    @Test
+    public void directTestEnvironmentPingUsesTelegramTestWebsocketPath() {
+        RouteState state = RouteState.active(
+                RouteCandidate.directWs(2, false, true, "149.154.167.40"),
+                "149.154.167.40", 73, "stable");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(state);
+
+        assertEquals(1, targets.size());
+        assertEquals("/apiws_test", targets.get(0).path());
+        assertEquals(true, targets.get(0).test());
+    }
+
+    @Test
+    public void workerPingUsesActuallyVerifiedFallbackDomain() {
+        RouteState state = RouteState.active(
+                RouteCandidate.worker(2, false, "worker-one.example"),
+                "worker-two.example", 90, "stable");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
+                state, VpsRelayConfig.disabled(), dcRules());
+
+        assertEquals(1, targets.size());
+        assertEquals("worker-two.example", targets.get(0).host());
+        assertEquals("worker-two.example", targets.get(0).sni());
+    }
+
     private Map<Integer, String> dcRules() {
         LinkedHashMap<Integer, String> rules = new LinkedHashMap<>();
         rules.put(2, "149.154.167.220");

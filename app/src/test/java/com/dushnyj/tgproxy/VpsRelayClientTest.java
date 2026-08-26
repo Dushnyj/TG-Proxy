@@ -30,12 +30,15 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.start("token", 1, 1, 200);
         VpsRelayConfig config = config("token", false);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.OK, result.status());
         assertTrue(result.routeReport().contains("DC2 main"));
-        assertEquals("{\"dcs\":[{\"dc\":2,\"ip\":\"149.154.167.220\"}]}",
-                server.lastRoutesBody);
+        for (int dc : new int[]{1, 2, 3, 4, 5, 203}) {
+            assertTrue(server.lastRoutesBody.contains("\"dc\":" + dc));
+        }
+        assertTrue(server.lastRoutesBody.contains(
+                "{\"dc\":2,\"ip\":\"149.154.167.220\"}"));
     }
 
     @Test
@@ -43,7 +46,7 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.startPrefixed("token", "/apiws", 1, 1, 200);
         VpsRelayConfig config = config("token", false);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.OK, result.status());
         assertTrue(result.routeReport().contains("DC2 main"));
@@ -54,7 +57,7 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.start("expected", 1, 1, 200);
         VpsRelayConfig config = config("wrong", false);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.WRONG_TOKEN, result.status());
     }
@@ -64,7 +67,7 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.start("token", 0, 1, 200);
         VpsRelayConfig config = config("token", false);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.OUTDATED_VERSION, result.status());
     }
@@ -75,7 +78,7 @@ public class VpsRelayClientTest {
                 "Slovofon service is online.", 200);
         VpsRelayConfig config = config("token", false);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
         assertEquals("version endpoint returned non-relay response", result.message());
@@ -86,7 +89,7 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.start("token", "1.0.0", 1, 1, 200);
         VpsRelayConfig config = config("token", false);
 
-        VpsRelayInfo info = new VpsRelayClient().inspect(config, "1.0.1");
+        VpsRelayInfo info = client().inspect(config, "1.0.1");
 
         assertEquals(VpsRelayCheckResult.Status.OK, info.status());
         assertEquals("1.0.0", info.relayVersion());
@@ -101,14 +104,79 @@ public class VpsRelayClientTest {
         server = TinyRelayServer.start("token", 1, 1, 200);
         VpsRelayConfig config = config("token", true);
 
-        VpsRelayCheckResult result = new VpsRelayClient().check(config, dcRules());
+        VpsRelayCheckResult result = client().check(config, dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.TLS_ERROR, result.status());
+    }
+
+    @Test
+    public void failedRouteMatrixIsRejectedEvenWhenLegacyRelayReturnsHttp200() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        server.routeBody = "DC2 main OK\nDC2 media ERROR timeout";
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
+        assertTrue(result.message().contains("unavailable routes"));
+    }
+
+    @Test
+    public void relayRouteFailureStatusPreservesFailureReport() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 502);
+        server.routeBody = "DC4 main ERROR timeout";
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
+        assertTrue(result.message().contains("DC4 main ERROR timeout"));
+    }
+
+    @Test
+    public void endToEndRelayFailureRejectsOtherwiseHealthyManagementApi() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        VpsRelayClient checked = new VpsRelayClient(
+                (config, rules) -> VpsRelayClient.RouteValidation.blocking(
+                        "DC2 media=telegram dc response is invalid"));
+
+        VpsRelayCheckResult result = checked.check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
+        assertTrue(result.message().contains("DC2 media"));
+    }
+
+    @Test
+    public void testEnvironmentFailureIsAdvisoryForHealthyProductionRelay() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        VpsRelayClient checked = new VpsRelayClient(
+                (config, rules) -> VpsRelayClient.RouteValidation.advisory(
+                        "test DC3 main=telegram probe deadline exceeded"));
+
+        VpsRelayCheckResult result = checked.check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.OK, result.status());
+        assertTrue(result.warning().contains("test DC3 main"));
+    }
+
+    @Test
+    public void productionFailureWinsWhenTestEnvironmentAlsoHasWarning() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        VpsRelayClient checked = new VpsRelayClient(
+                (config, rules) -> VpsRelayClient.RouteValidation.of(
+                        "DC4 media=timeout", "test DC3 main=timeout"));
+
+        VpsRelayCheckResult result = checked.check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
+        assertTrue(result.message().contains("DC4 media"));
     }
 
     private VpsRelayConfig config(String token, boolean tls) {
         return VpsRelayConfig.manual(true, "Local relay", "127.0.0.1",
                 server.port(), tls, "/apiws", token, "");
+    }
+
+    private VpsRelayClient client() {
+        return new VpsRelayClient((config, rules) -> VpsRelayClient.RouteValidation.ok());
     }
 
     private Map<Integer, String> dcRules() {
@@ -125,6 +193,7 @@ public class VpsRelayClientTest {
         private final int minAppProtocol;
         private final int routeStatus;
         private String rawVersionBody;
+        private String routeBody = "DC2 main OK\nDC2 media OK";
         private String pathPrefix = "";
         private volatile String lastRoutesBody = "";
         private volatile boolean running = true;
@@ -232,7 +301,7 @@ public class VpsRelayClientTest {
                     respond(accepted, 200, body);
                 } else if ((pathPrefix + "/test-routes").equals(path)) {
                     lastRoutesBody = requestBody.toString();
-                    respond(accepted, routeStatus, "DC2 main OK\nDC2 media OK");
+                    respond(accepted, routeStatus, routeBody);
                 } else {
                     respond(accepted, 404, "not found");
                 }

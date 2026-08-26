@@ -8,7 +8,8 @@ final class MainUiState {
     private MainUiState() {}
 
     static final long STATS_REFRESH_INTERVAL_MS = 1_000L;
-    static final long NOTIFICATION_REFRESH_INTERVAL_MS = 1_000L;
+    static final long WATCHDOG_INTERVAL_MS = 3_000L;
+    static final long NOTIFICATION_REFRESH_INTERVAL_MS = 60_000L;
     static final long AUTO_PING_INTERVAL_MS = 3_000L;
     static final long PING_MEASUREMENT_TTL_MS = 60_000L;
     static final int PING_ERROR_MS = -2;
@@ -68,7 +69,7 @@ final class MainUiState {
             Collections.unmodifiableList(Collections.singletonList(SettingsContent.ABOUT));
 
     static boolean canOpenSettings(boolean proxyRunning) {
-        return !proxyRunning;
+        return true;
     }
 
     static List<MainAction> mainActions() {
@@ -104,14 +105,23 @@ final class MainUiState {
         return pingMs < 0 ? "-" : pingMs + " ms";
     }
 
-    static int displayedPing(RouteState routeState, String measuredRouteKey,
+    static int displayedPing(RouteState routeState, String measuredRouteIdentity,
                              int measuredPingMs, long measuredAtMs, long nowMs) {
         if (routeState != null
-                && routeState.key().equals(measuredRouteKey == null ? "" : measuredRouteKey)
+                && routeIdentity(routeState).equals(
+                        measuredRouteIdentity == null ? "" : measuredRouteIdentity)
+                && measuredPingMs >= 0
                 && nowMs - measuredAtMs <= PING_MEASUREMENT_TTL_MS) {
             return measuredPingMs;
         }
         return routeState == null ? -1 : routeState.pingMs();
+    }
+
+    static String routeIdentity(RouteState routeState) {
+        if (routeState == null || !routeState.active()) return "";
+        String endpoint = routeState.activeEndpoint() == null
+                ? "" : routeState.activeEndpoint().trim().toLowerCase(java.util.Locale.US);
+        return routeState.key() + "|" + endpoint;
     }
 
     static String connectionSummary(int activeConnections) {

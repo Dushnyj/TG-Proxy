@@ -8,6 +8,18 @@ import static org.junit.Assert.assertTrue;
 
 public class RouteStatsTest {
     @Test
+    public void verifiedTrafficRefreshesEvidenceWithoutInflatingSuccessCounter() {
+        RouteStats stats = new RouteStats();
+        stats.recordSuccess(1_000L, 40);
+
+        stats.recordVerifiedTraffic(20_000L);
+
+        assertEquals(1, stats.successCount());
+        assertEquals(20_000L, stats.lastSuccessMs());
+        assertEquals(RouteError.NONE, stats.lastError());
+    }
+
+    @Test
     public void recordsSeparateFailureTypes() {
         RouteStats stats = new RouteStats();
 

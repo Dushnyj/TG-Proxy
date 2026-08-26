@@ -104,6 +104,19 @@ final class RouteStats {
         return lastUpdateMs;
     }
 
+    synchronized void recordVerifiedTraffic(long nowMs) {
+        pruneExpired(nowMs);
+        if (successCount <= 0) successCount = 1;
+        lastSuccessMs = nowMs;
+        lastUpdateMs = nowMs;
+        lastError = RouteError.NONE;
+        cooldownUntilMs = 0L;
+    }
+
+    synchronized long cooldownUntilMs() {
+        return cooldownUntilMs;
+    }
+
     synchronized int scoreAdjustment() {
         int score = 0;
         score += Math.min(4, successCount) * 20;
@@ -199,6 +212,15 @@ final class RouteStats {
         switch (error) {
             case TOO_MANY_REQUESTS:
                 return COOLDOWN_429_MS;
+            case HTTP_FORBIDDEN:
+            case RELAY_AUTH:
+                return COOLDOWN_DNS_TLS_MS;
+            case HTTP_UNAVAILABLE:
+            case WS_PROTOCOL:
+            case RELAY_INIT:
+            case FIRST_BYTE_TIMEOUT:
+            case REMOTE_EOF:
+                return COOLDOWN_IO_MS;
             case TIMEOUT:
                 return COOLDOWN_TIMEOUT_MS;
             case RESET:
@@ -209,6 +231,7 @@ final class RouteStats {
             case IO:
             case UNKNOWN:
                 return COOLDOWN_IO_MS;
+            case CANCELLED:
             case NONE:
             default:
                 return 0L;

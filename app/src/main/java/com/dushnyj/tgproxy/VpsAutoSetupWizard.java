@@ -2,6 +2,7 @@ package com.dushnyj.tgproxy;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 final class VpsAutoSetupWizard {
     private static final int AUDIT_TIMEOUT_MS = 30_000;
@@ -35,6 +36,8 @@ final class VpsAutoSetupWizard {
         if (request == null || !request.isValid()) {
             throw new VpsSetupException("invalid VPS setup request");
         }
+        boolean backupCompleted = false;
+        String transactionId = UUID.randomUUID().toString();
         try {
             progress(listener, VpsSetupProgress.Stage.AUDIT, 5,
                     "Выполняется read-only аудит VPS");
@@ -52,7 +55,8 @@ final class VpsAutoSetupWizard {
             progress(listener, VpsSetupProgress.Stage.BACKUP, 45,
                     "Создание backup перед изменениями");
             execute(request, VpsSetupProgress.Stage.BACKUP,
-                    VpsSetupScripts.backup(), BACKUP_TIMEOUT_MS);
+                    VpsSetupScripts.backup(transactionId, request, plan), BACKUP_TIMEOUT_MS);
+            backupCompleted = true;
 
             progress(listener, VpsSetupProgress.Stage.INSTALL, 70,
                     "Установка tgproxy-relay и systemd unit");
@@ -67,19 +71,37 @@ final class VpsAutoSetupWizard {
             VpsRelayConfig relay = effectiveRequest.relayConfig();
             VpsRelayCheckResult check = relayVerifier.check(relay, dcRules);
             if (check.status() != VpsRelayCheckResult.Status.OK) {
-                rollback(request, listener);
                 throw new VpsSetupException(check.message());
             }
+            if (plan.installMode() != VpsSetupPlan.InstallMode.EXISTING_RELAY_ADD_TOKEN) {
+                String expectedVersion = request.releaseVersion().isEmpty()
+                        ? VpsSetupScripts.RELAY_VERSION : request.releaseVersion();
+                if (!expectedVersion.equals(check.relayVersion())) {
+                    throw new VpsSetupException("deployed Relay version mismatch: expected "
+                            + expectedVersion + ", got "
+                            + (check.relayVersion().isEmpty() ? "unknown" : check.relayVersion()));
+                }
+            }
 
-            if (relayStore != null) relayStore.saveRelay(relay, relay.profileKey());
+            if (relayStore != null && relayStore.saveRelay(relay, relay.profileKey()) == null) {
+                throw new VpsSetupException("VPS Relay verified, but settings could not be saved");
+            }
+            if (!check.warning().isEmpty()) {
+                DiagnosticsLog.record("VPS Relay production ready; test environment advisory: "
+                        + check.warning());
+            }
             progress(listener, VpsSetupProgress.Stage.SAVE, 100,
-                    "Relay проверен и сохранён в профиле");
+                    check.warning().isEmpty()
+                            ? "Relay проверен и сохранён в профиле"
+                            : "Relay готов для обычного Telegram; тестовая среда частично недоступна");
             return relay;
         } catch (VpsSetupException e) {
-            throw e;
+            throw backupCompleted
+                    ? rollbackAfterFailure(request, listener, transactionId, e) : e;
         } catch (Exception e) {
-            rollback(request, listener);
-            throw new VpsSetupException(e.getMessage(), e);
+            VpsSetupException failure = new VpsSetupException(e.getMessage(), e);
+            throw backupCompleted
+                    ? rollbackAfterFailure(request, listener, transactionId, failure) : failure;
         }
     }
 
@@ -88,13 +110,24 @@ final class VpsAutoSetupWizard {
         return sshClient.execute(request.sshCredentials(), stage, "sh -s", script, timeoutMs);
     }
 
-    private void rollback(VpsSetupRequest request, Listener listener) {
+    private VpsSetupException rollbackAfterFailure(VpsSetupRequest request, Listener listener,
+                                                   String transactionId,
+                                                   VpsSetupException original) {
         try {
             progress(listener, VpsSetupProgress.Stage.ROLLBACK, 95,
                     "Ошибка проверки, выполняется rollback");
             execute(request, VpsSetupProgress.Stage.ROLLBACK,
-                    VpsSetupScripts.rollback(), ROLLBACK_TIMEOUT_MS);
-        } catch (Exception ignored) {
+                    VpsSetupScripts.rollback(transactionId), ROLLBACK_TIMEOUT_MS);
+            return original;
+        } catch (Exception rollbackError) {
+            String detail = rollbackError.getMessage() == null
+                    ? rollbackError.getClass().getSimpleName() : rollbackError.getMessage();
+            progress(listener, VpsSetupProgress.Stage.ROLLBACK, 95,
+                    "ROLLBACK_FAILED: " + detail);
+            VpsSetupException combined = new VpsSetupException(
+                    original.getMessage() + "; ROLLBACK_FAILED: " + detail, original);
+            combined.addSuppressed(rollbackError);
+            return combined;
         }
     }
 

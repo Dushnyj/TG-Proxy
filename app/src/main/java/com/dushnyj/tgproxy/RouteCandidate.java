@@ -6,6 +6,7 @@ final class RouteCandidate {
     private final RouteType type;
     private final int dc;
     private final boolean media;
+    private final boolean test;
     private final String endpoint;
     private final int port;
     private final boolean enabled;
@@ -13,9 +14,15 @@ final class RouteCandidate {
 
     private RouteCandidate(RouteType type, int dc, boolean media, String endpoint,
                            int port, boolean enabled, String disabledReason) {
+        this(type, dc, media, false, endpoint, port, enabled, disabledReason);
+    }
+
+    private RouteCandidate(RouteType type, int dc, boolean media, boolean test,
+                           String endpoint, int port, boolean enabled, String disabledReason) {
         this.type = type;
         this.dc = dc;
         this.media = media;
+        this.test = test;
         this.endpoint = normalize(endpoint);
         this.port = port;
         this.enabled = enabled;
@@ -23,22 +30,42 @@ final class RouteCandidate {
     }
 
     static RouteCandidate directWs(int dc, boolean media, String targetIp) {
-        return new RouteCandidate(RouteType.DIRECT_WS, dc, media, targetIp, 443,
+        return directWs(dc, media, false, targetIp);
+    }
+
+    static RouteCandidate directWs(int dc, boolean media, boolean test, String targetIp) {
+        return new RouteCandidate(RouteType.DIRECT_WS, dc, media, test, targetIp, 443,
                 !normalize(targetIp).isEmpty(), "");
     }
 
     static RouteCandidate publicCloudflare(int dc, String label) {
-        return new RouteCandidate(RouteType.PUBLIC_CLOUDFLARE, dc, false, label, 443,
+        return publicCloudflare(dc, false, label);
+    }
+
+    static RouteCandidate publicCloudflare(int dc, boolean media, String label) {
+        return new RouteCandidate(RouteType.PUBLIC_CLOUDFLARE, dc, media, label, 443,
                 true, "");
     }
 
     static RouteCandidate customCloudflare(int dc, String label) {
-        return new RouteCandidate(RouteType.CUSTOM_CLOUDFLARE, dc, false, label, 443,
+        return customCloudflare(dc, false, label);
+    }
+
+    static RouteCandidate customCloudflare(int dc, boolean media, String label) {
+        return new RouteCandidate(RouteType.CUSTOM_CLOUDFLARE, dc, media, label, 443,
                 true, "");
     }
 
     static RouteCandidate worker(int dc, String domain) {
-        return new RouteCandidate(RouteType.WORKER, dc, false, domain, 443,
+        return worker(dc, false, domain);
+    }
+
+    static RouteCandidate worker(int dc, boolean media, String domain) {
+        return worker(dc, media, false, domain);
+    }
+
+    static RouteCandidate worker(int dc, boolean media, boolean test, String domain) {
+        return new RouteCandidate(RouteType.WORKER, dc, media, test, domain, 443,
                 !normalize(domain).isEmpty(), "");
     }
 
@@ -47,8 +74,13 @@ final class RouteCandidate {
     }
 
     static RouteCandidate vpsRelay(String name, String host, int port, int dc, boolean media) {
+        return vpsRelay(name, host, port, dc, media, false);
+    }
+
+    static RouteCandidate vpsRelay(String name, String host, int port, int dc, boolean media,
+                                   boolean test) {
         boolean configured = !normalize(host).isEmpty() && port > 0 && port <= 65535;
-        return new RouteCandidate(RouteType.VPS_RELAY, dc, media,
+        return new RouteCandidate(RouteType.VPS_RELAY, dc, media, test,
                 configured ? host : name, port, configured,
                 configured ? "" : "vps relay is not configured");
     }
@@ -67,6 +99,10 @@ final class RouteCandidate {
 
     boolean media() {
         return media;
+    }
+
+    boolean test() {
+        return test;
     }
 
     String endpoint() {
@@ -94,8 +130,9 @@ final class RouteCandidate {
 
     String key() {
         String scope = dc > 0 ? ":dc" + dc : "";
+        String testScope = test ? ":test" : "";
         String mediaScope = media ? ":media" : "";
-        return type.id() + scope + mediaScope;
+        return type.id() + scope + testScope + mediaScope;
     }
 
     String displayName() {

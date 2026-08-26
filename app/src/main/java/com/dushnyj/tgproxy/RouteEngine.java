@@ -6,9 +6,13 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class RouteEngine {
     private static final int HYSTERESIS_SCORE = 120;
+    private final ConcurrentHashMap<String, AtomicLong> halfOpenLeaseUntil =
+            new ConcurrentHashMap<>();
 
     RoutePlan plan(Settings settings, int dc, boolean media, String currentRouteKey,
                    Map<String, RouteStats> statsByRoute, long nowMs) {
@@ -21,13 +25,15 @@ final class RouteEngine {
         if (available.isEmpty()) return new RoutePlan(Collections.emptyList(), null, "");
 
         Map<String, Integer> order = orderIndex(available);
-        RouteCandidate best = Collections.max(available,
-                Comparator.comparingInt(candidate -> score(candidate, order, statsByRoute)));
+        Comparator<RouteCandidate> scoreComparator = (left, right) -> Integer.compare(
+                score(left, order, statsByRoute), score(right, order, statsByRoute));
+        RouteCandidate best = Collections.max(available, scoreComparator);
         RouteCandidate current = findByKey(available, currentRouteKey);
         RouteCandidate selected = chooseWithHysteresis(best, current, order, statsByRoute);
 
         ArrayList<RouteCandidate> ordered = new ArrayList<>(available);
-        ordered.sort((left, right) -> {
+        Collections.sort(ordered, (left, right) -> {
+            if (left.key().equals(right.key())) return 0;
             if (left.key().equals(selected.key())) return -1;
             if (right.key().equals(selected.key())) return 1;
             return Integer.compare(score(right, order, statsByRoute),
@@ -46,39 +52,42 @@ final class RouteEngine {
     List<RouteCandidate> buildCandidates(Settings settings, int dc, boolean media) {
         Settings s = settings == null ? Settings.builder().build() : settings;
         if (!MtProtoConfig.isValidDc(dc)) return Collections.emptyList();
-        boolean knownRawTelegramDc = MtProtoConfig.relayDcRules().containsKey(dc);
+        boolean knownRawTelegramDc = (s.testDc
+                ? MtProtoConfig.testDcRules() : MtProtoConfig.relayDcRules()).containsKey(dc);
         boolean hasDirectMapping = s.dcRedirects.containsKey(dc);
-        if (!knownRawTelegramDc && !hasDirectMapping) return Collections.emptyList();
+        if (!knownRawTelegramDc && !hasDirectMapping && !s.vpsRelayEnabled) {
+            return Collections.emptyList();
+        }
 
         ArrayList<RouteCandidate> direct = new ArrayList<>();
         String targetIp = s.dcRedirects.get(dc);
         if (targetIp != null && TgRoutePolicy.shouldUseDirectWs(dc, media, s.dcRedirects)) {
-            direct.add(RouteCandidate.directWs(dc, media, targetIp));
+            direct.add(RouteCandidate.directWs(dc, media, s.testDc, targetIp));
         }
 
         ArrayList<RouteCandidate> vps = new ArrayList<>();
-        if (s.vpsRelayEnabled && knownRawTelegramDc) {
+        if (s.vpsRelayEnabled) {
             vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort,
-                    dc, media));
+                    dc, media, s.testDc));
         }
 
         ArrayList<RouteCandidate> worker = new ArrayList<>();
         if (!s.workerDomains.isEmpty() && knownRawTelegramDc) {
-            worker.add(RouteCandidate.worker(dc, s.workerDomains.get(0)));
+            worker.add(RouteCandidate.worker(dc, media, s.testDc, s.workerDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> customCf = new ArrayList<>();
-        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+        if (!s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
                 && !s.customCfDomains.isEmpty()
                 && knownRawTelegramDc) {
-            customCf.add(RouteCandidate.customCloudflare(dc, s.customCfDomains.get(0)));
+            customCf.add(RouteCandidate.customCloudflare(dc, media, s.customCfDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> publicCf = new ArrayList<>();
-        if (!MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+        if (!s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
                 && !s.publicCfDomains.isEmpty()
                 && knownRawTelegramDc) {
-            publicCf.add(RouteCandidate.publicCloudflare(dc, "public-cf"));
+            publicCf.add(RouteCandidate.publicCloudflare(dc, media, "public-cf"));
         }
 
         ArrayList<RouteCandidate> result = new ArrayList<>();
@@ -139,15 +148,46 @@ final class RouteEngine {
                                                      Map<String, RouteStats> statsByRoute,
                                                      long nowMs) {
         ArrayList<RouteCandidate> result = new ArrayList<>();
+        RouteCandidate earliestHalfOpen = null;
+        long earliestCooldown = Long.MAX_VALUE;
         if (candidates == null) return result;
         for (RouteCandidate candidate : candidates) {
             if (candidate == null || !candidate.enabled()) continue;
             RouteStats stats = statsByRoute.get(candidate.key());
             if (stats != null) stats.pruneExpired(nowMs);
-            if (stats != null && stats.isCoolingDown(nowMs)) continue;
+            if (stats != null && stats.isCoolingDown(nowMs)) {
+                long until = stats.cooldownUntilMs();
+                if (until < earliestCooldown) {
+                    earliestCooldown = until;
+                    earliestHalfOpen = candidate;
+                }
+                continue;
+            }
             result.add(candidate);
         }
+        // During a complete blackout allow exactly one early probe. Its lease lasts until the
+        // selected route's cooldown expiry, so a Telegram reconnect burst cannot hammer the
+        // same failed endpoint from dozens of simultaneous local sessions.
+        if (result.isEmpty() && earliestHalfOpen != null
+                && claimHalfOpenLease(earliestHalfOpen.key(), nowMs, earliestCooldown)) {
+            result.add(earliestHalfOpen);
+        }
         return result;
+    }
+
+    private boolean claimHalfOpenLease(String routeKey, long nowMs, long cooldownUntilMs) {
+        AtomicLong lease = halfOpenLeaseUntil.get(routeKey);
+        if (lease == null) {
+            AtomicLong created = new AtomicLong();
+            AtomicLong existing = halfOpenLeaseUntil.putIfAbsent(routeKey, created);
+            lease = existing == null ? created : existing;
+        }
+        while (true) {
+            long current = lease.get();
+            if (current > nowMs) return false;
+            long next = Math.max(nowMs + 1_000L, cooldownUntilMs);
+            if (lease.compareAndSet(current, next)) return true;
+        }
     }
 
     private int score(RouteCandidate candidate, Map<String, Integer> order,
@@ -187,6 +227,7 @@ final class RouteEngine {
         private final String vpsRelayName;
         private final String vpsRelayHost;
         private final int vpsRelayPort;
+        private final boolean testDc;
 
         private Settings(Builder builder) {
             this.networkProfile = builder.networkProfile == null
@@ -202,6 +243,7 @@ final class RouteEngine {
             this.vpsRelayName = builder.vpsRelayName;
             this.vpsRelayHost = builder.vpsRelayHost;
             this.vpsRelayPort = builder.vpsRelayPort;
+            this.testDc = builder.testDc;
         }
 
         static Builder builder() {
@@ -256,6 +298,7 @@ final class RouteEngine {
             private String vpsRelayName = "";
             private String vpsRelayHost = "";
             private int vpsRelayPort;
+            private boolean testDc;
 
             Builder networkProfile(NetworkProfile networkProfile) {
                 this.networkProfile = networkProfile;
@@ -299,6 +342,11 @@ final class RouteEngine {
                 this.vpsRelayName = name;
                 this.vpsRelayHost = host;
                 this.vpsRelayPort = port;
+                return this;
+            }
+
+            Builder testDc(boolean value) {
+                this.testDc = value;
                 return this;
             }
 

@@ -13,19 +13,33 @@ final class VpsRelayCheckResult {
     private final Status status;
     private final String message;
     private final String routeReport;
+    private final String relayVersion;
+    private final String warning;
 
-    private VpsRelayCheckResult(Status status, String message, String routeReport) {
+    private VpsRelayCheckResult(Status status, String message, String routeReport,
+                                String relayVersion, String warning) {
         this.status = status == null ? Status.UNAVAILABLE : status;
         this.message = message == null ? "" : message;
         this.routeReport = routeReport == null ? "" : routeReport;
+        this.relayVersion = relayVersion == null ? "" : relayVersion.trim();
+        this.warning = warning == null ? "" : warning.trim();
     }
 
     static VpsRelayCheckResult of(Status status, String message) {
-        return new VpsRelayCheckResult(status, message, "");
+        return new VpsRelayCheckResult(status, message, "", "", "");
     }
 
     static VpsRelayCheckResult ok(String routeReport) {
-        return new VpsRelayCheckResult(Status.OK, "relay is available", routeReport);
+        return ok(routeReport, "");
+    }
+
+    static VpsRelayCheckResult ok(String routeReport, String relayVersion) {
+        return ok(routeReport, relayVersion, "");
+    }
+
+    static VpsRelayCheckResult ok(String routeReport, String relayVersion, String warning) {
+        return new VpsRelayCheckResult(Status.OK, "relay is available", routeReport,
+                relayVersion, warning);
     }
 
     Status status() {
@@ -38,5 +52,13 @@ final class VpsRelayCheckResult {
 
     String routeReport() {
         return routeReport;
+    }
+
+    String relayVersion() {
+        return relayVersion;
+    }
+
+    String warning() {
+        return warning;
     }
 }

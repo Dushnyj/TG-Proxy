@@ -27,6 +27,16 @@ public class MtProtoConfigTest {
     }
 
     @Test
+    public void validatesRawAndTelegramDdSecretsWithoutGeneratingFallbacks() {
+        String raw = "0123456789abcdef0123456789abcdef";
+
+        assertTrue(MtProtoConfig.isValidSecretHex(raw));
+        assertTrue(MtProtoConfig.isValidSecretHex("dd" + raw));
+        assertEquals(false, MtProtoConfig.isValidSecretHex(""));
+        assertEquals(false, MtProtoConfig.isValidSecretHex("not-a-secret"));
+    }
+
+    @Test
     public void parsesFlowsealDcRulesAndKeepsOrder() {
         Map<Integer, String> rules = MtProtoConfig.parseDcRules(
                 "2:149.154.167.220\n\n4:149.154.167.220");

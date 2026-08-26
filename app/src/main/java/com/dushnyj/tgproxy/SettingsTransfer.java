@@ -16,6 +16,7 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 final class SettingsTransfer {
+    static final int MAX_IMPORT_CHARS = 1_048_576;
     private static final String PLAIN_HEADER = "TGPROXY-SETTINGS-v1";
     private static final String ENC_HEADER = "TGPROXY-ENC-v1";
     private static final String DEEPLINK_PREFIX = "tgproxy://import?data=";
@@ -59,13 +60,29 @@ final class SettingsTransfer {
     }
 
     static String exportEncrypted(Data data, String password) throws SettingsTransferException {
-        if (password == null || password.trim().isEmpty()) {
-            throw new SettingsTransferException("password is required");
-        }
         Data clean = data == null ? Data.builder().build() : data;
         LinkedHashMap<String, String> fields = baseFields(Kind.FULL_PROFILE, clean);
         fields.put("mtprotoSecret", clean.mtProtoSecret());
         putRelay(fields, clean.relayConfig(), true);
+        return encrypt(fields, password);
+    }
+
+    static String exportEncryptedVpsRelay(VpsRelayConfig relay, String password)
+            throws SettingsTransferException {
+        if (relay == null || !relay.isUsable()) {
+            throw new SettingsTransferException("relay is not configured");
+        }
+        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+        fields.put("kind", Kind.VPS_RELAY.wireName);
+        putRelay(fields, relay, true);
+        return encrypt(fields, password);
+    }
+
+    private static String encrypt(LinkedHashMap<String, String> fields, String password)
+            throws SettingsTransferException {
+        if (password == null || password.trim().isEmpty()) {
+            throw new SettingsTransferException("password is required");
+        }
         String plain = serialize(fields);
         try {
             byte[] salt = randomBytes(16);
@@ -84,18 +101,31 @@ final class SettingsTransfer {
     }
 
     static Imported parse(String raw, String password) throws SettingsTransferException {
+        requireAcceptableSize(raw);
         String normalized = raw == null ? "" : raw.trim();
         String embeddedDeepLink = extractDeepLink(normalized);
         if (!embeddedDeepLink.isEmpty()) return parseDeepLink(embeddedDeepLink, password);
         if (normalized.startsWith(ENC_HEADER)) {
-            return parse(decrypt(normalized, password), "");
+            return parsePlain(decrypt(normalized, password), true);
         }
+        return parsePlain(normalized, false);
+    }
+
+    private static Imported parsePlain(String normalized, boolean allowFullProfile)
+            throws SettingsTransferException {
+        requireAcceptableSize(normalized);
         if (!normalized.startsWith(PLAIN_HEADER)) {
             throw new SettingsTransferException("unsupported transfer format");
         }
         LinkedHashMap<String, String> fields = parseFields(normalized, PLAIN_HEADER);
         Kind kind = Kind.fromWire(fields.get("kind"));
-        return new Imported(kind, Data.fromFields(fields));
+        if (kind == Kind.FULL_PROFILE && !allowFullProfile) {
+            throw new SettingsTransferException("full profile must be encrypted");
+        }
+        validateFieldSchema(kind, fields);
+        Data data = Data.fromFields(fields, kind);
+        validateImportedData(kind, data);
+        return new Imported(kind, data);
     }
 
     private static String extractDeepLink(String raw) {
@@ -122,12 +152,15 @@ final class SettingsTransfer {
     }
 
     static Imported parseDeepLink(String raw, String password) throws SettingsTransferException {
+        requireAcceptableSize(raw);
         String value = raw == null ? "" : raw.trim();
         if (!value.startsWith(DEEPLINK_PREFIX)) {
             throw new SettingsTransferException("unsupported deeplink");
         }
         try {
-            return parse(URLDecoder.decode(value.substring(DEEPLINK_PREFIX.length()), "UTF-8"), password);
+            String decoded = URLDecoder.decode(value.substring(DEEPLINK_PREFIX.length()), "UTF-8");
+            requireAcceptableSize(decoded);
+            return parse(decoded, password);
         } catch (SettingsTransferException e) {
             throw e;
         } catch (Exception e) {
@@ -170,6 +203,9 @@ final class SettingsTransfer {
             byte[] salt = unhex(fields.get("salt"));
             byte[] iv = unhex(fields.get("iv"));
             byte[] data = unhex(fields.get("data"));
+            if (salt.length != 16 || iv.length != 12 || data.length < 16) {
+                throw new IllegalArgumentException("invalid encrypted profile envelope");
+            }
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key(password, salt), new GCMParameterSpec(GCM_TAG_BITS, iv));
             return new String(cipher.doFinal(data), "UTF-8");
@@ -196,15 +232,33 @@ final class SettingsTransfer {
         return out.toString();
     }
 
-    private static LinkedHashMap<String, String> parseFields(String raw, String header) {
+    private static LinkedHashMap<String, String> parseFields(String raw, String header)
+            throws SettingsTransferException {
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
-        String[] lines = raw.split("\\n");
+        String[] lines = raw.split("\\n", -1);
+        if (lines.length == 0 || !stripCarriageReturn(lines[0]).equals(header)) {
+            throw new SettingsTransferException("unsupported transfer format");
+        }
         for (int i = 1; i < lines.length; i++) {
-            int eq = lines[i].indexOf('=');
-            if (eq <= 0) continue;
-            fields.put(lines[i].substring(0, eq), decode(lines[i].substring(eq + 1)));
+            String line = stripCarriageReturn(lines[i]);
+            if (line.isEmpty()) continue;
+            int eq = line.indexOf('=');
+            if (eq <= 0) throw new SettingsTransferException("damaged transfer field");
+            String key = line.substring(0, eq);
+            if (!key.matches("[A-Za-z0-9._-]{1,64}") || fields.containsKey(key)
+                    || fields.size() >= 64) {
+                throw new SettingsTransferException("damaged transfer field");
+            }
+            fields.put(key, decode(line.substring(eq + 1)));
         }
         return fields;
+    }
+
+    private static String stripCarriageReturn(String value) {
+        if (value != null && value.endsWith("\r")) {
+            return value.substring(0, value.length() - 1);
+        }
+        return value == null ? "" : value;
     }
 
     private static byte[] randomBytes(int length) {
@@ -218,9 +272,12 @@ final class SettingsTransfer {
         catch (Exception ignored) { return ""; }
     }
 
-    private static String decode(String value) {
-        try { return URLDecoder.decode(value == null ? "" : value, "UTF-8"); }
-        catch (Exception ignored) { return ""; }
+    private static String decode(String value) throws SettingsTransferException {
+        try {
+            return URLDecoder.decode(value == null ? "" : value, "UTF-8");
+        } catch (Exception error) {
+            throw new SettingsTransferException("damaged transfer encoding", error);
+        }
     }
 
     private static String hex(byte[] bytes) {
@@ -233,11 +290,61 @@ final class SettingsTransfer {
 
     private static byte[] unhex(String raw) {
         String value = raw == null ? "" : raw.trim();
+        if ((value.length() & 1) != 0 || !value.matches("[0-9a-fA-F]*")) {
+            throw new IllegalArgumentException("invalid hex value");
+        }
         byte[] out = new byte[value.length() / 2];
         for (int i = 0; i < out.length; i++) {
             out[i] = (byte) Integer.parseInt(value.substring(i * 2, i * 2 + 2), 16);
         }
         return out;
+    }
+
+    private static void requireAcceptableSize(String raw) throws SettingsTransferException {
+        if (raw != null && raw.length() > MAX_IMPORT_CHARS) {
+            throw new SettingsTransferException("transfer payload is too large");
+        }
+    }
+
+    private static void validateImportedData(Kind kind, Data data)
+            throws SettingsTransferException {
+        VpsRelayConfig relay = data == null ? null : data.relayConfig();
+        if (kind == Kind.VPS_RELAY && (relay == null || !relay.isUsable())) {
+            throw new SettingsTransferException("invalid VPS Relay profile");
+        }
+        if (kind == Kind.FULL_PROFILE) {
+            String secret = data.mtProtoSecret();
+            if (secret == null || !secret.matches("(?i)(?:dd)?[0-9a-f]{32}")) {
+                throw new SettingsTransferException("invalid MTProto secret");
+            }
+            if (relay != null && relay.isEnabled() && !relay.isUsable()) {
+                throw new SettingsTransferException("invalid VPS Relay profile");
+            }
+        }
+    }
+
+    private static void validateFieldSchema(Kind kind, Map<String, String> fields)
+            throws SettingsTransferException {
+        String[] base = {"kind", "profileName", "routePreference", "customIp", "customPort",
+                "dcRules", "cfMode", "cfDomains", "workerDomains"};
+        String[] relay = {"relay.enabled", "relay.name", "relay.host", "relay.port",
+                "relay.tls", "relay.path", "relay.token"};
+        for (String key : fields.keySet()) {
+            boolean allowed = contains(base, key);
+            if (kind == Kind.VPS_RELAY) allowed = "kind".equals(key) || contains(relay, key);
+            else if (kind == Kind.FULL_PROFILE) {
+                allowed = allowed || "mtprotoSecret".equals(key) || contains(relay, key);
+            }
+            if (!allowed) {
+                throw new SettingsTransferException("field is not allowed for " + kind.wireName);
+            }
+        }
+    }
+
+    private static boolean contains(String[] values, String wanted) {
+        if (values == null || wanted == null) return false;
+        for (String value : values) if (wanted.equals(value)) return true;
+        return false;
     }
 
     static final class Imported {
@@ -288,27 +395,33 @@ final class SettingsTransfer {
             return new Builder();
         }
 
-        static Data fromFields(Map<String, String> fields) {
+        static Data fromFields(Map<String, String> fields, Kind kind) {
             if (fields == null) fields = new LinkedHashMap<>();
+            VpsRelayConfig relay = kind == Kind.SAFE_PROFILE
+                    ? VpsRelayConfig.disabled()
+                    : VpsRelayConfig.manual(
+                    "1".equals(fields.get("relay.enabled")),
+                    fields.get("relay.name"),
+                    fields.get("relay.host"),
+                    intValue(fields.get("relay.port"), 443),
+                    "1".equals(fields.get("relay.tls")),
+                    fields.get("relay.path"),
+                    fields.get("relay.token"),
+                    "");
             return builder()
                     .profileName(fields.get("profileName"))
                     .routePreference(routePreference(fields.get("routePreference")))
                     .customIp(fields.get("customIp"))
                     .customPort(intValue(fields.get("customPort"), MtProtoConfig.DEFAULT_PORT))
-                    .mtProtoSecret(fields.get("mtprotoSecret"))
+                    // SAFE_PROFILE is plaintext and must not be able to smuggle a secret by
+                    // appending an otherwise well-formed extra field.
+                    .mtProtoSecret(kind == Kind.FULL_PROFILE
+                            ? fields.get("mtprotoSecret") : "")
                     .dcRules(fields.get("dcRules"))
                     .cfMode(fields.get("cfMode"))
                     .cfDomains(fields.get("cfDomains"))
                     .workerDomains(fields.get("workerDomains"))
-                    .relayConfig(VpsRelayConfig.manual(
-                            "1".equals(fields.get("relay.enabled")),
-                            fields.get("relay.name"),
-                            fields.get("relay.host"),
-                            intValue(fields.get("relay.port"), 443),
-                            "1".equals(fields.get("relay.tls")),
-                            fields.get("relay.path"),
-                            fields.get("relay.token"),
-                            ""))
+                    .relayConfig(relay)
                     .build();
         }
 

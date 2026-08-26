@@ -17,6 +17,10 @@ public final class MtProtoConfig {
                     + "4:149.154.167.91\n"
                     + "5:149.154.171.5\n"
                     + "203:91.105.192.100";
+    public static final String DEFAULT_TEST_DC_RULES =
+            "1:149.154.175.10\n"
+                    + "2:149.154.167.40\n"
+                    + "3:149.154.175.117";
     public static final int DEFAULT_BUFFER_KB = 256;
     public static final int DEFAULT_POOL_SIZE = 4;
 
@@ -38,6 +42,15 @@ public final class MtProtoConfig {
             return generateSecretHex();
         }
         return secret;
+    }
+
+    public static boolean isValidSecretHex(String value) {
+        if (value == null) return false;
+        String secret = value.trim().toLowerCase(Locale.US);
+        if (secret.startsWith("dd") && secret.length() == 34) {
+            secret = secret.substring(2);
+        }
+        return secret.matches("[0-9a-f]{32}");
     }
 
     public static String telegramProxyLink(String host, int port, String secretHex) {
@@ -63,6 +76,10 @@ public final class MtProtoConfig {
 
     public static Map<Integer, String> relayDcRules() {
         return parseDcRules(DEFAULT_RELAY_DC_RULES, false, false);
+    }
+
+    public static Map<Integer, String> testDcRules() {
+        return parseDcRules(DEFAULT_TEST_DC_RULES, false, false);
     }
 
     private static Map<Integer, String> parseDcRules(String text, boolean allowDefault,

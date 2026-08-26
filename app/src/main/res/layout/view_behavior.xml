@@ -25,7 +25,8 @@
         android:includeFontPadding="false"
         android:text="@string/smart_sleep"
         android:textColor="@color/text_primary"
-        android:textSize="13sp" />
+        android:textSize="13sp"
+        android:visibility="gone" />
 
     <CheckBox
         android:id="@+id/cb_autostart_open"
@@ -54,4 +55,23 @@
         android:text="@string/autostart_boot_note"
         android:textColor="@color/text_secondary"
         android:textSize="10sp" />
+
+    <TextView
+        android:id="@+id/tv_background_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:includeFontPadding="false"
+        android:text="@string/background_status_checking"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/btn_background_setup"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="6dp"
+        android:textAllCaps="false"
+        android:text="@string/background_setup"
+        android:textSize="13sp" />
 </LinearLayout>

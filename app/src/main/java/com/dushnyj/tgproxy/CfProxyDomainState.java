@@ -38,7 +38,7 @@ final class CfProxyDomainState {
         for (String raw : domains) {
             String domain = normalize(raw);
             if (domain.isEmpty() || normalized.contains(domain)) continue;
-            if (isCoolingDown(domain, nowMs)) continue;
+            if (isCoolingDown(domain, profile, nowMs)) continue;
             normalized.add(domain);
         }
 
@@ -58,7 +58,7 @@ final class CfProxyDomainState {
         String normalized = normalize(domain);
         if (normalized.isEmpty()) return;
         activeDomainByProfile.put(normalizeProfile(profile), normalized);
-        tooManyRequestsUntil.remove(normalized);
+        tooManyRequestsUntil.remove(domainProfileKey(normalized, profile));
     }
 
     synchronized String activeDomain(String profile) {
@@ -73,7 +73,8 @@ final class CfProxyDomainState {
     synchronized void markTooManyRequests(String domain, String profile, long nowMs) {
         String normalized = normalize(domain);
         if (normalized.isEmpty()) return;
-        tooManyRequestsUntil.put(normalized, nowMs + tooManyRequestsCooldownMs);
+        tooManyRequestsUntil.put(domainProfileKey(normalized, profile),
+                nowMs + tooManyRequestsCooldownMs);
         String normalizedProfile = normalizeProfile(profile);
         if (normalized.equals(activeDomainByProfile.get(normalizedProfile))) {
             activeDomainByProfile.remove(normalizedProfile);
@@ -85,11 +86,12 @@ final class CfProxyDomainState {
         return message != null && message.contains("429");
     }
 
-    private boolean isCoolingDown(String domain, long nowMs) {
-        Long until = tooManyRequestsUntil.get(domain);
+    private boolean isCoolingDown(String domain, String profile, long nowMs) {
+        String key = domainProfileKey(domain, profile);
+        Long until = tooManyRequestsUntil.get(key);
         if (until == null) return false;
         if (until <= nowMs) {
-            tooManyRequestsUntil.remove(domain);
+            tooManyRequestsUntil.remove(key);
             return false;
         }
         return true;
@@ -102,5 +104,9 @@ final class CfProxyDomainState {
     private static String normalizeProfile(String raw) {
         String profile = normalize(raw);
         return profile.isEmpty() ? PROFILE_DEFAULT : profile;
+    }
+
+    private static String domainProfileKey(String domain, String profile) {
+        return normalizeProfile(profile) + "|" + normalize(domain);
     }
 }

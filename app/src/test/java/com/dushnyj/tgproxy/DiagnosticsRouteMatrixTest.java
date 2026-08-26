@@ -12,6 +12,22 @@ import static org.junit.Assert.assertTrue;
 
 public class DiagnosticsRouteMatrixTest {
     @Test
+    public void relayAddsEverySupportedDcEvenWhenDirectRulesOnlyContainTwo() {
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .dcRedirects(MtProtoConfig.parseDcRules(MtProtoConfig.DEFAULT_DC_RULES))
+                .vpsRelay("Relay", "relay.example", 443)
+                .build();
+
+        String report = DiagnosticsRouteMatrix.toReportText(
+                DiagnosticsRouteMatrix.build(settings, new LinkedHashMap<>(), 1_000L));
+
+        assertTrue(report.contains("DC1 main"));
+        assertTrue(report.contains("DC3 media"));
+        assertTrue(report.contains("DC5 main"));
+        assertTrue(report.contains("DC203 media"));
+    }
+
+    @Test
     public void matrixShowsConfiguredDcMainMediaAndEveryRouteType() {
         long nowMs = 1_700_000_000_000L;
         Map<Integer, String> dcRules = new LinkedHashMap<>();

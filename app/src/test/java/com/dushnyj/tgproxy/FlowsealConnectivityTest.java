@@ -15,6 +15,7 @@ public class FlowsealConnectivityTest {
         assertEquals(6, cases.size());
         assertEquals("kws1.example.com", cases.get(0).connectHost);
         assertEquals("kws203.example.com", cases.get(5).connectHost);
+        assertEquals("kws203.example.com", cases.get(5).mediaConnectHost);
         assertEquals("/apiws", cases.get(5).path);
     }
 
@@ -26,5 +27,6 @@ public class FlowsealConnectivityTest {
         assertEquals(6, cases.size());
         assertEquals("worker.example", cases.get(5).connectHost);
         assertEquals("/apiws?dst=91.105.192.100&dc=203&media=0", cases.get(5).path);
+        assertEquals("/apiws?dst=91.105.192.100&dc=203&media=1", cases.get(5).mediaPath);
     }
 }

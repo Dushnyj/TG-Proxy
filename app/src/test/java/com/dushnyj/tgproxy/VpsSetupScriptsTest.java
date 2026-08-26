@@ -162,6 +162,14 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("\"2\": \"149.154.167.51\""));
         assertTrue(script.contains("\"4\": \"149.154.167.91\""));
         assertTrue(script.contains("systemctl enable --now tgproxy-relay"));
+        assertTrue(script.contains("SHA256SUMS.txt"));
+        assertTrue(script.contains("sha256sum -c -"));
+        assertTrue(script.contains("-version"));
+        assertTrue(script.contains("-check-config"));
+        assertTrue(script.contains("\"idleTimeoutSec\": 0"));
+        assertTrue(script.contains("\"pingIntervalSec\": 25"));
+        assertTrue(script.contains("Restart=always"));
+        assertTrue(script.contains("StartLimitIntervalSec=0"));
         assertFalse(script.contains("ssh-secret"));
     }
 
@@ -187,6 +195,9 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("nginx -t"));
         assertTrue(script.contains("systemctl reload nginx"));
         assertTrue(script.contains("proxy_pass http://127.0.0.1:18080"));
+        assertTrue(script.contains("proxy_read_timeout 3600s"));
+        assertTrue(script.contains("proxy_send_timeout 3600s"));
+        assertTrue(script.contains("proxy_buffering off"));
         assertFalse(script.contains("ssh-secret"));
     }
 
@@ -218,13 +229,14 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
         assertTrue(script.contains("json.load"));
         assertTrue(script.contains("TOKEN_HASH"));
-        assertTrue(script.contains("relay_dc_map = {"));
-        assertTrue(script.contains("'2': '149.154.167.51'"));
-        assertTrue(script.contains("'203': '91.105.192.100'"));
-        assertTrue(script.contains("current == '149.154.167.220'"));
+        assertFalse(script.contains("relay_dc_map = {"));
+        assertTrue(script.contains("TOKEN_HASH=sha256:$(printf '%s' \"$TOKEN\""));
+        assertFalse(script.contains("-token \"$TOKEN\""));
         assertTrue(script.contains("chown root:tgproxy-relay \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("chmod 0640 \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("systemctl restart tgproxy-relay"));
+        assertTrue(script.contains("config.previous"));
+        assertTrue(script.contains("rollback_config"));
         assertTrue(script.indexOf("chmod 0640 \"$EXISTING_CONFIG\"")
                 < script.indexOf("systemctl restart tgproxy-relay"));
         assertFalse(script.contains("tar -xzf"));
@@ -280,7 +292,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("handle /apiws/version"));
         assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
         assertTrue(script.indexOf("TGPROXY-RELAY relay.example.com /apiws")
-                < script.indexOf("systemctl restart tgproxy-relay"));
+                > script.indexOf("systemctl restart tgproxy-relay"));
         assertFalse(script.contains("tar -xzf"));
         assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
         assertFalse(script.contains("ssh-secret"));
@@ -316,6 +328,16 @@ public class VpsSetupScriptsTest {
 
         assertTrue(script.contains("TG-Proxy-Relay-v1.0.0-linux-${RELAY_ARCH}.tar.gz"));
         assertTrue(script.contains("tar -xzf"));
+        assertTrue(script.contains("SHA256SUMS.txt"));
+        assertTrue(script.contains("sha256sum -c -"));
+        assertTrue(script.contains("rollback_relay"));
+        assertTrue(script.contains("relay_restart_failed_rolled_back"));
+        assertTrue(script.contains("websocket['pingIntervalSec'] = 25"));
+        assertTrue(script.contains("test_dc_map = telegram.get('testDcMap')"));
+        assertTrue(script.contains("if not str(test_dc_map.get(dc, '')).strip()"));
+        assertTrue(script.contains("if as_int(websocket.get('pingIntervalSec')) <= 0"));
+        assertTrue(script.contains("cfg['publicUrl'] = public_url"));
+        assertFalse(script.contains("-token \"$TOKEN\""));
         assertTrue(script.contains("install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay"));
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
         assertTrue(script.contains("json.load"));
@@ -515,6 +537,71 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("caddy reload --config \"$CADDY_TARGET\""));
         assertFalse(script.contains("systemctl reload nginx"));
         assertFalse(script.contains("ssh-secret"));
+    }
+
+    @Test
+    public void backupAndRollbackCoverCoreStateWithoutScanningUnrelatedSites() {
+        String transaction = "12345678-test-transaction";
+        String backup = VpsSetupScripts.backup(transaction);
+        String rollback = VpsSetupScripts.rollback(transaction);
+
+        assertTrue(backup.contains("$BACKUP_DIR/tgproxy-relay"));
+        assertFalse(backup.contains("find /etc/nginx/sites-enabled /etc/nginx/sites-available"));
+        assertFalse(backup.contains("find /etc/caddy /opt /srv /root /home"));
+        assertTrue(backup.contains("path-map.tsv"));
+        assertTrue(backup.contains("binary.absent"));
+        assertTrue(backup.contains("config.absent"));
+        assertTrue(backup.contains("service.absent"));
+        assertTrue(backup.contains("ufw.was-active"));
+        assertTrue(backup.contains("/etc/ufw/user.rules"));
+        assertTrue(backup.contains("opt-dir.absent"));
+        assertTrue(backup.contains("user.absent"));
+        assertTrue(backup.contains("txn-" + transaction));
+        assertTrue(rollback.contains("txn-" + transaction));
+        assertFalse(rollback.contains("ls -td /var/backups"));
+        assertTrue(rollback.contains("install -m 0755 \"$LATEST/tgproxy-relay\""));
+        assertTrue(rollback.contains("absent-paths.txt"));
+        assertTrue(rollback.contains("mutation-paths.txt"));
+        assertTrue(rollback.contains("$SUDO ufw reload"));
+        assertTrue(rollback.contains("$SUDO rm -rf -- /opt/tgproxy-relay"));
+        assertTrue(rollback.contains("$SUDO userdel tgproxy-relay"));
+        assertTrue(rollback.contains("cat \"$LATEST/path-map.tsv\""));
+        assertFalse(rollback.contains("for f in /etc/nginx/conf.d/tgproxy-relay-*.conf"));
+        assertFalse(rollback.contains("for f in /etc/nginx/snippets/tgproxy-relay-*.conf"));
+        assertTrue(rollback.contains("set -eu"));
+        assertTrue(rollback.contains("systemctl disable --now tgproxy-relay"));
+        assertTrue(rollback.contains("/var/lib/docker/volumes/*"));
+    }
+
+    @Test
+    public void transactionBackupTracksOnlyExactPlannedNginxMutations() {
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayHost("example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/private-ws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build();
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\narch=x86_64\ncurl=yes\ntar=yes\nnginx=yes\n"
+                        + "apache=no\ncaddy=no\nport_443=free\nport_18080=free\n"
+                        + "domain=example.com\ndomain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\ndomain_points_to_vps=yes\n"
+                        + "nginx_domain_match_count=0\ncert_exists=yes\n");
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        String backup = VpsSetupScripts.backup(
+                "12345678-exact-transaction", request, plan);
+
+        assertTrue(backup.contains(
+                "track_mutation '/etc/nginx/conf.d/tgproxy-relay-example_com.conf'"));
+        assertTrue(backup.contains("$BACKUP_DIR/absent-paths.txt"));
+        assertTrue(backup.contains("$BACKUP_DIR/reload-nginx"));
+        assertFalse(backup.contains("track_mutation '/etc/nginx/conf.d/tgproxy-relay-*.conf'"));
     }
 }
 

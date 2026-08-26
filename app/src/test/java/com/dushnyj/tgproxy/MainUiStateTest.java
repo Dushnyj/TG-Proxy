@@ -10,8 +10,8 @@ import static org.junit.Assert.assertTrue;
 
 public class MainUiStateTest {
     @Test
-    public void settingsAreLockedWhileProxyIsRunning() {
-        assertFalse(MainUiState.canOpenSettings(true));
+    public void settingsRemainAvailableWhileProxyIsRunning() {
+        assertTrue(MainUiState.canOpenSettings(true));
         assertTrue(MainUiState.canOpenSettings(false));
     }
 
@@ -72,9 +72,10 @@ public class MainUiStateTest {
     }
 
     @Test
-    public void realtimeIndicatorsUseShortRefreshIntervals() {
+    public void realtimeUiAndWatchdogDoNotSpamForegroundNotification() {
         assertEquals(1_000L, MainUiState.STATS_REFRESH_INTERVAL_MS);
-        assertEquals(1_000L, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
+        assertEquals(3_000L, MainUiState.WATCHDOG_INTERVAL_MS);
+        assertEquals(60_000L, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
         assertEquals(3_000L, MainUiState.AUTO_PING_INTERVAL_MS);
     }
 
@@ -85,18 +86,28 @@ public class MainUiStateTest {
     }
 
     @Test
-    public void failedAutoPingOverridesPreviousRoutePing() {
+    public void failedAutoPingFallsBackToVerifiedRoutePing() {
         RouteState routeState = RouteState.active(
                 RouteCandidate.publicCloudflare(2, "lovetrue.co.uk"),
                 "lovetrue.co.uk", 261, "stable");
 
-        assertEquals(MainUiState.PING_ERROR_MS, MainUiState.displayedPing(
+        assertEquals(261, MainUiState.displayedPing(
                 routeState,
-                routeState.key(),
+                MainUiState.routeIdentity(routeState),
                 MainUiState.PING_ERROR_MS,
                 10_000L,
                 10_500L));
         assertEquals("error", MainUiState.pingSummary(MainUiState.PING_ERROR_MS));
+    }
+
+    @Test
+    public void endpointChangeInvalidatesMeasuredPingForSameRouteKey() {
+        RouteCandidate route = RouteCandidate.publicCloudflare(2, "public");
+        RouteState first = RouteState.active(route, "first.example", 240, "stable");
+        RouteState second = RouteState.active(route, "second.example", 310, "stable");
+
+        assertEquals(310, MainUiState.displayedPing(
+                second, MainUiState.routeIdentity(first), 80, 10_000L, 10_500L));
     }
 
     @Test

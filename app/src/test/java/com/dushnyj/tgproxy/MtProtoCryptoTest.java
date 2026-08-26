@@ -57,6 +57,36 @@ public class MtProtoCryptoTest {
     }
 
     @Test
+    public void normalizesTelegramTestDcBeforeBuildingRelayInit() throws Exception {
+        byte[] init = clientInit(SECRET, (short) -10002,
+                MtProtoCrypto.PROTO_TAG_PADDED_INTERMEDIATE);
+
+        MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
+
+        assertNotNull(parsed);
+        assertEquals(-10002, parsed.dcRaw);
+        assertEquals(-2, parsed.relayDcRaw);
+        assertEquals(2, parsed.dc);
+        assertEquals(true, parsed.media);
+        assertEquals(true, parsed.test);
+    }
+
+    @Test
+    public void parsesFutureTestDcForVpsOnlyFallback() throws Exception {
+        byte[] init = clientInit(SECRET, (short) -10004,
+                MtProtoCrypto.PROTO_TAG_PADDED_INTERMEDIATE);
+
+        MtProtoCrypto.ClientHandshake parsed = MtProtoCrypto.parseClientHandshake(init, SECRET);
+
+        assertNotNull(parsed);
+        assertEquals(-10004, parsed.dcRaw);
+        assertEquals(-4, parsed.relayDcRaw);
+        assertEquals(4, parsed.dc);
+        assertEquals(true, parsed.media);
+        assertEquals(true, parsed.test);
+    }
+
+    @Test
     public void generatedRelayInitIsPlainObfuscatedInitForTelegramDc() throws Exception {
         byte[] relayInit = MtProtoCrypto.generateRelayInit(
                 MtProtoCrypto.PROTO_TAG_INTERMEDIATE, -2);

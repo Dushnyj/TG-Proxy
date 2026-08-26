@@ -51,6 +51,45 @@ public class VpsRelayConfigTest {
                 true, "", "token", "").isUsable());
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/apiws", "", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws\r\nInjected: yes", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws", "token\r\nInjected: yes", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws", "token with space", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws", "токен", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws?dst=unexpected", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws%", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws%XZ", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/healthz", "token", "").isUsable());
+        assertTrue(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/private%2Drelay", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws", repeat('t', 513), "").isUsable());
+    }
+
+    @Test
+    public void acceptsBracketedIpv6AndPastedAuthorityWithoutDuplicatingPort() {
+        VpsRelayConfig ipv6 = VpsRelayConfig.manual(true, "IPv6", "https://[2001:db8::1]:8443/apiws",
+                8443, true, "/apiws", "token", "");
+        VpsRelayConfig domain = VpsRelayConfig.manual(true, "Domain", "relay.example.com:8443",
+                8443, true, "/apiws", "token", "");
+
+        assertEquals("2001:db8::1", ipv6.host());
+        assertEquals("https://[2001:db8::1]:8443", ipv6.baseUrl());
+        assertEquals("relay.example.com", domain.host());
+        assertEquals("https://relay.example.com:8443", domain.baseUrl());
+    }
+
+    private static String repeat(char value, int count) {
+        StringBuilder out = new StringBuilder(count);
+        for (int i = 0; i < count; i++) out.append(value);
+        return out.toString();
     }
 }
 

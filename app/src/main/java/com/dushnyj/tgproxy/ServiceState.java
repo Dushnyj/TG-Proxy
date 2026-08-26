@@ -1,7 +1,7 @@
 package com.dushnyj.tgproxy;
 
 final class ServiceState {
-    static final long ROUTE_EVIDENCE_MAX_AGE_MS = 60_000L;
+    static final long ROUTE_EVIDENCE_MAX_AGE_MS = 5 * 60_000L;
 
     enum Status {
         STOPPED,

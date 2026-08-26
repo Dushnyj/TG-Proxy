@@ -26,7 +26,8 @@ final class ActiveRoutePingPlanner {
                 String[] domains = TgConstants.wsDomains(route.dc(), route.media());
                 if (domains.length > 0) {
                     targets.add(RoutePingTarget.websocket(route.endpoint(), domains[0],
-                            "/apiws", dc, media));
+                            route.test() ? "/apiws_test" : "/apiws", dc, media,
+                            route.test()));
                 }
                 break;
             case PUBLIC_CLOUDFLARE:
@@ -35,24 +36,30 @@ final class ActiveRoutePingPlanner {
                         ? route.endpoint() : routeState.activeEndpoint();
                 if (looksLikeDomain(activeDomain)) {
                     String host = "kws" + route.dc() + "." + activeDomain;
-                    targets.add(RoutePingTarget.websocket(host, host, "/apiws", dc, media));
+                    targets.add(RoutePingTarget.websocket(host, host,
+                            route.test() ? "/apiws_test" : "/apiws", dc, media,
+                            route.test()));
                 }
                 break;
             case WORKER:
-                if (!route.endpoint().isEmpty()) {
-                    String dst = dcRules == null ? "" : dcRules.get(dc);
+                String workerEndpoint = routeState.activeEndpoint().isEmpty()
+                        ? route.endpoint() : routeState.activeEndpoint();
+                if (!workerEndpoint.isEmpty()) {
+                    String dst = route.test()
+                            ? MtProtoConfig.testDcRules().get(dc)
+                            : (dcRules == null ? "" : dcRules.get(dc));
                     String path = dst == null || dst.trim().isEmpty()
                             ? "/apiws"
                             : "/apiws?dst=" + dst.trim() + "&dc=" + dc;
-                    targets.add(RoutePingTarget.websocket(route.endpoint(), route.endpoint(),
-                            path, dc, media));
+                    targets.add(RoutePingTarget.websocket(workerEndpoint, workerEndpoint,
+                            path, dc, media, route.test()));
                 }
                 break;
             case VPS_RELAY:
                 VpsRelayConfig relay = relayConfig == null
                         ? VpsRelayConfig.disabled() : relayConfig;
                 if (relay.isUsable()) {
-                    targets.add(RoutePingTarget.relay(relay, dc, media));
+                    targets.add(RoutePingTarget.relay(relay, dc, media, route.test()));
                 }
                 break;
             case TCP_FALLBACK:

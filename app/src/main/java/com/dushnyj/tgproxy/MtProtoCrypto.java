@@ -46,9 +46,13 @@ public final class MtProtoCrypto {
             short dcRaw = ByteBuffer.wrap(decrypted, DC_IDX_POS, 2)
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .getShort();
-            int dc = Math.abs((int) dcRaw);
+            int encodedDc = Math.abs((int) dcRaw);
+            boolean test = encodedDc >= 10_000;
+            int dc = test ? encodedDc - 10_000 : encodedDc;
             if (!MtProtoConfig.isValidDc(dc)) return null;
-            return new ClientHandshake((int) dcRaw, dc, dcRaw < 0, protoTag, clientPrekeyIv);
+            int relayDcRaw = dcRaw < 0 ? -dc : dc;
+            return new ClientHandshake((int) dcRaw, relayDcRaw, dc, dcRaw < 0,
+                    test, protoTag, clientPrekeyIv);
         } catch (Exception ignored) {
             return null;
         }
@@ -169,16 +173,20 @@ public final class MtProtoCrypto {
 
     public static final class ClientHandshake {
         public final int dcRaw;
+        public final int relayDcRaw;
         public final int dc;
         public final boolean media;
+        public final boolean test;
         public final byte[] protoTag;
         public final byte[] clientPrekeyIv;
 
-        private ClientHandshake(int dcRaw, int dc, boolean media, byte[] protoTag,
-                                byte[] clientPrekeyIv) {
+        private ClientHandshake(int dcRaw, int relayDcRaw, int dc, boolean media,
+                                boolean test, byte[] protoTag, byte[] clientPrekeyIv) {
             this.dcRaw = dcRaw;
+            this.relayDcRaw = relayDcRaw;
             this.dc = dc;
             this.media = media;
+            this.test = test;
             this.protoTag = Arrays.copyOf(protoTag, protoTag.length);
             this.clientPrekeyIv = Arrays.copyOf(clientPrekeyIv, clientPrekeyIv.length);
         }

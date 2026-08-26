@@ -42,7 +42,7 @@ public class ServiceStateTest {
                 RouteState.active(RouteCandidate.directWs(2, false, "149.154.167.220"),
                         "", 80, "stable", 1_000L),
                 false,
-                70_000L);
+                ServiceState.ROUTE_EVIDENCE_MAX_AGE_MS + 2_000L);
 
         assertEquals(ServiceState.Status.DEGRADED, state.status());
         assertFalse(state.isFullyActive());

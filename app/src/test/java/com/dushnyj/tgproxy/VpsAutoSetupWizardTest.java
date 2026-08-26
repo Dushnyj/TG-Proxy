@@ -23,7 +23,8 @@ public class VpsAutoSetupWizardTest {
         VpsSetupRequest request = directRequest("mobile:mccmnc:25020");
 
         VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
-                ssh, (config, dcRules) -> VpsRelayCheckResult.ok("{}"), store, dcRules());
+                ssh, (config, dcRules) -> VpsRelayCheckResult.ok("{}", "1.0.0"),
+                store, dcRules());
 
         VpsRelayConfig saved = wizard.run(request, new VpsAutoSetupWizard.Listener() {
             @Override public void onProgress(VpsSetupProgress progress) {
@@ -71,6 +72,113 @@ public class VpsAutoSetupWizardTest {
 
         assertTrue(ssh.stages.contains(VpsSetupProgress.Stage.ROLLBACK));
         assertEquals(null, store.selectedRelay("wifi:ssid:home"));
+    }
+
+    @Test
+    public void testEnvironmentWarningDoesNotRollbackProductionReadyRelay() throws Exception {
+        FakeSshClient ssh = new FakeSshClient(
+                "systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n");
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        ArrayList<String> progressMessages = new ArrayList<>();
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh,
+                (config, rules) -> VpsRelayCheckResult.ok("{}", "1.0.0",
+                        "test DC3 main=telegram probe deadline exceeded"),
+                store,
+                dcRules());
+
+        VpsRelayConfig saved = wizard.run(directRequest("wifi:ssid:home"),
+                new VpsAutoSetupWizard.Listener() {
+                    @Override public void onProgress(VpsSetupProgress progress) {
+                        progressMessages.add(progress.message());
+                    }
+
+                    @Override public boolean onPlan(VpsSetupPlan plan) {
+                        return true;
+                    }
+                });
+
+        assertNotNull(saved);
+        assertFalse(ssh.stages.contains(VpsSetupProgress.Stage.ROLLBACK));
+        assertNotNull(store.selectedRelay("wifi:ssid:home"));
+        assertTrue(progressMessages.get(progressMessages.size() - 1)
+                .contains("тестовая среда"));
+    }
+
+    @Test
+    public void successfulEndpointsWithWrongDeployedVersionAreRolledBack() throws Exception {
+        FakeSshClient ssh = new FakeSshClient(
+                "systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n");
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, rules) -> VpsRelayCheckResult.ok("{}", "0.9.9"),
+                VpsRelayStore.inMemory(), dcRules());
+
+        try {
+            wizard.run(directRequest("wifi:ssid:home"), approvingListener());
+            throw new AssertionError("wrong deployed version was accepted");
+        } catch (VpsSetupException expected) {
+            assertTrue(expected.getMessage().contains("version mismatch"));
+        }
+        assertTrue(ssh.stages.contains(VpsSetupProgress.Stage.ROLLBACK));
+    }
+
+    @Test
+    public void installCommandFailureRunsRollbackAfterCompletedBackup() throws Exception {
+        ArrayList<VpsSetupProgress.Stage> stages = new ArrayList<>();
+        VpsSshClient ssh = (credentials, stage, command, stdin, timeoutMs) -> {
+            stages.add(stage);
+            if (stage == VpsSetupProgress.Stage.AUDIT) {
+                return "systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n";
+            }
+            if (stage == VpsSetupProgress.Stage.INSTALL) {
+                throw new VpsSetupException("relay_start_failed");
+            }
+            return "";
+        };
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, rules) -> VpsRelayCheckResult.ok("{}"),
+                VpsRelayStore.inMemory(), dcRules());
+
+        try {
+            wizard.run(directRequest("wifi:ssid:home"), approvingListener());
+            throw new AssertionError("install failure was accepted");
+        } catch (VpsSetupException expected) {
+            assertTrue(expected.getMessage().contains("relay_start_failed"));
+        }
+
+        assertEquals(Arrays.asList(
+                VpsSetupProgress.Stage.AUDIT,
+                VpsSetupProgress.Stage.BACKUP,
+                VpsSetupProgress.Stage.INSTALL,
+                VpsSetupProgress.Stage.ROLLBACK), stages);
+    }
+
+    @Test
+    public void rollbackFailureIsReportedInsteadOfBeingSwallowed() throws Exception {
+        VpsSshClient ssh = (credentials, stage, command, stdin, timeoutMs) -> {
+            if (stage == VpsSetupProgress.Stage.AUDIT) {
+                return "systemd=yes\narch=x86_64\ncurl=yes\nport_18080=free\n";
+            }
+            if (stage == VpsSetupProgress.Stage.INSTALL) {
+                throw new VpsSetupException("install_failed");
+            }
+            if (stage == VpsSetupProgress.Stage.ROLLBACK) {
+                throw new VpsSetupException("restore_failed");
+            }
+            return "";
+        };
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, rules) -> VpsRelayCheckResult.ok("{}", "1.0.0"),
+                VpsRelayStore.inMemory(), dcRules());
+
+        try {
+            wizard.run(directRequest("wifi:ssid:home"), approvingListener());
+            throw new AssertionError("rollback failure was hidden");
+        } catch (VpsSetupException expected) {
+            assertTrue(expected.getMessage().contains("install_failed"));
+            assertTrue(expected.getMessage().contains("ROLLBACK_FAILED"));
+            assertTrue(expected.getMessage().contains("restore_failed"));
+        }
     }
 
     @Test

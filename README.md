@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.5-3390EC?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.7-3390EC?style=for-the-badge">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge">
@@ -99,7 +99,7 @@ Secret: значение из приложения
 Android-приложение умеет сохранить Relay, импортировать/экспортировать подключение, поделиться QR и выполнить автонастройку VPS по SSH.
 
 Автонастройка Android скачивает release asset из `TG-Proxy-Relay`, а не из Android-репозитория.
-Текущая совместимая версия Relay для TG Proxy `1.0.5`: `TG Proxy VPS Relay 1.0.2`.
+Текущая совместимая версия Relay для TG Proxy `1.0.7`: `TG Proxy VPS Relay 1.0.5`.
 
 ## Диагностика
 

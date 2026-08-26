@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 
 final class DiagnosticsRouteMatrix {
@@ -25,9 +26,14 @@ final class DiagnosticsRouteMatrix {
                 ? RouteEngine.Settings.builder().build() : settings;
         Map<String, RouteStats> safeStats = statsByRoute == null
                 ? Collections.emptyMap() : statsByRoute;
-        Map<Integer, String> dcRedirects = safeSettings.dcRedirects();
+        LinkedHashSet<Integer> dcs = new LinkedHashSet<>(safeSettings.dcRedirects().keySet());
+        if (safeSettings.vpsRelayEnabled() || !safeSettings.workerDomains().isEmpty()
+                || !safeSettings.customCfDomains().isEmpty()
+                || !safeSettings.publicCfDomains().isEmpty()) {
+            dcs.addAll(MtProtoConfig.relayDcRules().keySet());
+        }
         ArrayList<Row> rows = new ArrayList<>();
-        for (Integer dc : dcRedirects.keySet()) {
+        for (Integer dc : dcs) {
             if (dc == null || dc <= 0) continue;
             rows.add(buildRow(safeSettings, dc, false, safeStats, nowMs));
             rows.add(buildRow(safeSettings, dc, true, safeStats, nowMs));

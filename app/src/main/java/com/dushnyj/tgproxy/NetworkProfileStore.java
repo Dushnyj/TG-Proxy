@@ -11,7 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 
 final class NetworkProfileStore {
-    private static final String KEY_PROFILES = "network_profiles.v1";
+    static final String KEY_PROFILES = "network_profiles.v1";
     private static final String KEY_STATS_PREFIX = "network_profile_stats.v1.";
 
     interface KeyValueStore {
@@ -53,6 +53,24 @@ final class NetworkProfileStore {
         profiles.put(next.key(), next);
         persistProfiles();
         return next;
+    }
+
+    /**
+     * Returns the persisted profile without recording another network activation.
+     *
+     * UI refreshes use this method because {@link #ensureProfile(NetworkProfile, long)} also
+     * advances lastSeen/seenCount and writes preferences. Calling ensureProfile from a periodic
+     * renderer would therefore turn every repaint into a runtime-configuration change.
+     */
+    synchronized NetworkProfileRecord profileOrCreate(NetworkProfile profile, long nowMs) {
+        NetworkProfile normalized = profile == null ? NetworkProfile.defaultProfile() : profile;
+        mergeLegacyProfilesInto(normalized);
+        NetworkProfileRecord existing = profiles.get(normalized.key());
+        if (existing != null) return existing;
+        NetworkProfileRecord created = NetworkProfileRecord.create(normalized, nowMs);
+        profiles.put(created.key(), created);
+        persistProfiles();
+        return created;
     }
 
     synchronized NetworkProfileRecord profile(String key) {
@@ -135,7 +153,7 @@ final class NetworkProfileStore {
         return statsKeyForProfileKey(normalized.key());
     }
 
-    private static String statsKeyForProfileKey(String profileKey) {
+    static String statsKeyForProfileKey(String profileKey) {
         return KEY_STATS_PREFIX + encoded(profileKey);
     }
 
@@ -398,12 +416,12 @@ final class NetworkProfileStore {
 
         @Override
         public void putString(String key, String value) {
-            if (prefs != null) prefs.edit().putString(key, value).apply();
+            if (prefs != null) prefs.edit().putString(key, value).commit();
         }
 
         @Override
         public void removeString(String key) {
-            if (prefs != null) prefs.edit().remove(key).apply();
+            if (prefs != null) prefs.edit().remove(key).commit();
         }
     }
 

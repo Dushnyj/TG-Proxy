@@ -20,6 +20,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -28,13 +29,16 @@ import androidx.preference.PreferenceManager;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ProxyService extends Service {
 
     private static final String CHANNEL_ID = "proxy_channel";
     private static final int    NOTIF_ID   = 1;
-    private static final String ACTION_STOP = "com.dushnyj.tgproxy.action.STOP";
-    private static final String ACTION_RESUME = "com.dushnyj.tgproxy.action.RESUME";
+    static final String ACTION_START = "com.dushnyj.tgproxy.action.START";
+    static final String ACTION_STOP = "com.dushnyj.tgproxy.action.STOP";
+    static final String ACTION_RESUME = "com.dushnyj.tgproxy.action.RESUME";
+    static final String ACTION_RESTORE_PREFIX = "com.dushnyj.tgproxy.action.RESTORE.";
 
     private MtProtoProxyEngine engine;
     private PowerManager.WakeLock wakeLock;
@@ -52,16 +56,25 @@ public class ProxyService extends Service {
     private boolean smartSleepEnabled = TgRoutePolicy.DEFAULT_SMART_SLEEP;
     private volatile boolean paused = false;
     private SharedPreferences prefs;
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener =
+            this::onPreferenceChanged;
 
     private ConnectivityManager.NetworkCallback networkCallback;
+    private volatile Network activeDefaultNetwork;
+    private Runnable pendingNetworkRefresh;
 
     private Runnable pendingReconnect = null;
+    private Runnable pendingConfigurationReload = null;
     private Runnable notificationTicker = null;
+    private long lastNotificationRefreshElapsedMs = 0L;
     private Runnable engineStartRetry = null;
     private Bitmap notificationLargeIcon;
     private volatile boolean engineStartInProgress = false;
+    private final AtomicLong engineLifecycleEpoch = new AtomicLong();
+    private final String fallbackSecretHex = MtProtoConfig.generateSecretHex();
     private boolean recheckOnNetworkChange = true;
     private static final long RECONNECT_DEBOUNCE_MS = 2500;
+    private static final long CONFIGURATION_RELOAD_DEBOUNCE_MS = 150;
     private static final long ENGINE_START_RETRY_MS = 5000;
 
     public static ProxyService getInstance() { return instance; }
@@ -84,6 +97,11 @@ public class ProxyService extends Service {
         instance = this;
         handler  = new Handler(Looper.getMainLooper());
         prefs    = PreferenceManager.getDefaultSharedPreferences(this);
+        ensureStableStoredSecret();
+        if (prefs.getBoolean("smart_sleep", false)) {
+            prefs.edit().putBoolean("smart_sleep", false).commit();
+            DiagnosticsLog.record("legacy smart sleep disabled to preserve proxy availability");
+        }
         createNotificationChannel();
         DiagnosticsLog.record("service created");
 
@@ -92,13 +110,27 @@ public class ProxyService extends Service {
 
         profileStore = NetworkProfileStore.fromPreferences(prefs);
         activateNetworkProfile(false);
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener);
+        ProxyServiceLauncher.scheduleRegularRecovery(this);
         registerNetworkCallback();
         registerScreenReceiver();
     }
 
     private void registerScreenReceiver() {
-        smartSleepEnabled = prefs.getBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP);
-        if (!smartSleepEnabled) return;
+        smartSleepEnabled = false;
+        updateScreenReceiverRegistration();
+    }
+
+    private void updateScreenReceiverRegistration() {
+        if (!smartSleepEnabled) {
+            if (screenReceiver != null) {
+                try { unregisterReceiver(screenReceiver); } catch (Exception ignored) {}
+                screenReceiver = null;
+            }
+            if (paused && engine != null) resumeEngine();
+            return;
+        }
+        if (screenReceiver != null) return;
 
         screenReceiver = new ScreenStateReceiver();
         screenReceiver.setCallback(new ScreenStateReceiver.Callback() {
@@ -133,40 +165,73 @@ public class ProxyService extends Service {
             networkCallback = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
-                    String previous = activeProfileKey();
-                    NetworkProfileRecord record = activateNetworkProfile(true);
-                    if (record != null && !previous.equals(record.key())) {
-                        DiagnosticsLog.record("network profile changed " + previous + " -> " + record.key());
-                        if (engine != null && recheckOnNetworkChange) scheduleReconnect();
-                    }
+                    scheduleDefaultNetworkRefresh(cm, "capabilities");
                 }
 
                 @Override
                 public void onLost(Network network) {
-                    cancelPendingReconnect();
+                    scheduleDefaultNetworkRefresh(cm, "lost");
                 }
 
                 @Override
                 public void onAvailable(Network network) {
-                    if (paused) {
-                        handler.post(() -> resumeEngine());
-                    } else {
-                        String previous = activeProfileKey();
-                        NetworkProfileRecord record = activateNetworkProfile(true);
-                        if (record != null && !previous.equals(record.key())) {
-                            DiagnosticsLog.record("network available, profile changed "
-                                    + previous + " -> " + record.key());
-                            if (engine != null && recheckOnNetworkChange) scheduleReconnect();
-                        }
-                    }
+                    scheduleDefaultNetworkRefresh(cm, "available");
                 }
             };
 
-            NetworkRequest req = new NetworkRequest.Builder()
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    .build();
-            cm.registerNetworkCallback(req, networkCallback);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                cm.registerDefaultNetworkCallback(networkCallback);
+            } else {
+                NetworkRequest req = new NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build();
+                cm.registerNetworkCallback(req, networkCallback);
+            }
         } catch (Exception ignored) {}
+    }
+
+    private void scheduleDefaultNetworkRefresh(ConnectivityManager cm, String reason) {
+        if (handler == null) return;
+        if (pendingNetworkRefresh != null) handler.removeCallbacks(pendingNetworkRefresh);
+        pendingNetworkRefresh = () -> {
+            pendingNetworkRefresh = null;
+            Network previousNetwork = activeDefaultNetwork;
+            Network nextNetwork = previousNetwork;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && cm != null) {
+                try { nextNetwork = cm.getActiveNetwork(); }
+                catch (Exception ignored) { nextNetwork = null; }
+            }
+            boolean attachmentChanged = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                    && !sameNetwork(previousNetwork, nextNetwork);
+            activeDefaultNetwork = nextNetwork;
+            handleDefaultNetworkChanged(reason, attachmentChanged);
+        };
+        handler.postDelayed(pendingNetworkRefresh, 200L);
+    }
+
+    private void handleDefaultNetworkChanged(String reason, boolean attachmentChanged) {
+        String previous = activeProfileKey();
+        NetworkProfile detected = NetworkProfileIdentifier.current(this);
+        boolean profileChanged = detected != null && !previous.equals(detected.key());
+        // Android can emit repeated onCapabilitiesChanged callbacks for the same attachment.
+        // Do not turn those no-op callbacks into profile writes and configuration reloads.
+        if (!profileChanged && !attachmentChanged) return;
+        NetworkProfileRecord record = activateNetworkProfile(true);
+        if (record == null) return;
+        profileChanged = !previous.equals(record.key());
+        DiagnosticsLog.record("default network " + reason + " profile "
+                + previous + " -> " + record.key()
+                + " attachmentChanged=" + attachmentChanged);
+        if (engine != null && attachmentChanged && !profileChanged) {
+            engine.onNetworkAttachmentChanged();
+        }
+        if (engine != null && attachmentChanged && !profileChanged && recheckOnNetworkChange) {
+            scheduleReconnect();
+        }
+    }
+
+    private static boolean sameNetwork(Network left, Network right) {
+        return left == right || (left != null && left.equals(right));
     }
 
     private void scheduleReconnect() {
@@ -202,23 +267,21 @@ public class ProxyService extends Service {
         paused = false;
         DiagnosticsLog.record("engine resume requested");
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
-        if (engine != null) {
-            new Thread(() -> {
-                try {
-                    engine.resume(port);
-                    DiagnosticsLog.record("engine resumed on " + boundIp + ":" + port);
-                } catch (Exception e) {
-                    DiagnosticsLog.record("engine resume failed " + errorSummary(e));
-                }
-            }).start();
-        }
+        if (engine != null) startEngineAsync();
         refreshNotification();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        ProxyRunStateStore runState = ProxyRunStateStore.fromPreferences(prefs);
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             DiagnosticsLog.record("notification stop action");
+            if (!runState.setDesiredRunning(false)) {
+                DiagnosticsLog.record("notification stop rejected: desired state was not persisted");
+                refreshNotification();
+                return START_STICKY;
+            }
+            ProxyServiceLauncher.cancelRecovery(this);
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -229,7 +292,24 @@ public class ProxyService extends Service {
             return START_STICKY;
         }
 
+        String action = intent == null ? "" : intent.getAction();
+        if (ACTION_START.equals(action)) {
+            runState.setDesiredRunning(true);
+        }
+        if (!runState.desiredRunning()) {
+            DiagnosticsLog.record("service start rejected because desired state is stopped");
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (engine != null && (engine.isListening() || engineStartInProgress) && !paused) {
+            DiagnosticsLog.record("duplicate service start ignored action=" + action);
+            ProxyServiceLauncher.scheduleRegularRecovery(this);
+            refreshNotification();
+            return START_STICKY;
+        }
+
         if (engine != null) {
+            engineLifecycleEpoch.incrementAndGet();
             cancelEngineStartRetry();
             persistCurrentRouteStats();
             engine.stop();
@@ -245,12 +325,11 @@ public class ProxyService extends Service {
         boundIp = prefs.getString("custom_ip", MtProtoConfig.DEFAULT_HOST);
         if (boundIp == null || boundIp.trim().isEmpty()) boundIp = MtProtoConfig.DEFAULT_HOST;
 
-        smartSleepEnabled = prefs.getBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP);
+        smartSleepEnabled = false;
         recheckOnNetworkChange = prefs.getBoolean("cf_recheck_network", true);
 
         startTime = System.currentTimeMillis();
         paused = false;
-        engineStartInProgress = true;
         startForeground(NOTIF_ID, buildNotification());
         DiagnosticsLog.record("service start requested " + boundIp + ":" + port);
 
@@ -261,19 +340,8 @@ public class ProxyService extends Service {
 
         engine = new MtProtoProxyEngine();
         engine.setBoundIp(boundIp);
-        engine.setSecretHex(prefs.getString("mtproto_secret", MtProtoConfig.generateSecretHex()));
-        engine.setDcRules(prefs.getString("dc_rules", MtProtoConfig.DEFAULT_DC_RULES));
-        engine.setCfProxyMode(storedCfProxyMode());
-        engine.setCfProxyDomains(splitDomains(prefs.getString("cfproxy_domains", "")));
-        engine.setCfProxyCustomDomains(prefs.getBoolean("cfproxy_custom_enabled", false));
-        engine.setCfWarmupEnabled(prefs.getBoolean("cf_warmup", true));
-        engine.setCfWorkerDomains(splitDomains(prefs.getString("worker_domains", "")));
-        engine.setVpsRelayConfig(vpsRelayConfigFromPrefs(profileRecord == null ? "" : profileRecord.key()));
-        engine.setVerbose(prefs.getBoolean("verbose_logging", false));
         if (profileRecord != null) {
-            engine.setNetworkProfile(profileRecord.profile());
-            engine.setRoutePreference(profileRecord.routePreference());
-            engine.replaceRouteStats(profileStore.routeStats(profileRecord.profile()));
+            engine.applyRuntimeConfiguration(runtimeConfiguration(profileRecord));
             DiagnosticsLog.record("active profile " + profileRecord.key()
                     + " routePreference=" + profileRecord.routePreference().name());
         }
@@ -289,9 +357,15 @@ public class ProxyService extends Service {
     public void onDestroy() {
         instance = null;
         DiagnosticsLog.record("service destroyed");
+        engineLifecycleEpoch.incrementAndGet();
         engineStartInProgress = false;
         cancelEngineStartRetry();
         cancelPendingReconnect();
+        if (handler != null && pendingNetworkRefresh != null) {
+            handler.removeCallbacks(pendingNetworkRefresh);
+            pendingNetworkRefresh = null;
+        }
+        cancelPendingConfigurationReload();
         stopNotificationTicker();
         persistCurrentRouteStats();
         if (engine != null) { engine.stop(); engine = null; }
@@ -306,6 +380,14 @@ public class ProxyService extends Service {
                 if (cm != null) cm.unregisterNetworkCallback(networkCallback);
             } catch (Exception ignored) {}
         }
+        if (prefs != null) {
+            prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener);
+        }
+        if (prefs != null && ProxyRunStateStore.fromPreferences(prefs).desiredRunning()) {
+            ProxyServiceLauncher.scheduleRecovery(this, 10_000L);
+        } else {
+            ProxyServiceLauncher.cancelRecovery(this);
+        }
         stopForeground(true);
         super.onDestroy();
     }
@@ -313,6 +395,7 @@ public class ProxyService extends Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         DiagnosticsLog.record("task removed, foreground proxy service remains active");
+        ProxyServiceLauncher.scheduleRecovery(this, 5_000L);
         refreshNotification();
         super.onTaskRemoved(rootIntent);
     }
@@ -447,33 +530,63 @@ public class ProxyService extends Service {
     public void refreshNotification() {
         try {
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (manager != null) manager.notify(NOTIF_ID, buildNotification());
+            if (manager != null) {
+                manager.notify(NOTIF_ID, buildNotification());
+                lastNotificationRefreshElapsedMs = SystemClock.elapsedRealtime();
+            }
         } catch (Exception ignored) {}
     }
 
     private void startEngineAsync() {
+        MtProtoProxyEngine target = engine;
+        if (target == null || paused || engineStartInProgress) return;
+        final int targetPort = port;
+        final String targetIp = boundIp;
+        final long epoch = engineLifecycleEpoch.incrementAndGet();
         engineStartInProgress = true;
         new Thread(() -> {
+            Exception failure = null;
             try {
-                MtProtoProxyEngine current = engine;
-                if (current == null) {
-                    engineStartInProgress = false;
-                    return;
+                if (target.isRunning() && !target.isListening()) {
+                    target.stop();
                 }
-                if (current.isRunning() && !current.isListening()) {
-                    current.stop();
-                }
-                current.start(port);
-                engineStartInProgress = false;
-                DiagnosticsLog.record("engine started " + boundIp + ":" + port);
-                cancelEngineStartRetry();
-                refreshNotification();
             } catch (Exception e) {
-                engineStartInProgress = false;
-                DiagnosticsLog.record("engine start failed " + errorSummary(e));
-                scheduleEngineStartRetry();
+                failure = e;
             }
+            try {
+                if (failure == null) target.start(targetPort);
+            } catch (Exception e) {
+                failure = e;
+            }
+            final Exception result = failure;
+            handler.post(() -> finishEngineStart(target, targetIp, targetPort, epoch, result));
         }, "tg-engine-start").start();
+    }
+
+    private void finishEngineStart(MtProtoProxyEngine target, String targetIp, int targetPort,
+                                   long epoch, Exception failure) {
+        boolean current = instance == this && engine == target
+                && engineLifecycleEpoch.get() == epoch && !paused;
+        if (!current) {
+            target.stop();
+            boolean ownsStartSlot = instance == this && engine == target
+                    && engineLifecycleEpoch.get() == epoch;
+            if (ownsStartSlot) {
+                engineStartInProgress = false;
+                if (!paused) startEngineAsync();
+            }
+            DiagnosticsLog.record("stale engine start discarded epoch=" + epoch);
+            return;
+        }
+        engineStartInProgress = false;
+        if (failure == null && target.isListening()) {
+            DiagnosticsLog.record("engine started " + targetIp + ":" + targetPort);
+            cancelEngineStartRetry();
+        } else {
+            DiagnosticsLog.record("engine start failed " + errorSummary(failure));
+            scheduleEngineStartRetry();
+        }
+        refreshNotification();
     }
 
     private void scheduleEngineStartRetry() {
@@ -543,9 +656,14 @@ public class ProxyService extends Service {
         notificationTicker = new Runnable() {
             @Override public void run() {
                 watchdogTick();
-                refreshNotification();
+                long now = SystemClock.elapsedRealtime();
+                if (lastNotificationRefreshElapsedMs == 0L
+                        || now - lastNotificationRefreshElapsedMs
+                        >= MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS) {
+                    refreshNotification();
+                }
                 if (engine != null) {
-                    handler.postDelayed(this, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
+                    handler.postDelayed(this, MainUiState.WATCHDOG_INTERVAL_MS);
                 }
             }
         };
@@ -557,6 +675,7 @@ public class ProxyService extends Service {
             handler.removeCallbacks(notificationTicker);
             notificationTicker = null;
         }
+        lastNotificationRefreshElapsedMs = 0L;
     }
 
     private void watchdogTick() {
@@ -589,11 +708,102 @@ public class ProxyService extends Service {
         isMobile = activeNetworkProfile.isMobile();
         DiagnosticsLog.record("network profile active " + record.key());
         if (engine != null) {
-            engine.setNetworkProfile(activeNetworkProfile);
-            engine.setRoutePreference(record.routePreference());
-            engine.replaceRouteStats(profileStore.routeStats(activeNetworkProfile));
+            engine.applyRuntimeConfiguration(runtimeConfiguration(record));
         }
         return record;
+    }
+
+    private RuntimeConfigSnapshot runtimeConfiguration(NetworkProfileRecord record) {
+        NetworkProfileRecord selected = record == null
+                ? NetworkProfileRecord.create(NetworkProfile.defaultProfile(), System.currentTimeMillis())
+                : record;
+        return RuntimeConfigSnapshot.builder()
+                .secretHex(runtimeSecretHex())
+                .dcRules(prefs.getString("dc_rules", MtProtoConfig.DEFAULT_DC_RULES))
+                .cfMode(storedCfProxyMode())
+                .cfDomains(splitDomains(prefs.getString("cfproxy_domains", "")))
+                .cfCustomDomains(prefs.getBoolean("cfproxy_custom_enabled", false))
+                .cfWarmupEnabled(prefs.getBoolean("cf_warmup", true))
+                .workerDomains(splitDomains(prefs.getString("worker_domains", "")))
+                .relay(vpsRelayConfigFromPrefs(selected.key()))
+                .verbose(prefs.getBoolean("verbose_logging", false))
+                .networkProfile(selected.profile())
+                .routePreference(selected.routePreference())
+                .routeStats(profileStore.routeStats(selected.profile()))
+                .build();
+    }
+
+    private String runtimeSecretHex() {
+        String stored = prefs == null ? "" : prefs.getString("mtproto_secret", "");
+        return MtProtoConfig.isValidSecretHex(stored)
+                ? MtProtoConfig.normalizeSecretHex(stored) : fallbackSecretHex;
+    }
+
+    private void ensureStableStoredSecret() {
+        if (prefs == null) return;
+        String stored = prefs.getString("mtproto_secret", "");
+        if (MtProtoConfig.isValidSecretHex(stored)) return;
+        if (!prefs.edit().putString("mtproto_secret", fallbackSecretHex).commit()) {
+            DiagnosticsLog.record("MTProto secret repair commit failed");
+        }
+    }
+
+    private void onPreferenceChanged(SharedPreferences changedPreferences, String key) {
+        if (!isRuntimeConfigurationKey(key)) return;
+        scheduleConfigurationReload();
+    }
+
+    private void scheduleConfigurationReload() {
+        if (handler == null) return;
+        cancelPendingConfigurationReload();
+        pendingConfigurationReload = () -> {
+            pendingConfigurationReload = null;
+            MtProtoProxyEngine currentEngine = engine;
+            if (currentEngine == null || prefs == null) return;
+
+            persistCurrentRouteStats();
+            profileStore = NetworkProfileStore.fromPreferences(prefs);
+            NetworkProfileRecord record = profileStore.profile(activeProfileKey());
+            if (record == null) {
+                record = profileStore.profileOrCreate(activeNetworkProfile, System.currentTimeMillis());
+            }
+            activeNetworkProfile = record.profile();
+            activeProfileRecord = record;
+            isMobile = activeNetworkProfile.isMobile();
+            smartSleepEnabled = false;
+            recheckOnNetworkChange = prefs.getBoolean("cf_recheck_network", true);
+            updateScreenReceiverRegistration();
+            currentEngine.applyRuntimeConfiguration(runtimeConfiguration(record));
+            DiagnosticsLog.record("runtime configuration applied profile=" + record.key()
+                    + " routePreference=" + record.routePreference().name());
+            refreshNotification();
+        };
+        handler.postDelayed(pendingConfigurationReload, CONFIGURATION_RELOAD_DEBOUNCE_MS);
+    }
+
+    private void cancelPendingConfigurationReload() {
+        if (handler != null && pendingConfigurationReload != null) {
+            handler.removeCallbacks(pendingConfigurationReload);
+        }
+        pendingConfigurationReload = null;
+    }
+
+    private static boolean isRuntimeConfigurationKey(String key) {
+        if (key == null) return false;
+        return "mtproto_secret".equals(key)
+                || "dc_rules".equals(key)
+                || "cfproxy_mode".equals(key)
+                || "cfproxy_enabled".equals(key)
+                || "cfproxy_custom_enabled".equals(key)
+                || "cfproxy_domains".equals(key)
+                || "cf_warmup".equals(key)
+                || "cf_recheck_network".equals(key)
+                || "worker_domains".equals(key)
+                || "verbose_logging".equals(key)
+                || "smart_sleep".equals(key)
+                || VpsRelayStore.KEY_RELAYS.equals(key)
+                || VpsRelayStore.KEY_PROFILE_BINDINGS.equals(key)
+                || NetworkProfileStore.KEY_PROFILES.equals(key);
     }
 
     private synchronized void persistCurrentRouteStats() {

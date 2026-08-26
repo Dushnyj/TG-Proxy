@@ -40,10 +40,14 @@ final class VpsRelayConfig {
     boolean isUsable() {
         return enabled
                 && !host.isEmpty()
+                && host.length() <= 253
+                && host.matches("[a-z0-9._:%-]+")
                 && port > 0
                 && port <= 65535
-                && !path.isEmpty()
-                && !token.isEmpty();
+                && isValidPath(path)
+                && !token.isEmpty()
+                && token.length() <= 512
+                && !containsHeaderUnsafe(token);
     }
 
     boolean isAllowedForProfile(String currentProfileKey) {
@@ -84,8 +88,29 @@ final class VpsRelayConfig {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey);
     }
 
+    boolean sameRoutingIdentity(VpsRelayConfig other) {
+        if (other == null) return false;
+        return enabled == other.enabled
+                && port == other.port
+                && tls == other.tls
+                && host.equals(other.host)
+                && path.equals(other.path)
+                && token.equals(other.token)
+                && profileKey.equals(other.profileKey);
+    }
+
+    boolean sameEndpoint(VpsRelayConfig other) {
+        if (other == null) return false;
+        return port == other.port
+                && tls == other.tls
+                && host.equals(other.host)
+                && path.equals(other.path);
+    }
+
     String baseUrl() {
-        return (tls ? "https://" : "http://") + host + ":" + port;
+        String authority = host.indexOf(':') >= 0 && !host.startsWith("[")
+                ? "[" + host + "]" : host;
+        return (tls ? "https://" : "http://") + authority + ":" + port;
     }
 
     String maskedToken() {
@@ -101,6 +126,16 @@ final class VpsRelayConfig {
         else if (value.startsWith("http://")) value = value.substring("http://".length());
         int slash = value.indexOf('/');
         if (slash >= 0) value = value.substring(0, slash);
+        if (value.startsWith("[")) {
+            int closing = value.indexOf(']');
+            if (closing > 1) return value.substring(1, closing);
+        }
+        int firstColon = value.indexOf(':');
+        int lastColon = value.lastIndexOf(':');
+        if (firstColon > 0 && firstColon == lastColon) {
+            String suffix = value.substring(firstColon + 1);
+            if (suffix.matches("\\d{1,5}")) value = value.substring(0, firstColon);
+        }
         return value;
     }
 
@@ -113,5 +148,57 @@ final class VpsRelayConfig {
     private static String valueOr(String value, String fallback) {
         String normalized = value == null ? "" : value.trim();
         return normalized.isEmpty() ? fallback : normalized;
+    }
+
+    private static boolean containsHttpUnsafe(String value) {
+        if (value == null) return true;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c <= 0x20 || c == 0x7f) return true;
+        }
+        return false;
+    }
+
+    /** Mirrors the Relay path contract so an imported/manual profile cannot fail later on VPS. */
+    static boolean isValidPath(String value) {
+        if (value == null || value.isEmpty() || value.length() > 256
+                || value.charAt(0) != '/' || containsHttpUnsafe(value)
+                || value.indexOf('?') >= 0 || value.indexOf('#') >= 0) {
+            return false;
+        }
+        if ("/healthz".equals(value) || "/version".equals(value)
+                || "/test-routes".equals(value)) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char ch = value.charAt(index);
+            if (isAsciiAlphaNumeric(ch) || "/._~-".indexOf(ch) >= 0) continue;
+            if (ch == '%' && index + 2 < value.length()
+                    && isHex(value.charAt(index + 1)) && isHex(value.charAt(index + 2))) {
+                index += 2;
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isAsciiAlphaNumeric(char value) {
+        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+                || (value >= '0' && value <= '9');
+    }
+
+    private static boolean isHex(char value) {
+        return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f')
+                || (value >= 'A' && value <= 'F');
+    }
+
+    private static boolean containsHeaderUnsafe(String value) {
+        if (value == null) return true;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x21 || c > 0x7e) return true;
+        }
+        return false;
     }
 }

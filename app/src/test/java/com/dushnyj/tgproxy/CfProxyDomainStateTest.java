@@ -58,4 +58,17 @@ public class CfProxyDomainStateTest {
         assertFalse(CfProxyDomainState.isTooManyRequests(
                 new IOException("WS handshake failed: 404")));
     }
+
+    @Test
+    public void rateLimitOnOneOperatorDoesNotDisableDomainOnAnotherNetwork() {
+        CfProxyDomainState state = new CfProxyDomainState(45_000);
+        state.markTooManyRequests("busy.example", "mobile:mccmnc:25020", 10_000);
+
+        assertEquals(Arrays.asList("fallback.example"),
+                state.orderedDomains(Arrays.asList("busy.example", "fallback.example"),
+                        "mobile:mccmnc:25020", 12_000));
+        assertEquals(Arrays.asList("busy.example", "fallback.example"),
+                state.orderedDomains(Arrays.asList("busy.example", "fallback.example"),
+                        "wifi:ssid:home", 12_000));
+    }
 }

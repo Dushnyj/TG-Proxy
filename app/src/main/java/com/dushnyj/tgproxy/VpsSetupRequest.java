@@ -31,13 +31,14 @@ final class VpsSetupRequest {
     }
 
     boolean isValid() {
+        VpsRelayConfig relay = relayConfig();
         return sshCredentials.isValid()
-                && !relayHost.isEmpty()
-                && relayPort > 0
-                && relayPort <= 65535
-                && !relayPath.isEmpty()
-                && !relayToken.isEmpty()
-                && !releaseVersion.isEmpty();
+                && relay.isUsable()
+                && relayHost.length() <= 253
+                && VpsRelayConfig.isValidPath(relayPath)
+                && relayToken.length() <= 512
+                && releaseVersion.length() <= 64
+                && releaseVersion.matches("[0-9]+(?:\\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?");
     }
 
     VpsSshCredentials sshCredentials() {
@@ -104,7 +105,9 @@ final class VpsSetupRequest {
     }
 
     String publicUrl() {
-        return (relayTls ? "https://" : "http://") + relayHost + ":" + relayPort + relayPath;
+        String authority = relayHost.indexOf(':') >= 0 && !relayHost.startsWith("[")
+                ? "[" + relayHost + "]" : relayHost;
+        return (relayTls ? "https://" : "http://") + authority + ":" + relayPort + relayPath;
     }
 
     boolean reverseProxyMode() {
@@ -120,7 +123,9 @@ final class VpsSetupRequest {
     }
 
     boolean relayHostIsDomain() {
-        return relayHost.contains(".") && !relayHost.matches("\\d+\\.\\d+\\.\\d+\\.\\d+");
+        return relayHost.indexOf(':') < 0
+                && relayHost.contains(".")
+                && !relayHost.matches("\\d+\\.\\d+\\.\\d+\\.\\d+");
     }
 
     static final class Builder {
@@ -214,8 +219,16 @@ final class VpsSetupRequest {
         else if (value.startsWith("http://")) value = value.substring("http://".length());
         int slash = value.indexOf('/');
         if (slash >= 0) value = value.substring(0, slash);
-        int colon = value.indexOf(':');
-        if (colon > 0 && value.indexOf(']') < 0) value = value.substring(0, colon);
+        if (value.startsWith("[")) {
+            int closing = value.indexOf(']');
+            if (closing > 1) return value.substring(1, closing);
+        }
+        int firstColon = value.indexOf(':');
+        int lastColon = value.lastIndexOf(':');
+        if (firstColon > 0 && firstColon == lastColon) {
+            String suffix = value.substring(firstColon + 1);
+            if (suffix.matches("\\d{1,5}")) value = value.substring(0, firstColon);
+        }
         return value;
     }
 

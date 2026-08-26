@@ -4,6 +4,8 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
+import android.os.Build;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -18,6 +20,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
@@ -36,11 +40,15 @@ public final class NetworkUtils {
             ConnectivityManager cm =
                     (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return false;
-            Network net = cm.getActiveNetwork();
-            if (net == null) return false;
-            NetworkCapabilities caps = cm.getNetworkCapabilities(net);
-            if (caps == null) return false;
-            return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network net = cm.getActiveNetwork();
+                if (net == null) return false;
+                NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                if (caps == null) return false;
+                return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+            }
+            NetworkInfo info = cm.getActiveNetworkInfo();
+            return info != null && info.getType() == ConnectivityManager.TYPE_MOBILE;
         } catch (Exception e) {
             return false;
         }
@@ -115,9 +123,7 @@ public final class NetworkUtils {
         SSLSocket ssl = (SSLSocket) TRUSTED_FACTORY.createSocket(raw, sni, port, true);
         ssl.setUseClientMode(true);
 
-        SSLParameters params = ssl.getSSLParameters();
-        params.setEndpointIdentificationAlgorithm("HTTPS");
-        ssl.setSSLParameters(params);
+        enableEndpointIdentification(ssl);
 
         String[] protos = ssl.getEnabledProtocols();
         List<String> filtered = new ArrayList<>();
@@ -126,7 +132,23 @@ public final class NetworkUtils {
             ssl.setEnabledProtocols(filtered.toArray(new String[0]));
 
         ssl.startHandshake();
+        verifyLegacyHostname(ssl, sni);
         return ssl;
+    }
+
+    private static void enableEndpointIdentification(SSLSocket ssl) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        SSLParameters params = ssl.getSSLParameters();
+        params.setEndpointIdentificationAlgorithm("HTTPS");
+        ssl.setSSLParameters(params);
+    }
+
+    private static void verifyLegacyHostname(SSLSocket ssl, String hostname)
+            throws SSLPeerUnverifiedException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) return;
+        if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(hostname, ssl.getSession())) {
+            throw new SSLPeerUnverifiedException("TLS hostname mismatch: " + hostname);
+        }
     }
 
     public static Socket smartConnect(String host, int port, int timeout, boolean isMobile)

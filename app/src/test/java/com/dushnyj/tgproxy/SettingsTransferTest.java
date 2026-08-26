@@ -66,6 +66,17 @@ public class SettingsTransferTest {
     }
 
     @Test
+    public void encryptedRelayExportDoesNotExposeTokenAndRoundTrips() throws Exception {
+        String exported = SettingsTransfer.exportEncryptedVpsRelay(
+                sampleData().relayConfig(), "relay-password");
+
+        assertFalse(exported.contains("relay-token"));
+        SettingsTransfer.Imported imported = SettingsTransfer.parse(exported, "relay-password");
+        assertEquals(SettingsTransfer.Kind.VPS_RELAY, imported.kind());
+        assertEquals("relay-token", imported.data().relayConfig().token());
+    }
+
+    @Test
     public void parseAcceptsDeeplinkEmbeddedInSharedText() throws Exception {
         String exported = SettingsTransfer.exportVpsRelay(sampleData().relayConfig());
         String deeplink = SettingsTransfer.toDeepLink(exported);
@@ -75,6 +86,97 @@ public class SettingsTransferTest {
 
         assertEquals(SettingsTransfer.Kind.VPS_RELAY, imported.kind());
         assertEquals("relay-token", imported.data().relayConfig().token());
+    }
+
+    @Test
+    public void oversizedPayloadIsRejectedBeforeParsingOrDecoding() throws Exception {
+        StringBuilder payload = new StringBuilder(SettingsTransfer.MAX_IMPORT_CHARS + 1);
+        while (payload.length() <= SettingsTransfer.MAX_IMPORT_CHARS) payload.append('x');
+
+        assertTooLarge(() -> SettingsTransfer.parse(payload.toString(), ""));
+        assertTooLarge(() -> SettingsTransfer.parseDeepLink(
+                "tgproxy://import?data=" + payload, ""));
+    }
+
+    @Test
+    public void malformedEncryptedEnvelopeIsRejected() throws Exception {
+        try {
+            SettingsTransfer.parse("TGPROXY-ENC-v1\nsalt=0\niv=00\ndata=00", "password");
+            throw new AssertionError("malformed encrypted profile accepted");
+        } catch (SettingsTransferException expected) {
+            assertTrue(expected.getMessage().contains("damaged"));
+        }
+    }
+
+    @Test
+    public void safeProfileCannotSmuggleRelayCredentials() throws Exception {
+        String payload = SettingsTransfer.exportSafeProfile(sampleData())
+                + "\nrelay.enabled=1"
+                + "\nrelay.host=relay.example.com"
+                + "\nrelay.port=443"
+                + "\nrelay.tls=1"
+                + "\nrelay.path=%2Fapiws"
+                + "\nrelay.token=stolen-token";
+
+        assertRejected(() -> SettingsTransfer.parse(payload, ""), "not allowed");
+    }
+
+    @Test
+    public void safeProfileCannotSmuggleMtProtoSecret() throws Exception {
+        String payload = SettingsTransfer.exportSafeProfile(sampleData())
+                + "\nmtprotoSecret=ffeeddccbbaa99887766554433221100";
+
+        assertRejected(() -> SettingsTransfer.parse(payload, ""), "not allowed");
+    }
+
+    @Test
+    public void plaintextFullProfileAndInvalidRelayAreRejected() throws Exception {
+        String plainFull = SettingsTransfer.exportSafeProfile(sampleData())
+                .replace("kind=safe_profile", "kind=full_profile")
+                + "\nmtprotoSecret=00112233445566778899aabbccddeeff";
+        assertRejected(() -> SettingsTransfer.parse(plainFull, ""), "encrypted");
+
+        String invalidRelay = "TGPROXY-SETTINGS-v1\nkind=vps_relay"
+                + "\nrelay.enabled=1\nrelay.host=relay.example.com\nrelay.port=443"
+                + "\nrelay.tls=1\nrelay.path=%2Fapiws\nrelay.token=bad+token";
+        assertRejected(() -> SettingsTransfer.parse(invalidRelay, ""), "invalid VPS Relay");
+    }
+
+    @Test
+    public void duplicateMalformedAndCrlfFieldsAreHandledStrictly() throws Exception {
+        String relay = SettingsTransfer.exportVpsRelay(sampleData().relayConfig());
+        SettingsTransfer.Imported crlf = SettingsTransfer.parse(relay.replace("\n", "\r\n"), "");
+        assertEquals(SettingsTransfer.Kind.VPS_RELAY, crlf.kind());
+
+        assertRejected(() -> SettingsTransfer.parse(
+                relay + "\nkind=vps_relay", ""), "damaged");
+        assertRejected(() -> SettingsTransfer.parse(
+                relay.replace("relay.name=Work+Relay", "relay.name=%ZZ"), ""), "damaged");
+        assertRejected(() -> SettingsTransfer.parse(
+                relay + "\nmissing-separator", ""), "damaged");
+    }
+
+    private static void assertTooLarge(ThrowingRunnable action) throws Exception {
+        try {
+            action.run();
+            throw new AssertionError("oversized profile accepted");
+        } catch (SettingsTransferException expected) {
+            assertTrue(expected.getMessage().contains("too large"));
+        }
+    }
+
+    private static void assertRejected(ThrowingRunnable action, String messagePart)
+            throws Exception {
+        try {
+            action.run();
+            throw new AssertionError("damaged profile accepted");
+        } catch (SettingsTransferException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains(messagePart));
+        }
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static SettingsTransfer.Data sampleData() {

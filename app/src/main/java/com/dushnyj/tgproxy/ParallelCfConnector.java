@@ -10,7 +10,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class ParallelCfConnector<T> {
     interface Attempt<T> {
@@ -47,6 +49,11 @@ final class ParallelCfConnector<T> {
     }
 
     T connect(List<String> domains, Attempt<T> attempt, Closer<T> closer) {
+        return connect(domains, attempt, closer, null);
+    }
+
+    T connect(List<String> domains, Attempt<T> attempt, Closer<T> closer,
+              ConnectBudget budget) {
         List<String> ordered = domainState.orderedDomains(
                 domains, networkProfile, System.currentTimeMillis());
         if (ordered.isEmpty()) return null;
@@ -56,22 +63,36 @@ final class ParallelCfConnector<T> {
                 new DaemonThreadFactory());
         CompletionService<Result<T>> completion = new ExecutorCompletionService<>(executor);
         ArrayList<Future<Result<T>>> futures = new ArrayList<>();
-        AtomicBoolean winnerChosen = new AtomicBoolean(false);
+        AtomicReference<T> chosen = new AtomicReference<>();
+        AtomicBoolean acceptingWinner = new AtomicBoolean(true);
+        boolean delivered = false;
 
         int next = 0;
         int running = 0;
         int limit = Math.min(parallelism, ordered.size());
         try {
             while (running < limit && next < ordered.size()) {
-                futures.add(completion.submit(task(ordered.get(next++), attempt, closer, winnerChosen)));
+                futures.add(completion.submit(task(ordered.get(next++), attempt, closer,
+                        chosen, acceptingWinner)));
                 running++;
             }
 
             while (running > 0) {
-                Future<Result<T>> future = completion.take();
+                Future<Result<T>> future;
+                if (budget == null) {
+                    future = completion.take();
+                } else {
+                    int waitMs = budget.remainingTimeoutMs(Integer.MAX_VALUE);
+                    if (waitMs <= 0) break;
+                    future = completion.poll(waitMs, TimeUnit.MILLISECONDS);
+                    if (future == null) break;
+                }
                 running--;
                 Result<T> result = future.get();
                 if (result.value != null) {
+                    delivered = true;
+                    acceptingWinner.set(false);
+                    chosen.compareAndSet(result.value, null);
                     domainState.markSuccess(result.domain, networkProfile, System.currentTimeMillis());
                     cancelOthers(futures, future);
                     return result.value;
@@ -83,8 +104,9 @@ final class ParallelCfConnector<T> {
                     domainState.markTooManyRequests(
                             result.domain, networkProfile, System.currentTimeMillis());
                 }
-                if (!winnerChosen.get() && next < ordered.size()) {
-                    futures.add(completion.submit(task(ordered.get(next++), attempt, closer, winnerChosen)));
+                if (chosen.get() == null && next < ordered.size()) {
+                    futures.add(completion.submit(task(ordered.get(next++), attempt, closer,
+                            chosen, acceptingWinner)));
                     running++;
                 }
             }
@@ -92,19 +114,32 @@ final class ParallelCfConnector<T> {
             Thread.currentThread().interrupt();
         } catch (ExecutionException ignored) {
         } finally {
+            acceptingWinner.set(false);
+            if (!delivered) {
+                T orphan = chosen.getAndSet(null);
+                if (orphan != null) closer.close(orphan);
+            }
+            cancelOthers(futures, null);
             executor.shutdownNow();
         }
         return null;
     }
 
     private Callable<Result<T>> task(String domain, Attempt<T> attempt, Closer<T> closer,
-                                    AtomicBoolean winnerChosen) {
+                                    AtomicReference<T> chosen,
+                                    AtomicBoolean acceptingWinner) {
         return () -> {
             try {
                 T value = attempt.connect(domain);
                 if (value == null) return Result.failure(domain, null);
-                if (!winnerChosen.compareAndSet(false, true) || Thread.currentThread().isInterrupted()) {
+                if (Thread.currentThread().isInterrupted()
+                        || !acceptingWinner.get()
+                        || !chosen.compareAndSet(null, value)) {
                     closer.close(value);
+                    return Result.failure(domain, null);
+                }
+                if (!acceptingWinner.get()) {
+                    if (chosen.compareAndSet(value, null)) closer.close(value);
                     return Result.failure(domain, null);
                 }
                 return Result.success(domain, value);

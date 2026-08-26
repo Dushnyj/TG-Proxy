@@ -14,7 +14,7 @@ public class MtProtoProxyEngineSourcePolicyTest {
         String source = new String(Files.readAllBytes(sourcePath()), "UTF-8");
 
         assertTrue(source.contains("isStaleGeneration(generation)"));
-        assertTrue(source.contains("ws.close()"));
+        assertTrue(source.contains("ws.abort()"));
     }
 
     private static Path sourcePath() {

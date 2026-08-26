@@ -4,6 +4,8 @@ import android.content.SharedPreferences;
 
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -12,20 +14,21 @@ import java.util.Locale;
 import java.util.Map;
 
 final class VpsRelayStore {
-    private static final String KEY_RELAYS = "vps_relays.v1";
-    private static final String KEY_PROFILE_BINDINGS = "vps_relay_profile_bindings.v1";
+    static final String KEY_RELAYS = "vps_relays.v1";
+    static final String KEY_PROFILE_BINDINGS = "vps_relay_profile_bindings.v1";
     private static final String GLOBAL_PROFILE = "*";
 
     interface KeyValueStore {
         String getString(String key, String fallback);
-        void putString(String key, String value);
+        boolean putString(String key, String value);
+        boolean putStrings(Map<String, String> values);
     }
 
     private final KeyValueStore keyValueStore;
     private final LinkedHashMap<String, Record> relays = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> profileBindings = new LinkedHashMap<>();
 
-    private VpsRelayStore(KeyValueStore keyValueStore) {
+    VpsRelayStore(KeyValueStore keyValueStore) {
         this.keyValueStore = keyValueStore;
         relays.putAll(parseRelays(keyValueStore.getString(KEY_RELAYS, "")));
         profileBindings.putAll(parseBindings(keyValueStore.getString(KEY_PROFILE_BINDINGS, "")));
@@ -41,13 +44,31 @@ final class VpsRelayStore {
     }
 
     synchronized Record saveRelay(VpsRelayConfig relay, String profileKey) {
+        return saveRelayInto(relay, profileKey, null);
+    }
+
+    synchronized Record saveRelayInto(VpsRelayConfig relay, String profileKey,
+                                       SharedPreferences.Editor editor) {
         if (relay == null) relay = VpsRelayConfig.disabled();
-        String id = idFor(relay);
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        String id = existingEndpointId(relay);
+        if (id.isEmpty()) id = idFor(relay);
         Record record = new Record(id, relay.withProfileKey(""));
         relays.put(id, record);
         String key = normalize(profileKey);
         profileBindings.put(bindingKey(key), id);
-        persist();
+        if (editor == null) {
+            if (!persist()) {
+                relays.clear();
+                relays.putAll(previousRelays);
+                profileBindings.clear();
+                profileBindings.putAll(previousBindings);
+                return null;
+            }
+        } else {
+            writeAll(editor);
+        }
         return record;
     }
 
@@ -57,39 +78,72 @@ final class VpsRelayStore {
     }
 
     synchronized boolean deleteRelay(String relayId) {
+        return deleteRelayInto(relayId, null);
+    }
+
+    synchronized boolean deleteRelayInto(String relayId, SharedPreferences.Editor editor) {
         String id = normalize(relayId);
         if (id.isEmpty() || !relays.containsKey(id)) return false;
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
         relays.remove(id);
         ArrayList<String> removeBindings = new ArrayList<>();
         for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
             if (id.equals(entry.getValue())) removeBindings.add(entry.getKey());
         }
         for (String key : removeBindings) profileBindings.remove(key);
-        persist();
+        if (editor == null) {
+            if (!persist()) {
+                relays.clear();
+                relays.putAll(previousRelays);
+                profileBindings.clear();
+                profileBindings.putAll(previousBindings);
+                return false;
+            }
+        } else {
+            writeAll(editor);
+        }
         return true;
     }
 
-    synchronized void bindProfile(String profileKey, String relayId) {
+    synchronized boolean bindProfile(String profileKey, String relayId) {
+        return bindProfileInto(profileKey, relayId, null);
+    }
+
+    synchronized boolean bindProfileInto(String profileKey, String relayId,
+                                         SharedPreferences.Editor editor) {
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
         String key = normalize(profileKey);
         String id = normalize(relayId);
         String bindingKey = bindingKey(key);
         if (id.isEmpty() || !relays.containsKey(id)) profileBindings.remove(bindingKey);
         else profileBindings.put(bindingKey, id);
-        persistBindings();
+        if (editor == null) {
+            if (!persistBindings()) {
+                profileBindings.clear();
+                profileBindings.putAll(previousBindings);
+                return false;
+            }
+        } else {
+            editor.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        }
+        return true;
     }
 
     synchronized String selectedRelayId(String profileKey) {
         String key = normalize(profileKey);
-        String selected = key.isEmpty() ? null : profileBindings.get(key);
+        String selected = specificRelayId(key);
         return selected == null ? profileBindings.get(GLOBAL_PROFILE) : selected;
     }
 
     synchronized VpsRelayConfig selectedRelay(String profileKey) {
         String key = normalize(profileKey);
-        String relayId = selectedRelayId(key);
+        String relayId = specificRelayId(key);
+        boolean profileSpecific = relayId != null;
+        if (relayId == null) relayId = profileBindings.get(GLOBAL_PROFILE);
         Record record = relayId == null ? null : relays.get(relayId);
         if (record == null) return null;
-        return record.config().withProfileKey(key);
+        return record.config().withProfileKey(profileSpecific ? key : "");
     }
 
     synchronized Record relay(String relayId) {
@@ -100,11 +154,11 @@ final class VpsRelayStore {
         return Collections.unmodifiableList(new ArrayList<>(relays.values()));
     }
 
-    synchronized void importLegacyIfNeeded(VpsRelayConfig relay, String profileKey) {
-        if (relay == null || !relay.isUsable()) return;
+    synchronized boolean importLegacyIfNeeded(VpsRelayConfig relay, String profileKey) {
+        if (relay == null || !relay.isUsable()) return true;
         String existing = selectedRelayId(profileKey);
-        if (existing != null && relays.containsKey(existing)) return;
-        saveRelay(relay, profileKey);
+        if (existing != null && relays.containsKey(existing)) return true;
+        return saveRelay(relay, profileKey) != null;
     }
 
     private void cleanupBindings() {
@@ -116,18 +170,44 @@ final class VpsRelayStore {
         if (!remove.isEmpty()) persistBindings();
     }
 
-    private void persist() {
-        keyValueStore.putString(KEY_RELAYS, serializeRelays(relays));
-        persistBindings();
+    private boolean persist() {
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        values.put(KEY_RELAYS, serializeRelays(relays));
+        values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        return keyValueStore.putStrings(values);
     }
 
-    private void persistBindings() {
-        keyValueStore.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+    private boolean persistBindings() {
+        return keyValueStore.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+    }
+
+    private void writeAll(SharedPreferences.Editor editor) {
+        if (editor == null) return;
+        editor.putString(KEY_RELAYS, serializeRelays(relays));
+        editor.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
     }
 
     private static String idFor(VpsRelayConfig relay) {
-        String base = relay.host() + ":" + relay.port() + relay.path();
-        return "relay_" + Integer.toHexString(base.toLowerCase(Locale.US).hashCode());
+        String base = (relay.tls() ? "tls" : "plain") + "\n"
+                + relay.host().toLowerCase(Locale.US) + "\n"
+                + relay.port() + "\n" + relay.path() + "\n" + sha256Hex(relay.token());
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(base.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder("relay_");
+            for (int i = 0; i < 12; i++) out.append(String.format(Locale.US, "%02x", digest[i]));
+            return out.toString();
+        } catch (Exception ignored) {
+            return "relay_" + Integer.toHexString(base.hashCode());
+        }
+    }
+
+    private String existingEndpointId(VpsRelayConfig relay) {
+        for (Record record : relays.values()) {
+            if (record.config().sameEndpoint(relay)
+                    && record.config().token().equals(relay.token())) return record.id();
+        }
+        return "";
     }
 
     private static String serializeRelays(Map<String, Record> source) {
@@ -256,8 +336,19 @@ final class VpsRelayStore {
         }
 
         @Override
-        public void putString(String key, String value) {
-            if (prefs != null) prefs.edit().putString(key, value == null ? "" : value).apply();
+        public boolean putString(String key, String value) {
+            return prefs != null && prefs.edit().putString(
+                    key, value == null ? "" : value).commit();
+        }
+
+        @Override
+        public boolean putStrings(Map<String, String> values) {
+            if (prefs == null || values == null || values.isEmpty()) return false;
+            SharedPreferences.Editor editor = prefs.edit();
+            for (Map.Entry<String, String> entry : values.entrySet()) {
+                editor.putString(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+            }
+            return editor.commit();
         }
     }
 
@@ -271,8 +362,36 @@ final class VpsRelayStore {
         }
 
         @Override
-        public void putString(String key, String value) {
+        public boolean putString(String key, String value) {
             values.put(key, value == null ? "" : value);
+            return true;
+        }
+
+        @Override
+        public boolean putStrings(Map<String, String> updates) {
+            if (updates == null) return false;
+            for (Map.Entry<String, String> entry : updates.entrySet()) {
+                putString(entry.getKey(), entry.getValue());
+            }
+            return true;
+        }
+    }
+
+    private String specificRelayId(String profileKey) {
+        String key = normalize(profileKey);
+        if (key.isEmpty()) return null;
+        return profileBindings.get(key);
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(
+                    (value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder();
+            for (byte b : digest) out.append(String.format(Locale.US, "%02x", b & 0xff));
+            return out.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(value == null ? 0 : value.hashCode());
         }
     }
 }

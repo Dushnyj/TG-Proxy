@@ -40,11 +40,11 @@ public class TgRoutePolicyTest {
     }
 
     @Test
-    public void mediaDc2UsesFallbackWhenDc2AndDc4ShareFlowsealIp() {
+    public void mediaDc2KeepsDirectCandidateWhenDc2AndDc4ShareFlowsealIp() {
         Map<Integer, String> rules = MtProtoConfig.parseDcRules(
                 "2:149.154.167.220\n4:149.154.167.220");
 
-        assertFalse(TgRoutePolicy.shouldUseDirectWs(2, true, rules));
+        assertTrue(TgRoutePolicy.shouldUseDirectWs(2, true, rules));
         assertTrue(TgRoutePolicy.shouldUseDirectWs(2, false, rules));
         assertTrue(TgRoutePolicy.shouldUseDirectWs(4, true, rules));
         assertEquals("149.154.167.220", rules.get(2));

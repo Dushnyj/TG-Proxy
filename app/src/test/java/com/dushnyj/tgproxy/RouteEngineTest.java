@@ -3,6 +3,7 @@ package com.dushnyj.tgproxy;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,40 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class RouteEngineTest {
+    @Test
+    public void testDcUsesTestIpRelayAndWorkerButNeverCloudflareProxy() {
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .dcRedirects(MtProtoConfig.testDcRules())
+                .testDc(true)
+                .workerDomains(Collections.singletonList("worker.example.com"))
+                .publicCfDomains(Collections.singletonList("cf.example.com"))
+                .vpsRelay("Relay", "relay.example.com", 443)
+                .build();
+
+        List<RouteCandidate> routes = new RouteEngine().buildCandidates(settings, 2, true);
+
+        assertTrue(routes.stream().anyMatch(route -> route.type() == RouteType.DIRECT_WS
+                && route.test() && "149.154.167.40".equals(route.endpoint())));
+        assertTrue(routes.stream().anyMatch(route -> route.type() == RouteType.VPS_RELAY
+                && route.test()));
+        assertTrue(routes.stream().anyMatch(route -> route.type() == RouteType.WORKER
+                && route.test()));
+        assertFalse(routes.stream().anyMatch(route -> route.type() == RouteType.PUBLIC_CLOUDFLARE
+                || route.type() == RouteType.CUSTOM_CLOUDFLARE));
+    }
+
+    @Test
+    public void futureProductionDcCanReachAnUpdatedVpsRelayWithoutAppWhitelist() {
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .vpsRelay("Relay", "relay.example.com", 443)
+                .build();
+
+        List<RouteCandidate> routes = new RouteEngine().buildCandidates(settings, 204, false);
+
+        assertEquals(1, routes.size());
+        assertEquals(RouteType.VPS_RELAY, routes.get(0).type());
+        assertEquals(204, routes.get(0).dc());
+    }
     @Test
     public void wifiAutoStartsWithDirectAndKeepsCloudflareAsFallback() {
         RouteEngine engine = new RouteEngine();
@@ -151,7 +186,54 @@ public class RouteEngineTest {
     }
 
     @Test
-    public void unknownDcWithoutMappingDoesNotBuildSpeculativeRoutes() {
+    public void workerAndCloudflareStatsAreSeparatedForMediaTraffic() {
+        RouteEngine engine = new RouteEngine();
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.mobile("25001"))
+                .cfMode(MtProtoProxyEngine.CF_MODE_AUTO)
+                .workerDomains(Arrays.asList("worker.example"))
+                .publicCfDomains(Arrays.asList("public.example"))
+                .dcRedirects(dcRules())
+                .build();
+
+        List<RouteCandidate> main = engine.buildCandidates(settings, 2, false);
+        List<RouteCandidate> media = engine.buildCandidates(settings, 2, true);
+
+        assertTrue(main.stream().anyMatch(route -> "worker:dc2".equals(route.key())));
+        assertTrue(media.stream().anyMatch(route -> "worker:dc2:media".equals(route.key())));
+        assertTrue(main.stream().anyMatch(route -> "public_cf:dc2".equals(route.key())));
+        assertTrue(media.stream().anyMatch(route -> "public_cf:dc2:media".equals(route.key())));
+    }
+
+    @Test
+    public void allCoolingRoutesUseEarliestHalfOpenProbeInsteadOfEmptyPlan() {
+        RouteEngine engine = new RouteEngine();
+        RouteCandidate direct = RouteCandidate.directWs(2, false, "149.154.167.220");
+        RouteCandidate cf = RouteCandidate.publicCloudflare(2, false, "public-cf");
+        Map<String, RouteStats> stats = new LinkedHashMap<>();
+        RouteStats directStats = new RouteStats();
+        directStats.recordFailure(RouteError.TIMEOUT, 10_000L);
+        stats.put(direct.key(), directStats);
+        RouteStats cfStats = new RouteStats();
+        cfStats.recordFailure(RouteError.TOO_MANY_REQUESTS, 10_000L);
+        stats.put(cf.key(), cfStats);
+
+        RoutePlan plan = engine.plan(Arrays.asList(cf, direct), "", stats, 11_000L);
+
+        assertFalse(plan.isEmpty());
+        assertEquals(direct.key(), plan.selected().key());
+
+        RoutePlan concurrentReconnect = engine.plan(
+                Arrays.asList(cf, direct), "", stats, 11_001L);
+        assertTrue(concurrentReconnect.isEmpty());
+
+        RoutePlan afterLease = engine.plan(
+                Arrays.asList(cf, direct), "", stats, directStats.cooldownUntilMs());
+        assertFalse(afterLease.isEmpty());
+    }
+
+    @Test
+    public void unknownDcUsesOnlyUpdatedVpsRelayWithoutSpeculativePublicRoutes() {
         RouteEngine engine = new RouteEngine();
         RouteEngine.Settings settings = RouteEngine.Settings.builder()
                 .networkProfile(NetworkProfile.mobile("25001"))
@@ -163,7 +245,10 @@ public class RouteEngineTest {
 
         RoutePlan plan = engine.plan(settings, 204, true, "", new LinkedHashMap<>(), 11_000L);
 
-        assertTrue(plan.isEmpty());
+        assertFalse(plan.isEmpty());
+        assertEquals(1, plan.routes().size());
+        assertEquals(RouteType.VPS_RELAY, plan.selected().type());
+        assertEquals(204, plan.selected().dc());
     }
 
     @Test
@@ -180,6 +265,23 @@ public class RouteEngineTest {
 
         assertEquals(RouteType.DIRECT_WS, plan.selected().type());
         assertEquals("direct_ws:dc204", plan.selected().key());
+    }
+
+    @Test
+    public void futureTestDcUsesOnlyVpsRelay() {
+        RouteEngine engine = new RouteEngine();
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .networkProfile(NetworkProfile.mobile("25001"))
+                .testDc(true)
+                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .workerDomains(Arrays.asList("worker.example"))
+                .build();
+
+        RoutePlan plan = engine.plan(settings, 4, true, "", new LinkedHashMap<>(), 11_000L);
+
+        assertEquals(1, plan.routes().size());
+        assertEquals(RouteType.VPS_RELAY, plan.selected().type());
+        assertTrue(plan.selected().test());
     }
 
     private static Map<Integer, String> dcRules() {
