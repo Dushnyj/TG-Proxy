@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-3390EC?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.1-3390EC?style=for-the-badge">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge">
@@ -108,7 +108,7 @@ Android-приложение умеет сохранить Relay, выполни
 SSH-пароль, SSH host key и owner/admin token не входят ни в ссылку, ни в QR-код.
 
 Автонастройка Android скачивает release asset из `TG-Proxy-Relay`, а не из Android-репозитория.
-Текущий контракт: `TG Proxy Android 1.1.0` и `TG Proxy VPS Relay 1.1.0`.
+Текущий контракт: `TG Proxy Android 1.1.1` и `TG Proxy VPS Relay 1.1.0`.
 
 ## Диагностика
 

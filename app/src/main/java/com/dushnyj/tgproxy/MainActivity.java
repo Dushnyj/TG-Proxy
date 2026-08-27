@@ -3,6 +3,7 @@ package com.dushnyj.tgproxy;
 import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
@@ -20,6 +21,7 @@ import android.text.method.LinkMovementMethod;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.URLSpan;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -1743,23 +1745,19 @@ public class MainActivity extends AppCompatActivity {
             String payload = SettingsTransfer.exportVpsRelay(relay);
             String link = SettingsTransfer.toRelayShareLink(relay, payload);
             String[] actions = getResources().getStringArray(R.array.relay_share_options);
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.relay_share_title)
-                    .setMessage(R.string.relay_share_note)
-                    .setItems(actions, (dialog, which) -> {
-                        if (which == 0) {
-                            copy(link);
-                            Toast.makeText(this, R.string.copy_done, Toast.LENGTH_SHORT).show();
-                        } else if (which == 1) {
-                            showTransferQr(payload, link);
-                        } else if (which == 2) {
-                            shareRelayLink(link);
-                        } else if (which == 3) {
-                            saveTransferPayload(payload, "tgproxy-vps-relay.tgproxy");
-                        }
-                    })
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show();
+            showNotedItemsDialog(R.string.relay_share_title, R.string.relay_share_note,
+                    actions, (dialog, which) -> {
+                if (which == 0) {
+                    copy(link);
+                    Toast.makeText(this, R.string.copy_done, Toast.LENGTH_SHORT).show();
+                } else if (which == 1) {
+                    showTransferQr(payload, link);
+                } else if (which == 2) {
+                    shareRelayLink(link);
+                } else if (which == 3) {
+                    saveTransferPayload(payload, "tgproxy-vps-relay.tgproxy");
+                }
+            });
         } catch (Exception error) {
             Toast.makeText(this, getString(R.string.import_failed,
                     error.getMessage()), Toast.LENGTH_LONG).show();
@@ -1824,17 +1822,47 @@ public class MainActivity extends AppCompatActivity {
                     token.activeDevices(), token.knownDevices());
         }
         labels[labels.length - 1] = getString(R.string.vps_owner_forget_local);
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.vps_owner_manage)
-                .setMessage(R.string.vps_owner_manage_note)
-                .setItems(labels, (dialog, which) -> {
-                    if (which == 0) showVpsOwnerCreateToken(relay, owner);
-                    else if (which - 1 < tokens.size()) showVpsOwnerTokenActions(
-                            relay, owner, overview, tokens.get(which - 1));
-                    else confirmForgetVpsOwnerData(relay);
-                })
+        showNotedItemsDialog(R.string.vps_owner_manage, R.string.vps_owner_manage_note,
+                labels, (dialog, which) -> {
+            if (which == 0) showVpsOwnerCreateToken(relay, owner);
+            else if (which - 1 < tokens.size()) showVpsOwnerTokenActions(
+                    relay, owner, overview, tokens.get(which - 1));
+            else confirmForgetVpsOwnerData(relay);
+        });
+    }
+
+    private void showNotedItemsDialog(int titleRes, int noteRes, String[] labels,
+                                      DialogInterface.OnClickListener listener) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(8), 0, dp(8), 0);
+
+        TextView note = new TextView(this);
+        note.setText(noteRes);
+        note.setTextColor(getColorValue(R.color.text_secondary));
+        note.setTextSize(15);
+        note.setPadding(dp(16), dp(4), dp(16), dp(8));
+        content.addView(note, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        ListView list = new ListView(this);
+        list.setAdapter(new ArrayAdapter<>(this, R.layout.dialog_list_item, labels));
+        list.setDividerHeight(0);
+        int visibleRows = Math.max(1, Math.min(labels.length, 5));
+        content.addView(list, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(80 * visibleRows)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(titleRes)
+                .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
-                .show();
+                .create();
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            dialog.dismiss();
+            listener.onClick(dialog, position);
+        });
+        dialog.show();
     }
 
     private void showVpsOwnerCreateToken(VpsRelayConfig relay, VpsOwnerRecord owner) {
