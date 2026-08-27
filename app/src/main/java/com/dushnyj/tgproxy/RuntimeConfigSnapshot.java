@@ -19,6 +19,7 @@ final class RuntimeConfigSnapshot {
     final boolean verbose;
     final NetworkProfile networkProfile;
     final RoutePreference routePreference;
+    final RouteAvailability routeAvailability;
     final Map<String, RouteStats> routeStats;
 
     private RuntimeConfigSnapshot(Builder builder) {
@@ -35,6 +36,8 @@ final class RuntimeConfigSnapshot {
                 ? NetworkProfile.defaultProfile() : builder.networkProfile;
         routePreference = builder.routePreference == null
                 ? RoutePreference.AUTO : builder.routePreference;
+        routeAvailability = builder.routeAvailability == null
+                ? RouteAvailability.all() : builder.routeAvailability;
         LinkedHashMap<String, RouteStats> stats = new LinkedHashMap<>();
         for (Map.Entry<String, RouteStats> entry : builder.routeStats.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
@@ -60,6 +63,7 @@ final class RuntimeConfigSnapshot {
         private boolean verbose;
         private NetworkProfile networkProfile = NetworkProfile.defaultProfile();
         private RoutePreference routePreference = RoutePreference.AUTO;
+        private RouteAvailability routeAvailability = RouteAvailability.all();
         private Map<String, RouteStats> routeStats = Collections.emptyMap();
 
         Builder secretHex(String value) { secretHex = value; return this; }
@@ -79,6 +83,7 @@ final class RuntimeConfigSnapshot {
         Builder verbose(boolean value) { verbose = value; return this; }
         Builder networkProfile(NetworkProfile value) { networkProfile = value; return this; }
         Builder routePreference(RoutePreference value) { routePreference = value; return this; }
+        Builder routeAvailability(RouteAvailability value) { routeAvailability = value; return this; }
         Builder routeStats(Map<String, RouteStats> value) {
             routeStats = value == null ? Collections.emptyMap() : value;
             return this;

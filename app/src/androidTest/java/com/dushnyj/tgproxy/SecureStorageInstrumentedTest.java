@@ -33,6 +33,7 @@ public class SecureStorageInstrumentedTest {
                 .remove(VpsRelayStore.KEY_RELAYS)
                 .remove(VpsRelayStore.KEY_PROFILE_BINDINGS)
                 .remove(VpsOwnerStore.KEY_OWNERS)
+                .remove(VpsSshDraftStore.KEY_DRAFT)
                 .commit();
     }
 
@@ -43,6 +44,7 @@ public class SecureStorageInstrumentedTest {
                 .remove(VpsRelayStore.KEY_RELAYS)
                 .remove(VpsRelayStore.KEY_PROFILE_BINDINGS)
                 .remove(VpsOwnerStore.KEY_OWNERS)
+                .remove(VpsSshDraftStore.KEY_DRAFT)
                 .commit();
     }
 
@@ -106,5 +108,28 @@ public class SecureStorageInstrumentedTest {
         assertNotNull(owner);
         assertEquals("owner-secret", owner.adminToken());
         assertEquals("ssh-secret", owner.sshPassword());
+    }
+
+    @Test
+    public void newServerAccessDraftSurvivesReloadAndRemainsEncrypted() {
+        VpsSshDraftStore store = new VpsSshDraftStore(context);
+        VpsSshCredentials credentials = new VpsSshCredentials(
+                "192.0.2.15", 2222, "admin", "draft-ssh-secret");
+
+        assertTrue(store.save(credentials));
+        String raw = defaults.getString(VpsSshDraftStore.KEY_DRAFT, "");
+        assertTrue(raw.startsWith("tgproxy-secure-v1:"));
+        assertFalse(raw.contains("192.0.2.15"));
+        assertFalse(raw.contains("draft-ssh-secret"));
+
+        VpsSshCredentials restored = new VpsSshDraftStore(context).load();
+        assertNotNull(restored);
+        assertEquals("192.0.2.15", restored.host());
+        assertEquals(2222, restored.port());
+        assertEquals("admin", restored.user());
+        assertEquals("draft-ssh-secret", restored.password());
+
+        assertTrue(store.clear());
+        assertEquals(null, new VpsSshDraftStore(context).load());
     }
 }

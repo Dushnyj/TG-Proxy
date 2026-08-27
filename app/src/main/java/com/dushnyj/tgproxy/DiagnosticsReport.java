@@ -126,6 +126,7 @@ final class DiagnosticsReport {
             line(out, "Key", route.key());
             line(out, "Type", route.type() == null ? "-" : route.type().name());
             line(out, "Endpoint", valueOrDash(route.activeEndpoint()));
+            if (!route.activeSni().isEmpty()) line(out, "SNI", route.activeSni());
             if (candidate != null) {
                 line(out, "Candidate endpoint", valueOrDash(candidate.endpoint()));
                 line(out, "DC", String.valueOf(candidate.dc()));

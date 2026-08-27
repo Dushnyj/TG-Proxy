@@ -256,7 +256,8 @@ final class VpsRelayStore {
                     .append(c.port()).append('\t')
                     .append(c.tls() ? "1" : "0").append('\t')
                     .append(encoded(c.path())).append('\t')
-                    .append(encoded(c.token()));
+                    .append(encoded(c.token())).append('\t')
+                    .append(encoded(c.capabilities().toStored()));
         }
         return out.toString();
     }
@@ -277,7 +278,9 @@ final class VpsRelayStore {
                         "1".equals(parts[5]),
                         decoded(parts[6]),
                         decoded(parts[7]),
-                        "");
+                        "").withCapabilities(parts.length >= 9
+                                ? VpsRelayCapabilities.fromStored(decoded(parts[8]))
+                                : VpsRelayCapabilities.unknown());
                 if (!id.isEmpty()) result.put(id, new Record(id, config));
             } catch (Exception ignored) {
             }

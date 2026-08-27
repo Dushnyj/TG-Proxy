@@ -6,6 +6,7 @@ final class NetworkProfileRecord {
     private final NetworkProfile profile;
     private final String displayName;
     private final RoutePreference routePreference;
+    private final RouteAvailability routeAvailability;
     private final long createdMs;
     private final long lastSeenMs;
     private final int seenCount;
@@ -13,33 +14,48 @@ final class NetworkProfileRecord {
     NetworkProfileRecord(NetworkProfile profile, String displayName,
                          RoutePreference routePreference, long createdMs,
                          long lastSeenMs, int seenCount) {
+        this(profile, displayName, routePreference, RouteAvailability.all(),
+                createdMs, lastSeenMs, seenCount);
+    }
+
+    NetworkProfileRecord(NetworkProfile profile, String displayName,
+                         RoutePreference routePreference, RouteAvailability routeAvailability,
+                         long createdMs, long lastSeenMs, int seenCount) {
         this.profile = profile == null ? NetworkProfile.defaultProfile() : profile;
         String name = displayName == null ? "" : displayName.trim();
         this.displayName = name.isEmpty() || isLegacyGeneratedName(name, this.profile)
                 ? this.profile.defaultDisplayName()
                 : name;
         this.routePreference = routePreference == null ? RoutePreference.AUTO : routePreference;
+        this.routeAvailability = routeAvailability == null || !routeAvailability.hasAny()
+                ? RouteAvailability.all() : routeAvailability;
         this.createdMs = createdMs <= 0L ? lastSeenMs : createdMs;
         this.lastSeenMs = Math.max(0L, lastSeenMs);
         this.seenCount = Math.max(0, seenCount);
     }
 
     static NetworkProfileRecord create(NetworkProfile profile, long nowMs) {
-        return new NetworkProfileRecord(profile, "", RoutePreference.AUTO, nowMs, nowMs, 1);
+        return new NetworkProfileRecord(profile, "", RoutePreference.AUTO,
+                RouteAvailability.all(), nowMs, nowMs, 1);
     }
 
     NetworkProfileRecord seen(long nowMs) {
-        return new NetworkProfileRecord(profile, displayName, routePreference,
+        return new NetworkProfileRecord(profile, displayName, routePreference, routeAvailability,
                 createdMs, nowMs, seenCount + 1);
     }
 
     NetworkProfileRecord renamed(String name) {
-        return new NetworkProfileRecord(profile, name, routePreference,
+        return new NetworkProfileRecord(profile, name, routePreference, routeAvailability,
                 createdMs, lastSeenMs, seenCount);
     }
 
     NetworkProfileRecord withRoutePreference(RoutePreference preference) {
-        return new NetworkProfileRecord(profile, displayName, preference,
+        return new NetworkProfileRecord(profile, displayName, preference, routeAvailability,
+                createdMs, lastSeenMs, seenCount);
+    }
+
+    NetworkProfileRecord withRouteAvailability(RouteAvailability availability) {
+        return new NetworkProfileRecord(profile, displayName, routePreference, availability,
                 createdMs, lastSeenMs, seenCount);
     }
 
@@ -57,6 +73,10 @@ final class NetworkProfileRecord {
 
     RoutePreference routePreference() {
         return routePreference;
+    }
+
+    RouteAvailability routeAvailability() {
+        return routeAvailability;
     }
 
     long createdMs() {

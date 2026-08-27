@@ -7,6 +7,23 @@ import static org.junit.Assert.assertTrue;
 
 public class VpsSetupScriptsTest {
     @Test
+    public void auditDetectsLinuxInitSystemsAndCommonPackageManagers() {
+        String script = VpsSetupScripts.audit();
+
+        assertTrue(script.contains("printf 'kernel=%s\\n'"));
+        assertTrue(script.contains("printf 'init_system=%s\\n'"));
+        assertTrue(script.contains("echo openrc"));
+        assertTrue(script.contains("echo runit"));
+        assertTrue(script.contains("echo sysv"));
+        assertTrue(script.contains("command -v microdnf"));
+        assertTrue(script.contains("command -v zypper"));
+        assertTrue(script.contains("command -v apk"));
+        assertTrue(script.contains("command -v pacman"));
+        assertTrue(script.contains("command -v xbps-install"));
+        assertTrue(script.contains("command -v emerge"));
+    }
+
+    @Test
     public void auditScriptIsReadOnly() {
         String script = VpsSetupScripts.audit();
 
@@ -71,6 +88,31 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("caddy_validate"));
         assertFalse(script.contains("cat >"));
         assertFalse(script.contains("systemctl restart"));
+    }
+
+    @Test
+    public void auditOnlyCountsActiveWebConfigsAndIgnoresBackups() {
+        String script = VpsSetupScripts.audit(VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("relay.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build());
+
+        assertTrue(script.contains("active_matches()"));
+        assertTrue(script.contains("find -L \"$root\" -type f"));
+        assertTrue(script.contains("! -name '*.bak'"));
+        assertTrue(script.contains("! -name '*.disabled'"));
+        assertTrue(script.contains(
+                "NGINX_MATCHES=$(active_matches /etc/nginx/sites-enabled /etc/nginx/conf.d)"));
+        assertFalse(script.contains(
+                "NGINX_MATCHES=$(active_matches /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available)"));
+        assertFalse(script.contains(
+                "APACHE_MATCHES=$(active_matches /etc/apache2/sites-enabled /etc/apache2/sites-available"));
     }
 
     @Test
@@ -251,9 +293,44 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("config.previous"));
         assertTrue(script.contains("rollback_config"));
         assertTrue(script.indexOf("chmod 0640 \"$EXISTING_CONFIG\"")
-                < script.indexOf("systemctl restart tgproxy-relay"));
+                < script.indexOf("if ! relay_service_restart"));
         assertFalse(script.contains("tar -xzf"));
         assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
+        assertFalse(script.contains("ssh-secret"));
+    }
+
+    @Test
+    public void installSupportsAlternativeInitSystemsPackagesAndReleaseArchitectures() {
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayHost("relay.example.com")
+                .relayPort(18080)
+                .relayTls(false)
+                .relayPath("/apiws")
+                .relayToken("relay-token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        String script = VpsSetupScripts.install(request);
+
+        assertTrue(script.contains("INIT_SYSTEM=$(detect_init)"));
+        assertTrue(script.contains("rc-service tgproxy-relay"));
+        assertTrue(script.contains("sv restart tgproxy-relay"));
+        assertTrue(script.contains("/etc/init.d/tgproxy-relay"));
+        assertTrue(script.contains("#!/sbin/openrc-run"));
+        assertTrue(script.contains("/etc/sv/tgproxy-relay/run"));
+        assertTrue(script.contains("@reboot root /etc/init.d/tgproxy-relay start"));
+        assertTrue(script.contains("i386|i486|i586|i686|x86) RELAY_ARCH=386"));
+        assertTrue(script.contains("armv7*|armv8l) RELAY_ARCH=armv7"));
+        assertTrue(script.contains("riscv64) RELAY_ARCH=riscv64"));
+        assertTrue(script.contains("ppc64le) RELAY_ARCH=ppc64le"));
+        assertTrue(script.contains("s390x) RELAY_ARCH=s390x"));
+        assertTrue(script.contains("loong64|loongarch64) RELAY_ARCH=loong64"));
+        assertTrue(script.contains("apk add --no-cache"));
+        assertTrue(script.contains("pacman -Sy --noconfirm"));
+        assertTrue(script.contains("xbps-install -Sy"));
         assertFalse(script.contains("ssh-secret"));
     }
 
@@ -303,6 +380,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("docker restart \"$DOCKER_CADDY_CONTAINER\""));
         assertFalse(script.contains("install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
         assertTrue(script.contains("handle /apiws/version"));
+        assertTrue(script.contains("handle /apiws/capabilities"));
         assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
         assertTrue(script.indexOf("TGPROXY-RELAY relay.example.com /apiws")
                 > script.indexOf("systemctl restart tgproxy-relay"));
@@ -366,7 +444,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("chmod 0640 \"$EXISTING_CONFIG\""));
         assertTrue(script.contains("systemctl restart tgproxy-relay"));
         assertTrue(script.indexOf("chmod 0640 \"$EXISTING_CONFIG\"")
-                < script.indexOf("systemctl restart tgproxy-relay"));
+                < script.indexOf("if ! relay_service_restart"));
         assertFalse(script.contains("cat > /etc/tgproxy-relay/config.json"));
         assertFalse(script.contains("ssh-secret"));
     }
@@ -412,6 +490,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("/etc/nginx/snippets/tgproxy-relay-example_com.conf"));
         assertTrue(script.contains("include /etc/nginx/snippets/tgproxy-relay-example_com.conf;"));
         assertTrue(script.contains("location = /apiws/version"));
+        assertTrue(script.contains("location = /apiws/capabilities"));
         assertFalse(script.contains("/etc/nginx/conf.d/tgproxy-relay-example_com.conf"));
         assertFalse(script.contains("ssh-secret"));
     }
@@ -467,12 +546,13 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
         assertTrue(script.contains("RELAY_PATH='/apiws'"));
         assertTrue(script.contains("handle /apiws/version"));
+        assertTrue(script.contains("handle /apiws/capabilities"));
         assertTrue(script.contains("handle ' + relay_path + '*"));
         assertTrue(script.contains("caddy validate --config /tmp/tgproxy-caddy-validate"));
         assertTrue(script.contains("caddy reload --config /etc/caddy/Caddyfile"));
         assertFalse(script.contains("install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
         assertFalse(script.contains("/etc/nginx/conf.d/tgproxy-relay-slovofon_duckdns_org.conf"));
-        assertFalse(script.contains("systemctl reload nginx"));
+        assertFalse(script.contains("\nnginx_service_reload\n"));
         assertFalse(script.contains("ssh-secret"));
     }
 
@@ -554,9 +634,10 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("CADDY_TARGET='/etc/caddy/Caddyfile'"));
         assertTrue(script.contains("TGPROXY-RELAY relay.example.com /apiws"));
         assertTrue(script.contains("handle /apiws/version"));
+        assertTrue(script.contains("handle /apiws/capabilities"));
         assertTrue(script.contains("caddy validate --config \"$CADDY_TARGET\""));
-        assertTrue(script.contains("caddy reload --config \"$CADDY_TARGET\""));
-        assertFalse(script.contains("systemctl reload nginx"));
+        assertTrue(script.contains("caddy_service_reload \"$CADDY_TARGET\""));
+        assertFalse(script.contains("\nnginx_service_reload\n"));
         assertFalse(script.contains("ssh-secret"));
     }
 

@@ -33,6 +33,8 @@ Telegram Android
 
 Route Engine строит список кандидатов для каждого DC и выбирает порядок проверки с учетом типа сети и профиля.
 Пинг на главном экране проверяет только активный маршрут; полная route matrix находится в диагностике.
+Для каждого профиля отдельно хранится маска разрешённых route types. Отключённый route не получает
+новых сессий, его уже открытые сессии закрываются, а остальные маршруты продолжают работу.
 
 Маршруты:
 
@@ -79,4 +81,14 @@ minimumSupportedProtocol
 features
 ```
 
-TG Proxy Android `1.1.2` ожидает совместимую серверную версию `TG Proxy VPS Relay 1.1.0`.
+TG Proxy Android `1.2.0` устанавливает `TG Proxy VPS Relay 1.2.0`. Совместимость определяется
+не сравнением строк версии, а диапазоном protocol и features из `/capabilities`.
+
+Relay 1.2.0 хранит несколько IPv4/IPv6 endpoints на DC с точным port и ролями
+`regular/media/cdn/static`. Опциональная signed topology обновляется только после Ed25519,
+schema, generation, time-window, address и size validation; запись выполняется атомарно. При
+сбое источника продолжает использоваться last-known-good, затем embedded/static bootstrap.
+
+Direct, Worker и Cloudflare не объявляются динамическими только потому, что parser принял новый
+DC. Кандидат создаётся лишь при наличии проверяемого destination для конкретного route. Полная
+модель и synthetic DC204 matrix описаны в [TELEGRAM_TOPOLOGY.md](TELEGRAM_TOPOLOGY.md).

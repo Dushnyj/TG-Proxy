@@ -22,10 +22,8 @@ public class TgConstantsTest {
     }
 
     @Test
-    public void dc203DirectWsMapsToDc2LikeFlowseal() {
-        assertArrayEquals(new String[]{
-                "kws2-1.web.telegram.org",
-                "kws2.web.telegram.org"
-        }, TgConstants.wsDomains(203, true));
+    public void unknownAndCdnDcNeverMasqueradeAsDc2() {
+        assertArrayEquals(new String[0], TgConstants.wsDomains(203, true));
+        assertArrayEquals(new String[0], TgConstants.wsDomains(204, false));
     }
 }

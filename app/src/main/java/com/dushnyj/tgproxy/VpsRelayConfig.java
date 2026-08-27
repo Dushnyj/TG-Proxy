@@ -13,9 +13,17 @@ final class VpsRelayConfig {
     private final String path;
     private final String token;
     private final String profileKey;
+    private final VpsRelayCapabilities capabilities;
 
     private VpsRelayConfig(boolean enabled, String name, String host, int port,
                            boolean tls, String path, String token, String profileKey) {
+        this(enabled, name, host, port, tls, path, token, profileKey,
+                VpsRelayCapabilities.unknown());
+    }
+
+    private VpsRelayConfig(boolean enabled, String name, String host, int port,
+                           boolean tls, String path, String token, String profileKey,
+                           VpsRelayCapabilities capabilities) {
         this.enabled = enabled;
         this.name = valueOr(name, "VPS Relay");
         this.host = normalizeHost(host);
@@ -24,6 +32,8 @@ final class VpsRelayConfig {
         this.path = normalizePath(path);
         this.token = valueOr(token, "");
         this.profileKey = valueOr(profileKey, "");
+        this.capabilities = capabilities == null
+                ? VpsRelayCapabilities.unknown() : capabilities;
     }
 
     static VpsRelayConfig manual(boolean enabled, String name, String host, int port,
@@ -85,12 +95,22 @@ final class VpsRelayConfig {
         return profileKey;
     }
 
+    VpsRelayCapabilities capabilities() { return capabilities; }
+
+    boolean supportsRoute(int dc, boolean test) { return capabilities.supports(dc, test); }
+
     VpsRelayConfig withProfileKey(String profileKey) {
-        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey);
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
+                capabilities);
     }
 
     VpsRelayConfig withTokenAndName(String token, String name) {
-        return new VpsRelayConfig(true, name, host, port, tls, path, token, profileKey);
+        return new VpsRelayConfig(true, name, host, port, tls, path, token, profileKey,
+                capabilities);
+    }
+
+    VpsRelayConfig withCapabilities(VpsRelayCapabilities value) {
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey, value);
     }
 
     boolean sameRoutingIdentity(VpsRelayConfig other) {
@@ -101,7 +121,24 @@ final class VpsRelayConfig {
                 && host.equals(other.host)
                 && path.equals(other.path)
                 && token.equals(other.token)
-                && profileKey.equals(other.profileKey);
+                && profileKey.equals(other.profileKey)
+                && capabilities.equals(other.capabilities);
+    }
+
+    /**
+     * Compares only the server connection entered by the user. Negotiated capabilities,
+     * display name and profile binding are metadata and must not make an unchanged form look
+     * unsaved. In particular, a successful Relay test enriches the stored record with
+     * capabilities that are not represented by editable fields.
+     */
+    boolean sameRelayConnection(VpsRelayConfig other) {
+        if (other == null) return false;
+        return enabled == other.enabled
+                && port == other.port
+                && tls == other.tls
+                && host.equals(other.host)
+                && path.equals(other.path)
+                && token.equals(other.token);
     }
 
     boolean sameEndpoint(VpsRelayConfig other) {
@@ -214,6 +251,7 @@ final class VpsRelayConfig {
             return false;
         }
         if ("/healthz".equals(value) || "/version".equals(value)
+                || "/capabilities".equals(value)
                 || "/test-routes".equals(value) || "/connect".equals(value)
                 || "/admin".equals(value) || value.startsWith("/admin/")
                 || "/apiws/connect".equals(value)

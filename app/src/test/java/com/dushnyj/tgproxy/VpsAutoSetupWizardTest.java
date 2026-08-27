@@ -263,6 +263,47 @@ public class VpsAutoSetupWizardTest {
         assertEquals("relay.example.com", store.selectedRelay("wifi:ssid:home").host());
     }
 
+    @Test
+    public void blockedPlanIsShownBeforeWizardStopsAndNeverMutatesServer() throws Exception {
+        FakeSshClient ssh = new FakeSshClient(
+                "kernel=linux\n"
+                        + "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "package_manager=apt\n"
+                        + "root_or_passwordless_sudo=yes\n"
+                        + "curl=yes\n"
+                        + "tar=yes\n"
+                        + "port_80=free\n"
+                        + "port_443=free\n"
+                        + "port_18080=free\n"
+                        + "domain=example.com\n"
+                        + "domain_ips=203.0.113.11\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=no\n");
+        final boolean[] planShown = {false};
+        VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
+                ssh, (config, rules) -> VpsRelayCheckResult.ok("{}"),
+                VpsRelayStore.inMemory(), dcRules());
+
+        try {
+            wizard.run(tlsRequest("wifi:ssid:home"), new VpsAutoSetupWizard.Listener() {
+                @Override public void onProgress(VpsSetupProgress progress) {}
+
+                @Override public boolean onPlan(VpsSetupPlan plan) {
+                    planShown[0] = true;
+                    assertFalse(plan.canApply());
+                    return true;
+                }
+            });
+            throw new AssertionError("blocked plan was applied");
+        } catch (VpsSetupException expected) {
+            assertTrue(expected.getMessage().contains("DNS домена"));
+        }
+
+        assertTrue(planShown[0]);
+        assertEquals(Arrays.asList(VpsSetupProgress.Stage.AUDIT), ssh.stages);
+    }
+
     private static VpsAutoSetupWizard.Listener approvingListener() {
         return new VpsAutoSetupWizard.Listener() {
             @Override public void onProgress(VpsSetupProgress progress) {}

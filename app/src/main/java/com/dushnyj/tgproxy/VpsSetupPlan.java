@@ -7,6 +7,7 @@ import java.util.List;
 final class VpsSetupPlan {
     enum InstallMode {
         STANDALONE,
+        NGINX_MANAGED_TLS,
         NGINX_NEW_SERVER,
         NGINX_EXISTING_LOCATION,
         CADDY_EXISTING_SITE,
@@ -61,14 +62,20 @@ final class VpsSetupPlan {
         String os = audit.os().isEmpty() ? "unknown" : audit.os();
         String arch = audit.architecture().isEmpty() ? "unknown" : audit.architecture();
         lines.add("Read-only audit: os=" + os + ", arch=" + arch
-                + ", systemd=" + yesNo(audit.hasSystemd()) + ".");
+                + ", init=" + valueOrUnknown(audit.initSystem())
+                + ", packages=" + valueOrUnknown(audit.value("package_manager")) + ".");
         lines.add("Web stack: nginx=" + valueOrUnknown(audit.value("nginx"))
                 + ", apache=" + valueOrUnknown(audit.value("apache"))
                 + ", caddy=" + valueOrUnknown(audit.value("caddy"))
                 + ", docker=" + valueOrUnknown(audit.value("docker")) + ".");
 
-        if (!audit.hasSystemd()) {
-            lines.add("systemd не найден, автоматическая установка остановлена.");
+        if (!audit.isLinux()) {
+            lines.add("Удалённая система не является Linux; автоматическая установка остановлена.");
+            canApply = false;
+        }
+        if (!audit.hasSupportedInit()) {
+            lines.add("Init-система " + valueOrUnknown(audit.initSystem())
+                    + " не поддерживается автонастройкой.");
             canApply = false;
         }
         if (!audit.isSupportedArch()) {
@@ -82,12 +89,10 @@ final class VpsSetupPlan {
                 canApply = decision.canApply && canApply;
             } else {
                 if (!isYes(audit.value("curl")) && !isYes(audit.value("wget"))) {
-                    lines.add("На VPS нужен curl или wget для загрузки tgproxy-relay release asset.");
-                    canApply = false;
+                    lines.add("curl/wget не найден: автонастройка установит загрузчик пакетом ОС.");
                 }
                 if (isNo(audit.value("tar"))) {
-                    lines.add("На VPS нужен tar для распаковки tgproxy-relay release asset.");
-                    canApply = false;
+                    lines.add("tar не найден: автонастройка установит его пакетом ОС.");
                 }
 
                 if (request.reverseProxyMode()) {
@@ -99,14 +104,15 @@ final class VpsSetupPlan {
             }
         }
 
-        lines.add("Создать backup /etc/tgproxy-relay, systemd unit и TG Proxy web-конфигов перед изменениями.");
+        lines.add("Создать backup Relay, службы автозапуска, firewall и TG Proxy web-конфигов перед изменениями.");
         if (decision.installMode == InstallMode.EXISTING_RELAY_ADD_TOKEN) {
             lines.add("Не переустанавливать Relay: добавить новый token в существующий config и перезапустить service.");
         } else if (decision.installMode == InstallMode.EXISTING_RELAY_UPDATE) {
             lines.add("Обновить tgproxy-relay binary из GitHub Release, сохранить существующий config и перезапустить service.");
         } else {
             lines.add("Установить tgproxy-relay из GitHub Release в /opt/tgproxy-relay.");
-            lines.add("Записать /etc/tgproxy-relay/config.json и systemd unit.");
+            lines.add("Записать /etc/tgproxy-relay/config.json и службу автозапуска для "
+                    + valueOrUnknown(audit.initSystem()) + ".");
         }
         lines.add("Проверить /healthz, /version и /test-routes, затем сохранить Relay.");
         return new VpsSetupPlan(canApply, lines, decision.installMode,
@@ -166,6 +172,30 @@ final class VpsSetupPlan {
             out.append(line);
         }
         return out.toString();
+    }
+
+    String blockingSummary() {
+        if (canApply) return "";
+        StringBuilder out = new StringBuilder();
+        for (String line : lines) {
+            String lower = line == null ? "" : line.toLowerCase(java.util.Locale.ROOT);
+            boolean blocker = lower.startsWith("нужно ")
+                    || lower.contains("не найден")
+                    || lower.contains("не поддерж")
+                    || lower.contains("останов")
+                    || lower.contains(" занят")
+                    || lower.contains("невозмож")
+                    || lower.contains("не указывает")
+                    || lower.contains("не совпадает")
+                    || lower.contains("нет root")
+                    || lower.contains("не проходит validate")
+                    || (lower.contains("уже найден") && lower.contains("не будет"))
+                    || (lower.startsWith("для ") && lower.contains(" нужен "));
+            if (!blocker) continue;
+            if (out.length() > 0) out.append('\n');
+            out.append(line);
+        }
+        return out.length() == 0 ? summary() : out.toString();
     }
 
     private static Decision planExistingRelay(VpsSetupRequest request, VpsSetupAudit audit,
@@ -259,9 +289,12 @@ final class VpsSetupPlan {
     private static VpsSetupRequest existingRelayRouteRequest(VpsSetupRequest request,
                                                              VpsSetupAudit audit) {
         if (request == null) return null;
-        if (request.reverseProxyMode()) return request;
         ExistingEndpoint endpoint = ExistingEndpoint.parse(audit.value("existing_relay_public_url"));
         if (endpoint == null || !endpoint.reverseProxyMode()) return request;
+        // An IP equal to the SSH host is also the legacy fallback for an empty endpoint field.
+        // Never migrate an already published Relay away from its working HTTPS endpoint merely
+        // because that fallback became a valid IP-certificate mode.
+        if (request.reverseProxyMode() && request.relayHostIsDomain()) return request;
         return request.withRelayEndpoint(endpoint.host, endpoint.port, endpoint.tls, endpoint.path);
     }
 
@@ -292,21 +325,33 @@ final class VpsSetupPlan {
         String targetPath = "";
         String domain = valueOr(request.relayHost(), audit.value("domain"));
         String ips = audit.value("domain_ips");
+        boolean ipEndpoint = request.relayHostIsIp();
+        boolean domainEndpoint = request.relayHostIsDomain();
         lines.add("Ports: 443=" + valueOrUnknown(audit.value("port_443"))
+                + ", 80=" + valueOrUnknown(audit.value("port_80"))
                 + ", internal " + request.internalRelayPort() + "="
                 + valueOrUnknown(audit.value("port_" + request.internalRelayPort())) + ".");
-        lines.add("DNS: " + valueOrDash(domain) + " -> " + valueOrDash(ips)
-                + " (VPS public IP: " + valueOrDash(audit.value("public_ip")) + ").");
+        if (ipEndpoint) {
+            lines.add("Публичный IP: " + valueOrDash(domain)
+                    + " (VPS сообщает " + valueOrDash(audit.publicIp()) + ").");
+        } else {
+            lines.add("DNS: " + valueOrDash(domain) + " -> " + valueOrDash(ips)
+                    + " (VPS public IP: " + valueOrDash(audit.publicIp()) + ").");
+        }
         if (audit.hasWebServer()) {
-            lines.add("Автонастройка не будет менять существующие сайты и домены автоматически.");
+            lines.add("Найден существующий web stack: изменяться будет только изолированный TG Proxy route.");
         }
 
-        if (!request.relayHostIsDomain()) {
-            lines.add("Для TLS/reverse proxy нужен домен или поддомен, IP-only TLS здесь не включается.");
+        if (!domainEndpoint && !ipEndpoint) {
+            lines.add("Для HTTPS нужен корректный IP, домен или поддомен.");
             canApply = false;
         }
-        if (!audit.domainPointsToVps()) {
+        if (domainEndpoint && !audit.domainPointsToVps()) {
             lines.add("DNS домена не указывает на этот VPS; исправьте A/AAAA-запись перед установкой.");
+            canApply = false;
+        }
+        if (ipEndpoint && !sameHost(request.relayHost(), audit.publicIp())) {
+            lines.add("Выбранный IP не совпадает с публичным IP VPS; выпуск IP-сертификата остановлен.");
             canApply = false;
         }
         if (audit.isPortBusy(request.internalRelayPort())) {
@@ -315,57 +360,85 @@ final class VpsSetupPlan {
             canApply = false;
         }
 
-        Decision dockerCaddy = planDockerCaddy(request, audit, lines, canApply);
-        if (dockerCaddy != null) {
-            return dockerCaddy;
+        if (domainEndpoint) {
+            Decision dockerCaddy = planDockerCaddy(request, audit, lines, canApply);
+            if (dockerCaddy != null) return dockerCaddy;
+
+            Decision hostCaddy = planHostCaddy(request, audit, lines, canApply);
+            if (hostCaddy != null) return hostCaddy;
         }
 
-        Decision hostCaddy = planHostCaddy(request, audit, lines, canApply);
-        if (hostCaddy != null) {
-            return hostCaddy;
-        }
-
-        if (!isYes(audit.value("nginx"))) {
-            lines.add("nginx не найден: автоматический TLS domain setup сейчас поддерживает nginx, host Caddy или Docker Caddy.");
-            canApply = false;
-        }
+        boolean nginxInstalled = isYes(audit.value("nginx"));
         if (isYes(audit.value("apache")) || isYes(audit.value("caddy"))) {
-            lines.add("Обнаружен apache/caddy рядом с nginx: автоматическое изменение web stack остановлено.");
+            lines.add("443 управляется Apache/Caddy без безопасного совпадения endpoint; автоматическое изменение остановлено.");
             canApply = false;
         }
-        if (!audit.certificateExists()) {
-            lines.add("Сертификат Let's Encrypt для " + valueOrDash(domain)
-                    + " не найден; автоматическая установка не будет выпускать/менять сертификаты.");
+        if (!nginxInstalled && audit.isPortBusy(443)) {
+            lines.add("Порт 443 занят неизвестным сервисом; nginx не будет перехватывать его.");
+            canApply = false;
+        }
+        if (!nginxInstalled && audit.isPortBusy(80)) {
+            lines.add("Порт 80 занят неизвестным сервисом; HTTP-01 проверка сертификата невозможна.");
             canApply = false;
         }
 
         int nginxMatches = audit.intValue("nginx_domain_match_count");
         if (nginxMatches > 0) {
             targetPath = firstCsvValue(audit.value("nginx_domain_matches"));
-            if (nginxMatches == 1 && isYes(audit.value("nginx_safe_embed"))
+            if (audit.certificateExists()
+                    && nginxMatches == 1 && isYes(audit.value("nginx_safe_embed"))
                     && !isYes(audit.value("nginx_path_exists"))) {
                 mode = InstallMode.NGINX_EXISTING_LOCATION;
                 lines.add("nginx: домен найден в одном простом server block, можно встроить location "
                         + request.relayPath() + " в " + valueOrDash(targetPath) + ".");
             } else {
-                lines.add("Домен уже найден в nginx (" + nginxMatches
-                        + "): существующий server block/path не изменяется автоматически.");
+                lines.add("Endpoint уже найден в nginx (" + nginxMatches
+                        + "), но безопасное изолированное встраивание невозможно.");
                 if (isYes(audit.value("nginx_path_exists"))) {
                     lines.add("Path " + request.relayPath()
                             + " уже найден в nginx; автонастройка не будет перезаписывать его.");
                 }
+                if (!audit.certificateExists()) {
+                    lines.add("Для существующего server block не найден готовый сертификат; конфиг сайта не будет перестраиваться.");
+                }
                 canApply = false;
             }
         } else {
-            lines.add("nginx: домен не найден в существующих конфигах, можно создать отдельный nginx server block.");
+            if (!nginxInstalled || !audit.certificateExists()) {
+                mode = InstallMode.NGINX_MANAGED_TLS;
+                lines.add("Автонастройка установит nginx и Certbot, выпустит бесплатный HTTPS-сертификат и включит автоматическое продление.");
+                if (ipEndpoint) {
+                    lines.add("Для IP будет использован короткоживущий Let's Encrypt IP-сертификат и автоматическое продление.");
+                }
+                if (isNo(audit.value("root_or_passwordless_sudo"))) {
+                    lines.add("У SSH-пользователя нет root/passwordless sudo для установки пакетов.");
+                    canApply = false;
+                }
+                if (noPackageManager(audit)) {
+                    lines.add("Не найден поддерживаемый пакетный менеджер apt/dnf/microdnf/yum/zypper/apk/pacman/xbps/portage.");
+                    canApply = false;
+                }
+            } else {
+                lines.add("nginx и сертификат уже готовы; будет создан отдельный server block TG Proxy.");
+            }
         }
         if (!audit.value("nginx_domain_matches").isEmpty()) {
             lines.add("nginx matches: " + audit.value("nginx_domain_matches"));
         }
-        lines.add("Режим установки: TLS domain " + valueOrDash(domain)
+        lines.add("Режим установки: HTTPS " + valueOrDash(domain)
                 + " -> nginx:443 -> 127.0.0.1:" + request.internalRelayPort()
                 + " path " + request.relayPath() + ".");
         return new Decision(canApply, mode, targetPath);
+    }
+
+    private static boolean noPackageManager(VpsSetupAudit audit) {
+        String value = audit.value("package_manager");
+        return "none".equalsIgnoreCase(value) || "no".equalsIgnoreCase(value);
+    }
+
+    private static boolean sameHost(String left, String right) {
+        return VpsEndpointPolicy.normalizeHost(left)
+                .equalsIgnoreCase(VpsEndpointPolicy.normalizeHost(right));
     }
 
     private static Decision planHostCaddy(VpsSetupRequest request, VpsSetupAudit audit,
@@ -472,10 +545,6 @@ final class VpsSetupPlan {
                 || "0".equals(value);
     }
 
-    private static String yesNo(boolean value) {
-        return value ? "yes" : "no";
-    }
-
     private static String valueOrUnknown(String value) {
         String normalized = value == null ? "" : value.trim();
         return normalized.isEmpty() ? "unknown" : normalized;
@@ -544,7 +613,8 @@ final class VpsSetupPlan {
         }
 
         boolean reverseProxyMode() {
-            return tls && port == 443 && host.contains(".") && !host.matches("\\d+\\.\\d+\\.\\d+\\.\\d+");
+            return tls && port == 443
+                    && (VpsEndpointPolicy.isDomain(host) || VpsEndpointPolicy.isIpLiteral(host));
         }
     }
 

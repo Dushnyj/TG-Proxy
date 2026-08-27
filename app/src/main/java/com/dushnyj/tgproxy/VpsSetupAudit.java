@@ -29,7 +29,27 @@ final class VpsSetupAudit {
     }
 
     boolean hasSystemd() {
-        return isYes("systemd");
+        return "systemd".equals(initSystem()) || isYes("systemd");
+    }
+
+    boolean isLinux() {
+        String kernel = value("kernel");
+        return kernel.isEmpty() || "linux".equalsIgnoreCase(kernel);
+    }
+
+    String initSystem() {
+        String value = value("init_system").toLowerCase(Locale.US);
+        if (!value.isEmpty()) return value;
+        return isYes("systemd") ? "systemd" : "portable";
+    }
+
+    boolean hasSupportedInit() {
+        String init = initSystem();
+        return "systemd".equals(init)
+                || "openrc".equals(init)
+                || "runit".equals(init)
+                || "sysv".equals(init)
+                || "portable".equals(init);
     }
 
     boolean hasWebServer() {
@@ -48,8 +68,29 @@ final class VpsSetupAudit {
         String arch = architecture();
         return "x86_64".equals(arch)
                 || "amd64".equals(arch)
+                || "i386".equals(arch)
+                || "i486".equals(arch)
+                || "i586".equals(arch)
+                || "i686".equals(arch)
+                || "x86".equals(arch)
                 || "aarch64".equals(arch)
-                || "arm64".equals(arch);
+                || "arm64".equals(arch)
+                || arch.startsWith("armv5")
+                || arch.startsWith("armv6")
+                || arch.startsWith("armv7")
+                || arch.startsWith("armv8l")
+                || "riscv64".equals(arch)
+                || "ppc64".equals(arch)
+                || "ppc64le".equals(arch)
+                || "s390x".equals(arch)
+                || "loong64".equals(arch)
+                || "loongarch64".equals(arch)
+                || "mips".equals(arch)
+                || "mipsel".equals(arch)
+                || "mipsle".equals(arch)
+                || "mips64".equals(arch)
+                || "mips64el".equals(arch)
+                || "mips64le".equals(arch);
     }
 
     String architecture() {
@@ -58,6 +99,10 @@ final class VpsSetupAudit {
 
     String os() {
         return value("os");
+    }
+
+    String publicIp() {
+        return value("public_ip");
     }
 
     boolean domainPointsToVps() {

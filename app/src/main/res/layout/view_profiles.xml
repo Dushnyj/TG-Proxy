@@ -81,6 +81,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:includeFontPadding="false"
+        android:labelFor="@id/et_profile_name"
         android:text="@string/profile_name"
         android:textColor="@color/text_secondary"
         android:textSize="11sp" />
@@ -91,6 +92,7 @@
         android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:background="@drawable/edit_bg"
+        android:importantForAutofill="no"
         android:inputType="textCapWords"
         android:maxLines="1"
         android:paddingStart="9dp"
@@ -99,34 +101,6 @@
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_hint"
         android:textSize="13sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:includeFontPadding="false"
-        android:text="@string/route_preference"
-        android:textColor="@color/text_secondary"
-        android:textSize="11sp" />
-
-    <Spinner
-        android:id="@+id/sp_route_preference"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginTop="4dp"
-        android:background="@drawable/edit_bg"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp" />
-
-    <TextView
-        android:id="@+id/tv_route_preference_explanation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:includeFontPadding="false"
-        android:text="@string/route_priority_auto_explanation"
-        android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
 
     <LinearLayout
         android:layout_width="match_parent"

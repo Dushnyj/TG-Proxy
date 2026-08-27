@@ -37,7 +37,8 @@ final class VpsOwnerClient {
                         item.optString("android"), item.optString("country"),
                         item.optString("city"), item.optString("remoteIp"),
                         item.optString("firstSeen"), item.optString("lastSeen"),
-                        item.optInt("activeSessions")));
+                        item.optInt("activeSessions"), item.optBoolean("blocked"),
+                        item.optString("blockedAt")));
             }
         }
         return new Overview(tokens, clients);
@@ -65,6 +66,34 @@ final class VpsOwnerClient {
         VpsRelayClient.HttpResult result = VpsRelayClient.requestOwner(relay, adminToken,
                 "DELETE", "/admin/v1/tokens/" + encoded, "");
         requireSuccess(result, 204);
+    }
+
+    void disconnectDevice(VpsRelayConfig relay, String adminToken,
+                          String tokenId, String deviceId) throws Exception {
+        deviceAction(relay, adminToken, "POST", tokenId, deviceId, "disconnect");
+    }
+
+    void blockDevice(VpsRelayConfig relay, String adminToken,
+                     String tokenId, String deviceId) throws Exception {
+        deviceAction(relay, adminToken, "PUT", tokenId, deviceId, "block");
+    }
+
+    void unblockDevice(VpsRelayConfig relay, String adminToken,
+                       String tokenId, String deviceId) throws Exception {
+        deviceAction(relay, adminToken, "DELETE", tokenId, deviceId, "block");
+    }
+
+    private static void deviceAction(VpsRelayConfig relay, String adminToken, String method,
+                                     String tokenId, String deviceId, String action) throws Exception {
+        String token = pathSegment(tokenId);
+        String device = pathSegment(deviceId);
+        VpsRelayClient.HttpResult result = VpsRelayClient.requestOwner(relay, adminToken,
+                method, "/admin/v1/tokens/" + token + "/devices/" + device + "/" + action, "");
+        requireSuccess(result, 204);
+    }
+
+    private static String pathSegment(String value) throws Exception {
+        return URLEncoder.encode(value == null ? "" : value, "UTF-8").replace("+", "%20");
     }
 
     private static void requireSuccess(VpsRelayClient.HttpResult result, int expected)
@@ -121,16 +150,20 @@ final class VpsOwnerClient {
         private final String tokenId, deviceId, manufacturer, model, appVersion, appCode;
         private final String android, country, city, remoteIp, firstSeen, lastSeen;
         private final int activeSessions;
+        private final boolean blocked;
+        private final String blockedAt;
 
         Client(String tokenId, String deviceId, String manufacturer, String model,
                String appVersion, String appCode, String android, String country, String city,
-               String remoteIp, String firstSeen, String lastSeen, int activeSessions) {
+               String remoteIp, String firstSeen, String lastSeen, int activeSessions,
+               boolean blocked, String blockedAt) {
             this.tokenId = clean(tokenId); this.deviceId = clean(deviceId);
             this.manufacturer = clean(manufacturer); this.model = clean(model);
             this.appVersion = clean(appVersion); this.appCode = clean(appCode);
             this.android = clean(android); this.country = clean(country); this.city = clean(city);
             this.remoteIp = clean(remoteIp); this.firstSeen = clean(firstSeen);
             this.lastSeen = clean(lastSeen); this.activeSessions = Math.max(0, activeSessions);
+            this.blocked = blocked; this.blockedAt = clean(blockedAt);
         }
 
         String tokenId() { return tokenId; }
@@ -146,6 +179,8 @@ final class VpsOwnerClient {
         String firstSeen() { return firstSeen; }
         String lastSeen() { return lastSeen; }
         int activeSessions() { return activeSessions; }
+        boolean blocked() { return blocked; }
+        String blockedAt() { return blockedAt; }
 
         String deviceLabel() {
             String hardware = (manufacturer + " " + model).trim();
@@ -153,7 +188,7 @@ final class VpsOwnerClient {
         }
 
         String locationLabel() {
-            if (!country.isEmpty() && !city.isEmpty()) return country + ". г. " + city;
+            if (!country.isEmpty() && !city.isEmpty()) return country + ", " + city;
             if (!country.isEmpty()) return country;
             if (!city.isEmpty()) return city;
             return remoteIp;

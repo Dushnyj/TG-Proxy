@@ -10,8 +10,8 @@ android {
         applicationId "com.dushnyj.tgproxy"
         minSdk 21
         targetSdk 34
-        versionCode 10102
-        versionName "1.1.2"
+        versionCode 10200
+        versionName "1.2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -85,6 +85,7 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
 }

@@ -102,6 +102,13 @@ final class NetworkProfileStore {
         persistProfiles();
     }
 
+    synchronized void setRouteAvailability(String key, RouteAvailability availability) {
+        NetworkProfileRecord existing = profiles.get(key);
+        if (existing == null) return;
+        profiles.put(key, existing.withRouteAvailability(availability));
+        persistProfiles();
+    }
+
     synchronized boolean deleteProfile(String key) {
         if (key == null || key.trim().isEmpty()) return false;
         NetworkProfileRecord removed = profiles.remove(key);
@@ -168,7 +175,8 @@ final class NetworkProfileStore {
                     .append(record.routePreference().name()).append('\t')
                     .append(record.createdMs()).append('\t')
                     .append(record.lastSeenMs()).append('\t')
-                    .append(record.seenCount());
+                    .append(record.seenCount()).append('\t')
+                    .append(record.routeAvailability().toStored());
         }
         return out.toString();
     }
@@ -187,6 +195,9 @@ final class NetworkProfileStore {
                         profile,
                         decoded(parts[3]),
                         RoutePreference.fromStored(parts[4]),
+                        parts.length >= 9
+                                ? RouteAvailability.fromStored(parts[8])
+                                : RouteAvailability.all(),
                         longValue(parts[5]),
                         longValue(parts[6]),
                         intValue(parts[7]));
@@ -330,7 +341,7 @@ final class NetworkProfileStore {
         if (legacy == null) return current;
         if (current == null) {
             return new NetworkProfileRecord(target, legacy.displayName(),
-                    legacy.routePreference(), legacy.createdMs(),
+                    legacy.routePreference(), legacy.routeAvailability(), legacy.createdMs(),
                     legacy.lastSeenMs(), legacy.seenCount());
         }
         RoutePreference preference = current.routePreference();
@@ -342,7 +353,13 @@ final class NetworkProfileStore {
         long created = Math.min(nonZero(current.createdMs(), legacy.createdMs()),
                 nonZero(legacy.createdMs(), current.createdMs()));
         long lastSeen = Math.max(current.lastSeenMs(), legacy.lastSeenMs());
-        return new NetworkProfileRecord(target, current.displayName(), preference,
+        RouteAvailability availability = current.routeAvailability();
+        if (availability.equals(RouteAvailability.all())
+                && !legacy.routeAvailability().equals(RouteAvailability.all())
+                && legacy.seenCount() > current.seenCount()) {
+            availability = legacy.routeAvailability();
+        }
+        return new NetworkProfileRecord(target, current.displayName(), preference, availability,
                 created, lastSeen, current.seenCount() + legacy.seenCount());
     }
 

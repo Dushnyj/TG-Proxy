@@ -8,6 +8,60 @@ import static org.junit.Assert.assertTrue;
 
 public class VpsSetupPlanTest {
     @Test
+    public void alpineOpenRcArmServerIsSupportedWithoutSystemd() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "kernel=linux\n"
+                        + "os=Alpine Linux 3.22\n"
+                        + "init_system=openrc\n"
+                        + "systemd=no\n"
+                        + "arch=armv7l\n"
+                        + "package_manager=apk\n"
+                        + "port_18080=free\n");
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshUser("root")
+                .relayHost("relay.example.com")
+                .relayPort(18080)
+                .relayTls(false)
+                .relayPath("/apiws")
+                .relayToken("token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertTrue(plan.summary(), plan.canApply());
+        assertTrue(plan.summary().contains("Alpine Linux 3.22"));
+        assertTrue(plan.summary().contains("init=openrc"));
+        assertTrue(plan.summary().contains("службу автозапуска для openrc"));
+    }
+
+    @Test
+    public void nonLinuxServerIsRejectedBeforeMutation() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "kernel=freebsd\n"
+                        + "os=FreeBSD\n"
+                        + "init_system=portable\n"
+                        + "arch=amd64\n"
+                        + "port_18080=free\n");
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshUser("root")
+                .relayHost("relay.example.com")
+                .relayPort(18080)
+                .relayTls(false)
+                .relayPath("/apiws")
+                .relayToken("token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertFalse(plan.canApply());
+        assertTrue(plan.blockingSummary().contains("не является Linux"));
+    }
+
+    @Test
     public void refusesToAutoChangeBusyTlsSitePort() {
         VpsSetupAudit audit = VpsSetupAudit.parse(
                 "systemd=yes\n"
@@ -31,7 +85,9 @@ public class VpsSetupPlanTest {
 
         assertFalse(plan.canApply());
         assertTrue(plan.summary().contains("443"));
-        assertTrue(plan.summary().contains("не будет менять существующие сайты"));
+        assertTrue(plan.summary().contains("DNS домена"));
+        assertTrue(plan.blockingSummary().contains("DNS домена"));
+        assertFalse(plan.blockingSummary().startsWith("Read-only audit:"));
     }
 
     @Test
@@ -64,7 +120,7 @@ public class VpsSetupPlanTest {
     }
 
     @Test
-    public void refusesWithoutCurlOrWgetDownloader() {
+    public void installsMissingDownloaderFromOperatingSystemPackages() {
         VpsSetupAudit audit = VpsSetupAudit.parse(
                 "systemd=yes\n"
                         + "arch=x86_64\n"
@@ -84,7 +140,7 @@ public class VpsSetupPlanTest {
 
         VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
 
-        assertFalse(plan.canApply());
+        assertTrue(plan.canApply());
         assertTrue(plan.summary().contains("curl"));
     }
 
@@ -159,8 +215,62 @@ public class VpsSetupPlanTest {
         assertTrue(plan.canApply());
         assertTrue(plan.summary().contains("Ubuntu 24.04"));
         assertTrue(plan.summary().contains("DNS: relay.example.com -> 203.0.113.10"));
-        assertTrue(plan.summary().contains("создать отдельный nginx server block"));
+        assertTrue(plan.summary().contains("nginx и сертификат уже готовы"));
         assertTrue(plan.summary().contains("127.0.0.1:18080"));
+    }
+
+    @Test
+    public void cleanVpsCanIssueAndRenewDomainCertificateAutomatically() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "os=Ubuntu 24.04\n"
+                        + "systemd=yes\narch=x86_64\ncurl=yes\ntar=yes\n"
+                        + "nginx=no\napache=no\ncaddy=no\n"
+                        + "port_80=free\nport_443=free\nport_18080=free\n"
+                        + "domain=relay.example.com\ndomain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\ndomain_points_to_vps=yes\n"
+                        + "nginx_domain_match_count=0\ncert_exists=no\n"
+                        + "package_manager=apt\nroot_or_passwordless_sudo=yes\n");
+        VpsSetupRequest request = tlsRequest("relay.example.com");
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertTrue(plan.summary(), plan.canApply());
+        assertEquals(VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS, plan.installMode());
+        assertTrue(plan.summary().contains("Certbot"));
+        assertTrue(plan.summary().contains("автоматическое продление"));
+    }
+
+    @Test
+    public void publicIpCanUseShortLivedManagedCertificate() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "os=Ubuntu 24.04\n"
+                        + "systemd=yes\narch=x86_64\ncurl=yes\ntar=yes\n"
+                        + "nginx=no\napache=no\ncaddy=no\n"
+                        + "port_80=free\nport_443=free\nport_18080=free\n"
+                        + "domain=203.0.113.10\ndomain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\ndomain_points_to_vps=yes\n"
+                        + "nginx_domain_match_count=0\ncert_exists=no\n"
+                        + "package_manager=apt\nroot_or_passwordless_sudo=yes\n");
+        VpsSetupRequest request = tlsRequest("203.0.113.10");
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertTrue(plan.summary(), plan.canApply());
+        assertEquals(VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS, plan.installMode());
+        assertTrue(plan.summary().contains("IP-сертификат"));
+    }
+
+    private static VpsSetupRequest tlsRequest(String host) {
+        return VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost(host)
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("token")
+                .releaseVersion("1.0.0")
+                .build();
     }
 
     @Test
@@ -358,6 +468,43 @@ public class VpsSetupPlanTest {
         assertEquals(VpsSetupPlan.InstallMode.EXISTING_RELAY_ADD_TOKEN, plan.installMode());
         assertTrue(plan.summary().contains("Relay уже установлен"));
         assertTrue(plan.summary().contains("добавить новый token"));
+    }
+
+    @Test
+    public void existingRelayWithActiveNginxRouteAcceptsIpSetupFallback() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://relay.example.com:443/apiws\n"
+                        + "existing_relay_listen=127.0.0.1:18080\n"
+                        + "domain=relay.example.com\n"
+                        + "domain_ips=203.0.113.10\n"
+                        + "public_ip=203.0.113.10\n"
+                        + "domain_points_to_vps=yes\n"
+                        + "nginx_domain_match_count=1\n"
+                        + "nginx_domain_matches=/etc/nginx/conf.d/tgproxy-relay.conf\n"
+                        + "nginx_safe_embed=yes\n"
+                        + "nginx_path_exists=yes\n");
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("203.0.113.10")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertTrue(plan.summary(), plan.canApply());
+        assertEquals(VpsSetupPlan.InstallMode.EXISTING_RELAY_ADD_TOKEN, plan.installMode());
+        assertEquals("relay.example.com", plan.effectiveRequest().relayHost());
+        assertTrue(plan.summary().contains("уже найден"));
     }
 
     @Test

@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 final class VpsSetupScripts {
-    static final String RELAY_VERSION = "1.1.0";
+    static final String RELAY_VERSION = "1.2.0";
     private static final String RELEASE_BASE =
             "https://github.com/Dushnyj/TG-Proxy-Relay/releases/download";
     private static final String RELAY_DC_MAP_JSON =
@@ -30,12 +30,21 @@ final class VpsSetupScripts {
         if (request == null) request = VpsSetupRequest.builder().build();
         return "#!/bin/sh\n"
                 + "set +e\n"
-                + "DOMAIN=" + shellQuote(request.relayHostIsDomain() ? request.relayHost() : "") + "\n"
+                + "DOMAIN=" + shellQuote(request.relayHost()) + "\n"
                 + "RELAY_PATH=" + shellQuote(request.relayPath()) + "\n"
                 + "SSH_HOST=" + shellQuote(request.sshCredentials().host()) + "\n"
                 + "RELAY_PORT=" + request.relayPort() + "\n"
                 + "INTERNAL_RELAY_PORT=" + request.internalRelayPort() + "\n"
                 + "yn() { command -v \"$1\" >/dev/null 2>&1 && echo yes || echo no; }\n"
+                + "package_manager() { command -v apt-get >/dev/null 2>&1 && { echo apt; return; }; command -v dnf >/dev/null 2>&1 && { echo dnf; return; }; command -v microdnf >/dev/null 2>&1 && { echo microdnf; return; }; command -v yum >/dev/null 2>&1 && { echo yum; return; }; command -v zypper >/dev/null 2>&1 && { echo zypper; return; }; command -v apk >/dev/null 2>&1 && { echo apk; return; }; command -v pacman >/dev/null 2>&1 && { echo pacman; return; }; command -v xbps-install >/dev/null 2>&1 && { echo xbps; return; }; command -v emerge >/dev/null 2>&1 && { echo portage; return; }; echo none; }\n"
+                + "init_system() {\n"
+                + "  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then echo systemd; return; fi\n"
+                + "  if command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then echo openrc; return; fi\n"
+                + "  if command -v sv >/dev/null 2>&1 && { [ -d /etc/sv ] || [ -d /var/service ] || [ -d /etc/service ]; }; then echo runit; return; fi\n"
+                + "  if [ -d /etc/init.d ]; then echo sysv; return; fi\n"
+                + "  echo portable\n"
+                + "}\n"
+                + "root_or_passwordless_sudo() { [ \"$(id -u)\" -eq 0 ] && { echo yes; return; }; command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1 && { echo yes; return; }; echo no; }\n"
                 + "port_state() {\n"
                 + "  if command -v ss >/dev/null 2>&1; then ss -ltn | awk '{print $4}' | grep -Eq \"(^|:)${1}$\" && echo busy && return; fi\n"
                 + "  if command -v netstat >/dev/null 2>&1; then netstat -ltn | awk '{print $4}' | grep -Eq \"(^|:)${1}$\" && echo busy && return; fi\n"
@@ -43,13 +52,34 @@ final class VpsSetupScripts {
                 + "}\n"
                 + "count_csv() { [ -z \"$1\" ] && echo 0 || printf '%s\\n' \"$1\" | tr ',' '\\n' | grep -c .; }\n"
                 + "contains_word() { printf ' %s ' \"$1\" | grep -Fq \" $2 \"; }\n"
-                + "domain_ips() { [ -z \"$DOMAIN\" ] && return; getent ahosts \"$DOMAIN\" 2>/dev/null | awk '{print $1}' | sort -u | tr '\\n' ' '; }\n"
+                + "domain_ips() {\n"
+                + "  [ -z \"$DOMAIN\" ] && return\n"
+                + "  if command -v getent >/dev/null 2>&1; then getent ahosts \"$DOMAIN\" 2>/dev/null | awk '{print $1}'\n"
+                + "  elif command -v dig >/dev/null 2>&1; then { dig +short A \"$DOMAIN\"; dig +short AAAA \"$DOMAIN\"; } 2>/dev/null\n"
+                + "  elif command -v host >/dev/null 2>&1; then host \"$DOMAIN\" 2>/dev/null | awk '/has address|has IPv6 address/{print $NF}'\n"
+                + "  elif command -v nslookup >/dev/null 2>&1; then nslookup \"$DOMAIN\" 2>/dev/null | awk '/^Address: /{print $2}'\n"
+                + "  fi | sort -u | tr '\\n' ' '\n"
+                + "}\n"
                 + "public_ip() {\n"
-                + "  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 4 https://api.ipify.org && return; fi\n"
-                + "  if command -v wget >/dev/null 2>&1; then wget -qO- -T 4 https://api.ipify.org && return; fi\n"
+                + "  for u in https://api.ipify.org https://checkip.amazonaws.com https://ifconfig.me/ip; do\n"
+                + "    v=\n"
+                + "    if command -v curl >/dev/null 2>&1; then v=$(curl -fsS --max-time 4 \"$u\" 2>/dev/null | tr -d ' \\r\\n');\n"
+                + "    elif command -v wget >/dev/null 2>&1; then v=$(wget -qO- -T 4 \"$u\" 2>/dev/null | tr -d ' \\r\\n'); fi\n"
+                + "    printf '%s' \"$v\" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}$' && { printf '%s\\n' \"$v\"; return; }\n"
+                + "  done\n"
+                + "  printf '%s' \"$SSH_HOST\" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}$' && { printf '%s\\n' \"$SSH_HOST\"; return; }\n"
+                + "  v=\n"
+                + "  command -v getent >/dev/null 2>&1 && v=$(getent ahostsv4 \"$SSH_HOST\" 2>/dev/null | awk 'NR==1{print $1}')\n"
+                + "  printf '%s' \"$v\" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}$' && { printf '%s\\n' \"$v\"; return; }\n"
                 + "  echo unknown\n"
                 + "}\n"
-                + "grep_matches() { [ -z \"$DOMAIN\" ] && return; grep -Rsl -- \"$DOMAIN\" \"$@\" 2>/dev/null | tr '\\n' ',' | sed 's/,$//'; }\n"
+                + "active_matches() {\n"
+                + "  [ -z \"$DOMAIN\" ] && return\n"
+                + "  for root in \"$@\"; do\n"
+                + "    [ -d \"$root\" ] || continue\n"
+                + "    find -L \"$root\" -type f ! -name '*.bak' ! -name '*.backup' ! -name '*.disabled' ! -name '*.old' ! -name '*.orig' ! -name '*.save' ! -name '*~' ! -name '*.dpkg-*' -exec grep -Fl -- \"$DOMAIN\" {} + 2>/dev/null\n"
+                + "  done | sort -u | tr '\\n' ',' | sed 's/,$//'\n"
+                + "}\n"
                 + "docker_caddy_containers() {\n"
                 + "  command -v docker >/dev/null 2>&1 || return\n"
                 + "  docker ps --format '{{.Names}}\\t{{.Image}}' 2>/dev/null | awk 'tolower($0) ~ /caddy/ {print $1}'\n"
@@ -124,9 +154,13 @@ final class VpsSetupScripts {
                 + "    [ -z \"$RELAY_PATH\" ] && RELAY_PATH=/apiws\n"
                 + "  fi\n"
                 + "fi\n"
+                + "printf 'kernel=%s\\n' \"$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')\"\n"
                 + "printf 'os=%s\\n' \"$(. /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-unknown})\"\n"
                 + "printf 'arch=%s\\n' \"$(uname -m)\"\n"
-                + "printf 'systemd=%s\\n' \"$(yn systemctl)\"\n"
+                + "INIT_SYSTEM=$(init_system)\n"
+                + "printf 'init_system=%s\\n' \"$INIT_SYSTEM\"\n"
+                + "[ \"$INIT_SYSTEM\" = systemd ] && SYSTEMD=yes || SYSTEMD=no\n"
+                + "printf 'systemd=%s\\n' \"$SYSTEMD\"\n"
                 + "printf 'nginx=%s\\n' \"$(yn nginx)\"\n"
                 + "printf 'apache=%s\\n' \"$(yn apache2)\"\n"
                 + "printf 'caddy=%s\\n' \"$(yn caddy)\"\n"
@@ -136,6 +170,9 @@ final class VpsSetupScripts {
                 + "printf 'wget=%s\\n' \"$(yn wget)\"\n"
                 + "printf 'tar=%s\\n' \"$(yn tar)\"\n"
                 + "printf 'python3=%s\\n' \"$(yn python3)\"\n"
+                + "printf 'package_manager=%s\\n' \"$(package_manager)\"\n"
+                + "printf 'root_or_passwordless_sudo=%s\\n' \"$(root_or_passwordless_sudo)\"\n"
+                + "printf 'port_80=%s\\n' \"$(port_state 80)\"\n"
                 + "printf 'port_443=%s\\n' \"$(port_state 443)\"\n"
                 + "printf 'port_%s=%s\\n' \"$RELAY_PORT\" \"$(port_state \"$RELAY_PORT\")\"\n"
                 + "printf 'port_%s=%s\\n' \"$INTERNAL_RELAY_PORT\" \"$(port_state \"$INTERNAL_RELAY_PORT\")\"\n"
@@ -148,9 +185,9 @@ final class VpsSetupScripts {
                 + "  elif contains_word \"$DOMAIN_IPS\" \"$SSH_HOST\" || contains_word \"$DOMAIN_IPS\" \"$PUBLIC_IP\"; then POINTS=yes;\n"
                 + "  else for ip in $LOCAL_IPS; do contains_word \"$DOMAIN_IPS\" \"$ip\" && POINTS=yes; done; [ \"$POINTS\" = unknown ] && POINTS=no; fi\n"
                 + "fi\n"
-                + "NGINX_MATCHES=$(grep_matches /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available)\n"
-                + "CADDY_MATCHES=$(grep_matches /etc/caddy)\n"
-                + "APACHE_MATCHES=$(grep_matches /etc/apache2/sites-enabled /etc/apache2/sites-available /etc/httpd/conf.d)\n"
+                + "NGINX_MATCHES=$(active_matches /etc/nginx/sites-enabled /etc/nginx/conf.d)\n"
+                + "CADDY_MATCHES=$(active_matches /etc/caddy)\n"
+                + "APACHE_MATCHES=$(active_matches /etc/apache2/sites-enabled /etc/httpd/conf.d)\n"
                 + "CADDY_PATH_EXISTS=no\n"
                 + "CADDY_VALIDATE=no\n"
                 + "CADDY_SAFE_EMBED=no\n"
@@ -223,6 +260,7 @@ final class VpsSetupScripts {
         return "#!/bin/sh\n"
                 + "set -eu\n"
                 + sudoPrelude()
+                + servicePrelude()
                 + "$SUDO mkdir -p /var/backups/tgproxy-relay\n"
                 + "BACKUP_DIR=" + shellQuote("/var/backups/tgproxy-relay/txn-" + transaction) + "\n"
                 + "$SUDO test ! -e \"$BACKUP_DIR\" || { echo backup_transaction_exists >&2; exit 71; }\n"
@@ -232,19 +270,22 @@ final class VpsSetupScripts {
                 + "$SUDO chmod 0600 \"$BACKUP_DIR/path-map.tsv\"\n"
                 + "$SUDO touch \"$BACKUP_DIR/mutation-paths.txt\" \"$BACKUP_DIR/absent-paths.txt\"\n"
                 + "$SUDO chmod 0600 \"$BACKUP_DIR/mutation-paths.txt\" \"$BACKUP_DIR/absent-paths.txt\"\n"
-                + "if $SUDO systemctl is-enabled --quiet tgproxy-relay 2>/dev/null; then $SUDO touch \"$BACKUP_DIR/service.was-enabled\"; fi\n"
-                + "if $SUDO systemctl is-active --quiet tgproxy-relay 2>/dev/null; then $SUDO touch \"$BACKUP_DIR/service.was-active\"; fi\n"
+                + "if relay_service_is_enabled >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/service.was-enabled\"; fi\n"
+                + "if relay_service_is_active >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/service.was-active\"; fi\n"
                 + "if ! $SUDO test -d /opt/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/opt-dir.absent\"; fi\n"
                 + "if ! $SUDO test -d /etc/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/etc-dir.absent\"; fi\n"
                 + "if ! $SUDO test -d /var/log/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/log-dir.absent\"; fi\n"
                 + "if ! $SUDO test -d /var/lib/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/state-dir.absent\"; else $SUDO cp -a /var/lib/tgproxy-relay \"$BACKUP_DIR/state-dir\"; fi\n"
                 + "if ! $SUDO test -d /etc/systemd/system/tgproxy-relay.service.d; then $SUDO touch \"$BACKUP_DIR/service-dropin-dir.absent\"; fi\n"
                 + "if ! id tgproxy-relay >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/user.absent\"; fi\n"
-                + "if ! getent group tgproxy-relay >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/group.absent\"; fi\n"
+                + "if ! group_exists tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/group.absent\"; fi\n"
                 + "if $SUDO test -f /opt/tgproxy-relay/tgproxy-relay; then $SUDO cp -p /opt/tgproxy-relay/tgproxy-relay \"$BACKUP_DIR/tgproxy-relay\"; else $SUDO touch \"$BACKUP_DIR/binary.absent\"; fi\n"
                 + "if $SUDO test -f /etc/tgproxy-relay/config.json; then $SUDO cp -p /etc/tgproxy-relay/config.json \"$BACKUP_DIR/config.json\"; else $SUDO touch \"$BACKUP_DIR/config.absent\"; fi\n"
                 + "if $SUDO test -f /etc/systemd/system/tgproxy-relay.service; then $SUDO cp -p /etc/systemd/system/tgproxy-relay.service \"$BACKUP_DIR/tgproxy-relay.service\"; else $SUDO touch \"$BACKUP_DIR/service.absent\"; fi\n"
                 + "if $SUDO test -f /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf; then $SUDO cp -p /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf \"$BACKUP_DIR/20-owner-state.conf\"; else $SUDO touch \"$BACKUP_DIR/service-dropin.absent\"; fi\n"
+                + "if $SUDO test -f /etc/init.d/tgproxy-relay; then $SUDO cp -p /etc/init.d/tgproxy-relay \"$BACKUP_DIR/tgproxy-relay.init\"; else $SUDO touch \"$BACKUP_DIR/init-script.absent\"; fi\n"
+                + "if $SUDO test -d /etc/sv/tgproxy-relay; then $SUDO cp -a /etc/sv/tgproxy-relay \"$BACKUP_DIR/runit-service\"; else $SUDO touch \"$BACKUP_DIR/runit-service.absent\"; fi\n"
+                + "if $SUDO test -f /etc/cron.d/tgproxy-relay; then $SUDO cp -p /etc/cron.d/tgproxy-relay \"$BACKUP_DIR/tgproxy-relay.cron\"; else $SUDO touch \"$BACKUP_DIR/portable-cron.absent\"; fi\n"
                 + "backup_path() {\n"
                 + "  f=$1\n"
                 + "  safe=path-$(printf '%s' \"$f\" | sha256sum | awk '{print $1}')\n"
@@ -278,6 +319,8 @@ final class VpsSetupScripts {
                 && plan.installMode() == VpsSetupPlan.InstallMode.DOCKER_CADDY_EXISTING_SITE;
         boolean hostCaddyMode = plan != null
                 && plan.installMode() == VpsSetupPlan.InstallMode.CADDY_EXISTING_SITE;
+        boolean managedTlsMode = plan != null
+                && plan.installMode() == VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS;
         String version = request.releaseVersion().isEmpty() ? RELAY_VERSION : request.releaseVersion();
         String token = request.relayToken();
         String adminToken = request.adminToken();
@@ -286,6 +329,7 @@ final class VpsSetupScripts {
         script.append("#!/bin/sh\n")
                 .append("set -eu\n")
                 .append(sudoPrelude())
+                .append(servicePrelude())
                 .append("TOKEN=").append(shellQuote(token)).append('\n')
                 .append("ADMIN_TOKEN=").append(shellQuote(adminToken)).append('\n')
                 .append("PUBLIC_URL=").append(shellQuote(request.publicUrl())).append('\n')
@@ -294,11 +338,7 @@ final class VpsSetupScripts {
                 .append("INTERNAL_RELAY_PORT=").append(request.internalRelayPort()).append('\n')
                 .append("LISTEN=").append(shellQuote(request.relayListenAddress())).append('\n')
                 .append("VERSION=").append(shellQuote(version)).append('\n')
-                .append("case \"$(uname -m)\" in\n")
-                .append("  x86_64|amd64) RELAY_ARCH=amd64 ;;\n")
-                .append("  aarch64|arm64) RELAY_ARCH=arm64 ;;\n")
-                .append("  *) echo unsupported_arch >&2; exit 42 ;;\n")
-                .append("esac\n")
+                .append(architectureSelection())
                 .append("ARCHIVE=\"").append(archive).append("\"\n")
                 .append("URL=\"").append(RELEASE_BASE).append("/v${VERSION}/${ARCHIVE}\"\n")
                 .append("CHECKSUM_URL=\"").append(RELEASE_BASE).append("/v${VERSION}/SHA256SUMS.txt\"\n")
@@ -308,7 +348,7 @@ final class VpsSetupScripts {
         if (dockerCaddyMode) {
             script.append(dockerCaddyPrelude(plan.targetPath(), plan.targetContainer()));
         }
-        script
+        script.append(ensureBaseDependencies())
                 .append("if command -v curl >/dev/null 2>&1; then curl -fsSL \"$URL\" -o \"$TMPDIR/$ARCHIVE\"; curl -fsSL \"$CHECKSUM_URL\" -o \"$TMPDIR/SHA256SUMS.txt\";\n")
                 .append("elif command -v wget >/dev/null 2>&1; then wget -qO \"$TMPDIR/$ARCHIVE\" \"$URL\"; wget -qO \"$TMPDIR/SHA256SUMS.txt\" \"$CHECKSUM_URL\";\n")
                 .append("else echo curl_or_wget_required >&2; exit 43; fi\n")
@@ -317,7 +357,7 @@ final class VpsSetupScripts {
                 .append("tar -xzf \"$TMPDIR/$ARCHIVE\" -C \"$TMPDIR\"\n")
                 .append("[ \"$(\"$TMPDIR/tgproxy-relay\" -version)\" = \"$VERSION\" ] || { echo relay_version_mismatch >&2; exit 45; }\n")
                 .append("$SUDO install -d -m 0755 /opt/tgproxy-relay /etc/tgproxy-relay /var/log/tgproxy-relay\n")
-                .append("if ! id tgproxy-relay >/dev/null 2>&1; then $SUDO useradd --system --home /nonexistent --shell /usr/sbin/nologin tgproxy-relay; fi\n")
+                .append(ensureServiceAccount())
                 .append("$SUDO install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay\n")
                 .append("$SUDO chown -R tgproxy-relay:tgproxy-relay /var/log/tgproxy-relay || true\n")
                 .append("$SUDO install -d -m 0750 -o tgproxy-relay -g tgproxy-relay /var/lib/tgproxy-relay\n")
@@ -347,33 +387,11 @@ final class VpsSetupScripts {
                 .append("$SUDO chmod 0640 /etc/tgproxy-relay/config.json\n")
                 .append("$SUDO chown root:tgproxy-relay /etc/tgproxy-relay/config.json || $SUDO chmod 0644 /etc/tgproxy-relay/config.json\n")
                 .append("$SUDO /opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json -check-config >/dev/null\n")
-                .append("$SUDO sh -c 'cat > /etc/systemd/system/tgproxy-relay.service' <<'EOF'\n")
-                .append("[Unit]\n")
-                .append("Description=TG Proxy VPS Relay\n")
-                .append("After=network-online.target\n")
-                .append("Wants=network-online.target\n")
-                .append("StartLimitIntervalSec=0\n\n")
-                .append("[Service]\n")
-                .append("Type=simple\n")
-                .append("User=tgproxy-relay\n")
-                .append("Group=tgproxy-relay\n")
-                .append("ExecStart=/opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json\n")
-                .append("Restart=always\n")
-                .append("RestartSec=2s\n")
-                .append("TimeoutStopSec=15s\n")
-                .append("LimitNOFILE=65536\n")
-                .append("NoNewPrivileges=true\n")
-                .append("PrivateTmp=true\n")
-                .append("ProtectSystem=strict\n")
-                .append("ProtectHome=true\n")
-                .append("CapabilityBoundingSet=\n")
-                .append("AmbientCapabilities=\n")
-                .append("ReadWritePaths=/var/log/tgproxy-relay /var/lib/tgproxy-relay\n\n")
-                .append("[Install]\n")
-                .append("WantedBy=multi-user.target\n")
-                .append("EOF\n");
+                .append(serviceDefinitionScript());
         if (request.reverseProxyMode()) {
-            if (dockerCaddyMode) {
+            if (managedTlsMode) {
+                script.append(nginxManagedTlsConfig(request));
+            } else if (dockerCaddyMode) {
                 script.append(dockerCaddyExistingSiteConfig(request));
             } else if (hostCaddyMode) {
                 script.append(caddyExistingSiteConfig(request, plan.targetPath()));
@@ -383,10 +401,11 @@ final class VpsSetupScripts {
                 script.append(nginxReverseProxyConfig(request));
             }
         }
-        script.append("$SUDO systemctl daemon-reload\n")
-                .append("$SUDO systemctl enable --now tgproxy-relay\n")
+        script.append(managedTlsMode ? "cert_renewal_enable\n" : "")
+                .append("relay_service_enable\n")
+                .append("relay_service_restart\n")
                 .append("sleep 1\n")
-                .append("$SUDO systemctl is-active --quiet tgproxy-relay || { echo relay_start_failed >&2; exit 70; }\n")
+                .append("relay_service_is_active || { echo relay_start_failed >&2; exit 70; }\n")
                 .append("if command -v ufw >/dev/null 2>&1; then $SUDO ufw allow ")
                 .append(request.reverseProxyMode() ? 443 : request.relayPort())
                 .append("/tcp || true; fi\n");
@@ -430,6 +449,7 @@ final class VpsSetupScripts {
         String marker = "# TGPROXY-RELAY " + request.relayHost() + " " + request.relayPath();
         String healthPath = managementPath(request.relayPath(), "/healthz");
         String versionPath = managementPath(request.relayPath(), "/version");
+        String capabilitiesPath = managementPath(request.relayPath(), "/capabilities");
         String testRoutesPath = managementPath(request.relayPath(), "/test-routes");
         return "CADDY_MARKER=" + shellQuote(marker) + "\n"
                 + "CADDY_ORIGINAL=\"$TMPDIR/Caddyfile.original\"\n"
@@ -481,6 +501,10 @@ final class VpsSetupScripts {
                 + "    '\\t}\\n',\n"
                 + "    '\\thandle " + versionPath + " {\\n',\n"
                 + "    '\\t\\trewrite * /version\\n',\n"
+                + "    '\\t\\treverse_proxy ' + upstream + '\\n',\n"
+                + "    '\\t}\\n',\n"
+                + "    '\\thandle " + capabilitiesPath + " {\\n',\n"
+                + "    '\\t\\trewrite * /capabilities\\n',\n"
                 + "    '\\t\\treverse_proxy ' + upstream + '\\n',\n"
                 + "    '\\t}\\n',\n"
                 + "    '\\thandle " + testRoutesPath + " {\\n',\n"
@@ -541,6 +565,7 @@ final class VpsSetupScripts {
         String upstream = "http://127.0.0.1:" + request.internalRelayPort();
         String healthPath = managementPath(request.relayPath(), "/healthz");
         String versionPath = managementPath(request.relayPath(), "/version");
+        String capabilitiesPath = managementPath(request.relayPath(), "/capabilities");
         String testRoutesPath = managementPath(request.relayPath(), "/test-routes");
         return "CADDY_TARGET=" + shellQuote(target) + "\n"
                 + "CADDY_MARKER=" + shellQuote(marker) + "\n"
@@ -597,6 +622,10 @@ final class VpsSetupScripts {
                 + "    '\\t\\trewrite * /version\\n',\n"
                 + "    '\\t\\treverse_proxy ' + upstream + '\\n',\n"
                 + "    '\\t}\\n',\n"
+                + "    '\\thandle " + capabilitiesPath + " {\\n',\n"
+                + "    '\\t\\trewrite * /capabilities\\n',\n"
+                + "    '\\t\\treverse_proxy ' + upstream + '\\n',\n"
+                + "    '\\t}\\n',\n"
                 + "    '\\thandle " + testRoutesPath + " {\\n',\n"
                 + "    '\\t\\trewrite * /test-routes\\n',\n"
                 + "    '\\t\\treverse_proxy ' + upstream + '\\n',\n"
@@ -613,9 +642,9 @@ final class VpsSetupScripts {
                 + "    fh.writelines(out)\n"
                 + "PY\n"
                 + "$SUDO install -m 0644 \"$CADDY_TMP\" \"$CADDY_TARGET\"\n"
-                + "restore_caddy() { $SUDO install -m 0644 \"$CADDY_ORIGINAL\" \"$CADDY_TARGET\" >/dev/null 2>&1 || true; $SUDO caddy reload --config \"$CADDY_TARGET\" >/dev/null 2>&1 || $SUDO systemctl reload caddy >/dev/null 2>&1 || true; }\n"
+                + "restore_caddy() { $SUDO install -m 0644 \"$CADDY_ORIGINAL\" \"$CADDY_TARGET\" >/dev/null 2>&1 || true; caddy_service_reload \"$CADDY_TARGET\" >/dev/null 2>&1 || true; }\n"
                 + "$SUDO caddy validate --config \"$CADDY_TARGET\" || { restore_caddy; exit 66; }\n"
-                + "$SUDO caddy reload --config \"$CADDY_TARGET\" || $SUDO systemctl reload caddy || { restore_caddy; exit 67; }\n";
+                + "caddy_service_reload \"$CADDY_TARGET\" || { restore_caddy; exit 67; }\n";
     }
 
     private static String addTokenToExistingRelay(VpsSetupRequest request, VpsSetupPlan plan) {
@@ -625,6 +654,7 @@ final class VpsSetupScripts {
         return "#!/bin/sh\n"
                 + "set -eu\n"
                 + sudoPrelude()
+                + servicePrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
                 + "ADMIN_TOKEN=" + shellQuote(request.adminToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
@@ -660,17 +690,17 @@ final class VpsSetupScripts {
                 + "    json.dump(cfg, fh, indent=2, ensure_ascii=False)\n"
                 + "    fh.write('\\n')\n"
                 + "PY\n"
-                + "if $SUDO /opt/tgproxy-relay/tgproxy-relay -version >/dev/null 2>&1; then $SUDO /opt/tgproxy-relay/tgproxy-relay -config \"$TMP_CONFIG\" -check-config >/dev/null; fi\n"
+                + "$SUDO /opt/tgproxy-relay/tgproxy-relay -config \"$TMP_CONFIG\" -check-config >/dev/null\n"
                 + "$SUDO cp -p \"$EXISTING_CONFIG\" \"$TMPDIR/config.previous\"\n"
                 + "$SUDO install -m 0640 \"$TMP_CONFIG\" \"$EXISTING_CONFIG\"\n"
                 + existingConfigPermissions()
                 + ownerRuntimePermissions()
                 + "rollback_config() { $SUDO install -m 0640 \"$TMPDIR/config.previous\" \"$EXISTING_CONFIG\"; "
                 + existingConfigPermissions().replace("\n", "; ")
-                + "$SUDO systemctl restart tgproxy-relay >/dev/null 2>&1 || true; }\n"
-                + "if ! $SUDO systemctl restart tgproxy-relay; then rollback_config; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
+                + "relay_service_restart >/dev/null 2>&1 || true; }\n"
+                + "if ! relay_service_restart; then rollback_config; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
                 + "sleep 1\n"
-                + "if ! $SUDO systemctl is-active --quiet tgproxy-relay; then rollback_config; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
+                + "if ! relay_service_is_active; then rollback_config; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
                 + routeRepairScript(request, plan);
     }
 
@@ -683,6 +713,7 @@ final class VpsSetupScripts {
         return "#!/bin/sh\n"
                 + "set -eu\n"
                 + sudoPrelude()
+                + servicePrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
                 + "ADMIN_TOKEN=" + shellQuote(request.adminToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
@@ -693,11 +724,7 @@ final class VpsSetupScripts {
                 + "VERSION=" + shellQuote(version) + "\n"
                 + "[ -f \"$EXISTING_CONFIG\" ] || { echo existing_relay_config_missing >&2; exit 51; }\n"
                 + "command -v python3 >/dev/null 2>&1 || { echo python3_required >&2; exit 53; }\n"
-                + "case \"$(uname -m)\" in\n"
-                + "  x86_64|amd64) RELAY_ARCH=amd64 ;;\n"
-                + "  aarch64|arm64) RELAY_ARCH=arm64 ;;\n"
-                + "  *) echo unsupported_arch >&2; exit 42 ;;\n"
-                + "esac\n"
+                + architectureSelection()
                 + "ARCHIVE=\"" + archive + "\"\n"
                 + "URL=\"" + RELEASE_BASE + "/v${VERSION}/${ARCHIVE}\"\n"
                 + "CHECKSUM_URL=\"" + RELEASE_BASE + "/v${VERSION}/SHA256SUMS.txt\"\n"
@@ -744,10 +771,10 @@ final class VpsSetupScripts {
                 + ownerRuntimePermissions()
                 + "rollback_relay() { [ ! -f \"$TMPDIR/tgproxy-relay.previous\" ] || $SUDO install -m 0755 \"$TMPDIR/tgproxy-relay.previous\" /opt/tgproxy-relay/tgproxy-relay; $SUDO install -m 0640 \"$TMPDIR/config.previous\" \"$EXISTING_CONFIG\"; "
                 + existingConfigPermissions().replace("\n", "; ")
-                + "$SUDO systemctl restart tgproxy-relay >/dev/null 2>&1 || true; }\n"
-                + "if ! $SUDO systemctl restart tgproxy-relay; then rollback_relay; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
+                + "relay_service_restart >/dev/null 2>&1 || true; }\n"
+                + "if ! relay_service_restart; then rollback_relay; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
                 + "sleep 1\n"
-                + "if ! $SUDO systemctl is-active --quiet tgproxy-relay; then rollback_relay; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
+                + "if ! relay_service_is_active; then rollback_relay; echo relay_restart_failed_rolled_back >&2; exit 70; fi\n"
                 + routeRepairScript(request, plan);
     }
 
@@ -772,6 +799,7 @@ final class VpsSetupScripts {
 
     private static String ownerRuntimePermissions() {
         return "$SUDO install -d -m 0750 -o tgproxy-relay -g tgproxy-relay /var/lib/tgproxy-relay\n"
+                + "if [ \"$INIT_SYSTEM\" = systemd ]; then\n"
                 + "$SUDO install -d -m 0755 /etc/systemd/system/tgproxy-relay.service.d\n"
                 + "$SUDO tee /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf >/dev/null <<'EOF'\n"
                 + "[Unit]\n"
@@ -784,7 +812,8 @@ final class VpsSetupScripts {
                 + "LimitNOFILE=65536\n"
                 + "ReadWritePaths=/var/lib/tgproxy-relay\n"
                 + "EOF\n"
-                + "$SUDO systemctl daemon-reload\n";
+                + "$SUDO systemctl daemon-reload\n"
+                + "fi\n";
     }
 
     private static String relayDcMapPythonRepair() {
@@ -890,9 +919,13 @@ final class VpsSetupScripts {
                 script.append("track_mutation ").append(shellQuote(path.trim())).append('\n');
             }
         }
-        if (usesMode(plan, VpsSetupPlan.InstallMode.NGINX_NEW_SERVER)
+        if (usesMode(plan, VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS)
+                || usesMode(plan, VpsSetupPlan.InstallMode.NGINX_NEW_SERVER)
                 || usesMode(plan, VpsSetupPlan.InstallMode.NGINX_EXISTING_LOCATION)) {
             script.append("$SUDO touch \"$BACKUP_DIR/reload-nginx\"\n");
+        }
+        if (usesMode(plan, VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS)) {
+            script.append("$SUDO touch \"$BACKUP_DIR/managed-tls\"\n");
         }
         if (usesMode(plan, VpsSetupPlan.InstallMode.CADDY_EXISTING_SITE)) {
             String target = plan.installMode() == VpsSetupPlan.InstallMode.CADDY_EXISTING_SITE
@@ -910,6 +943,199 @@ final class VpsSetupScripts {
         return script.toString();
     }
 
+    private static String architectureSelection() {
+        return "case \"$(uname -m)\" in\n"
+                + "  x86_64|amd64) RELAY_ARCH=amd64 ;;\n"
+                + "  i386|i486|i586|i686|x86) RELAY_ARCH=386 ;;\n"
+                + "  aarch64|arm64) RELAY_ARCH=arm64 ;;\n"
+                + "  armv5*) RELAY_ARCH=armv5 ;;\n"
+                + "  armv6*) RELAY_ARCH=armv6 ;;\n"
+                + "  armv7*|armv8l) RELAY_ARCH=armv7 ;;\n"
+                + "  riscv64) RELAY_ARCH=riscv64 ;;\n"
+                + "  ppc64) RELAY_ARCH=ppc64 ;;\n"
+                + "  ppc64le) RELAY_ARCH=ppc64le ;;\n"
+                + "  s390x) RELAY_ARCH=s390x ;;\n"
+                + "  loong64|loongarch64) RELAY_ARCH=loong64 ;;\n"
+                + "  mips) RELAY_ARCH=mips ;;\n"
+                + "  mipsel|mipsle) RELAY_ARCH=mipsle ;;\n"
+                + "  mips64) RELAY_ARCH=mips64 ;;\n"
+                + "  mips64el|mips64le) RELAY_ARCH=mips64le ;;\n"
+                + "  *) echo unsupported_arch >&2; exit 42 ;;\n"
+                + "esac\n";
+    }
+
+    /** POSIX service abstraction used by systemd, OpenRC, runit, SysV, and minimal Linux. */
+    private static String servicePrelude() {
+        return "detect_init() {\n"
+                + "  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then echo systemd; return; fi\n"
+                + "  if command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then echo openrc; return; fi\n"
+                + "  if command -v sv >/dev/null 2>&1 && { [ -d /etc/sv ] || [ -d /var/service ] || [ -d /etc/service ]; }; then echo runit; return; fi\n"
+                + "  if [ -d /etc/init.d ]; then echo sysv; return; fi\n"
+                + "  echo portable\n"
+                + "}\n"
+                + "INIT_SYSTEM=$(detect_init)\n"
+                + "group_exists() { command -v getent >/dev/null 2>&1 && getent group \"$1\" >/dev/null 2>&1 && return 0; grep -q \"^$1:\" /etc/group 2>/dev/null; }\n"
+                + "runit_service_root() { [ -d /var/service ] && { echo /var/service; return; }; [ -d /etc/service ] && { echo /etc/service; return; }; echo /var/service; }\n"
+                + "relay_service_is_active() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl is-active --quiet tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-service tgproxy-relay status >/dev/null 2>&1 ;;\n"
+                + "    runit) $SUDO sv status tgproxy-relay 2>/dev/null | grep -q '^run:' ;;\n"
+                + "    *) $SUDO /etc/init.d/tgproxy-relay status >/dev/null 2>&1 ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_is_enabled() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl is-enabled --quiet tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-update show default 2>/dev/null | grep -Eq '(^|[[:space:]])tgproxy-relay([[:space:]]|$)' ;;\n"
+                + "    runit) root=$(runit_service_root); [ -L \"$root/tgproxy-relay\" ] ;;\n"
+                + "    sysv) find /etc/rc.d /etc/rc?.d -type l -name 'S*tgproxy-relay' 2>/dev/null | grep -q . ;;\n"
+                + "    portable) [ -f /etc/cron.d/tgproxy-relay ] ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_start() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl start tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-service tgproxy-relay start ;;\n"
+                + "    runit) $SUDO sv up tgproxy-relay ;;\n"
+                + "    sysv) command -v service >/dev/null 2>&1 && $SUDO service tgproxy-relay start || $SUDO /etc/init.d/tgproxy-relay start ;;\n"
+                + "    portable) $SUDO /etc/init.d/tgproxy-relay start ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_stop() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl stop tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-service tgproxy-relay stop ;;\n"
+                + "    runit) $SUDO sv down tgproxy-relay ;;\n"
+                + "    sysv) command -v service >/dev/null 2>&1 && $SUDO service tgproxy-relay stop || $SUDO /etc/init.d/tgproxy-relay stop ;;\n"
+                + "    portable) $SUDO /etc/init.d/tgproxy-relay stop ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_restart() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl restart tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-service tgproxy-relay restart ;;\n"
+                + "    runit) $SUDO sv restart tgproxy-relay ;;\n"
+                + "    sysv) command -v service >/dev/null 2>&1 && $SUDO service tgproxy-relay restart || $SUDO /etc/init.d/tgproxy-relay restart ;;\n"
+                + "    portable) $SUDO /etc/init.d/tgproxy-relay restart ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_enable() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl daemon-reload; $SUDO systemctl enable --now tgproxy-relay ;;\n"
+                + "    openrc) $SUDO rc-update add tgproxy-relay default >/dev/null 2>&1 || true ;;\n"
+                + "    runit) root=$(runit_service_root); $SUDO mkdir -p \"$root\"; $SUDO ln -sfn /etc/sv/tgproxy-relay \"$root/tgproxy-relay\" ;;\n"
+                + "    sysv) if command -v update-rc.d >/dev/null 2>&1; then $SUDO update-rc.d tgproxy-relay defaults; elif command -v chkconfig >/dev/null 2>&1; then $SUDO chkconfig --add tgproxy-relay; fi ;;\n"
+                + "    portable) $SUDO install -d -m 0755 /etc/cron.d; printf '%s\\n' '@reboot root /etc/init.d/tgproxy-relay start >/dev/null 2>&1' | $SUDO tee /etc/cron.d/tgproxy-relay >/dev/null; $SUDO chmod 0644 /etc/cron.d/tgproxy-relay ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "relay_service_disable() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl disable --now tgproxy-relay >/dev/null 2>&1 || true ;;\n"
+                + "    openrc) $SUDO rc-update del tgproxy-relay default >/dev/null 2>&1 || true; $SUDO rc-service tgproxy-relay stop >/dev/null 2>&1 || true ;;\n"
+                + "    runit) $SUDO sv down tgproxy-relay >/dev/null 2>&1 || true; root=$(runit_service_root); $SUDO rm -f \"$root/tgproxy-relay\" ;;\n"
+                + "    sysv) command -v update-rc.d >/dev/null 2>&1 && $SUDO update-rc.d -f tgproxy-relay remove >/dev/null 2>&1 || true; command -v chkconfig >/dev/null 2>&1 && $SUDO chkconfig --del tgproxy-relay >/dev/null 2>&1 || true ;;\n"
+                + "    portable) $SUDO rm -f /etc/cron.d/tgproxy-relay ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "nginx_service_start() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl enable --now nginx ;;\n"
+                + "    openrc) $SUDO rc-update add nginx default >/dev/null 2>&1 || true; $SUDO rc-service nginx start >/dev/null 2>&1 || $SUDO rc-service nginx restart ;;\n"
+                + "    *) if [ -x /etc/init.d/nginx ]; then $SUDO /etc/init.d/nginx start >/dev/null 2>&1 || $SUDO /etc/init.d/nginx restart; elif command -v service >/dev/null 2>&1; then $SUDO service nginx start; else $SUDO nginx; fi ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "nginx_service_reload() {\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl reload nginx ;;\n"
+                + "    openrc) $SUDO rc-service nginx reload >/dev/null 2>&1 || $SUDO rc-service nginx restart ;;\n"
+                + "    *) $SUDO nginx -s reload >/dev/null 2>&1 || { [ -x /etc/init.d/nginx ] && $SUDO /etc/init.d/nginx reload; } ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "caddy_service_reload() {\n"
+                + "  config=$1\n"
+                + "  $SUDO caddy reload --config \"$config\" >/dev/null 2>&1 && return 0\n"
+                + "  case \"$INIT_SYSTEM\" in\n"
+                + "    systemd) $SUDO systemctl reload caddy ;;\n"
+                + "    openrc) $SUDO rc-service caddy reload >/dev/null 2>&1 || $SUDO rc-service caddy restart ;;\n"
+                + "    *) [ -x /etc/init.d/caddy ] && { $SUDO /etc/init.d/caddy reload >/dev/null 2>&1 || $SUDO /etc/init.d/caddy restart; } ;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "cert_renewal_enable() {\n"
+                + "  if [ \"$INIT_SYSTEM\" = systemd ]; then $SUDO systemctl daemon-reload; $SUDO systemctl enable --now tgproxy-certbot-renew.timer; return; fi\n"
+                + "  if [ \"$INIT_SYSTEM\" = openrc ]; then service=crond; [ -x /etc/init.d/crond ] || service=cron; $SUDO rc-update add \"$service\" default >/dev/null 2>&1 || true; $SUDO rc-service \"$service\" start >/dev/null 2>&1 || true; return; fi\n"
+                + "  if [ \"$INIT_SYSTEM\" = runit ]; then root=$(runit_service_root); for service in cronie crond cron; do if [ -d \"/etc/sv/$service\" ]; then $SUDO mkdir -p \"$root\"; $SUDO ln -sfn \"/etc/sv/$service\" \"$root/$service\"; $SUDO sv up \"$service\" >/dev/null 2>&1 || true; return; fi; done; fi\n"
+                + "  if command -v service >/dev/null 2>&1; then $SUDO service cron start >/dev/null 2>&1 || $SUDO service crond start >/dev/null 2>&1 || true; elif command -v crond >/dev/null 2>&1; then pgrep -x crond >/dev/null 2>&1 || $SUDO crond; fi\n"
+                + "}\n"
+                + "cert_renewal_disable() {\n"
+                + "  if [ \"$INIT_SYSTEM\" = systemd ]; then $SUDO systemctl disable --now tgproxy-certbot-renew.timer >/dev/null 2>&1 || true; else $SUDO rm -f /etc/cron.d/tgproxy-certbot-renew; fi\n"
+                + "}\n";
+    }
+
+    private static String ensureServiceAccount() {
+        return "if ! group_exists tgproxy-relay; then\n"
+                + "  if command -v groupadd >/dev/null 2>&1; then $SUDO groupadd --system tgproxy-relay;\n"
+                + "  elif command -v addgroup >/dev/null 2>&1; then $SUDO addgroup -S tgproxy-relay >/dev/null 2>&1 || $SUDO addgroup --system tgproxy-relay;\n"
+                + "  else echo group_creation_tool_required >&2; exit 46; fi\n"
+                + "fi\n"
+                + "if ! id tgproxy-relay >/dev/null 2>&1; then\n"
+                + "  if command -v useradd >/dev/null 2>&1; then $SUDO useradd --system --gid tgproxy-relay --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin tgproxy-relay;\n"
+                + "  elif command -v adduser >/dev/null 2>&1; then $SUDO adduser -S -D -H -h /nonexistent -s /sbin/nologin -G tgproxy-relay tgproxy-relay >/dev/null 2>&1 || $SUDO adduser --system --ingroup tgproxy-relay --home /nonexistent --no-create-home --shell /usr/sbin/nologin tgproxy-relay;\n"
+                + "  else echo user_creation_tool_required >&2; exit 46; fi\n"
+                + "fi\n";
+    }
+
+    private static String serviceDefinitionScript() {
+        return "if [ \"$INIT_SYSTEM\" = systemd ]; then\n"
+                + "  $SUDO install -d -m 0755 /etc/systemd/system\n"
+                + "  $SUDO sh -c 'cat > /etc/systemd/system/tgproxy-relay.service' <<'EOF'\n"
+                + "[Unit]\nDescription=TG Proxy VPS Relay\nAfter=network-online.target\nWants=network-online.target\nStartLimitIntervalSec=0\n\n"
+                + "[Service]\nType=simple\nUser=tgproxy-relay\nGroup=tgproxy-relay\nExecStart=/opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json\nRestart=always\nRestartSec=2s\nTimeoutStopSec=15s\nLimitNOFILE=65536\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=true\nCapabilityBoundingSet=\nAmbientCapabilities=\nReadWritePaths=/var/log/tgproxy-relay /var/lib/tgproxy-relay\n\n"
+                + "[Install]\nWantedBy=multi-user.target\nEOF\n"
+                + "elif [ \"$INIT_SYSTEM\" = openrc ]; then\n"
+                + "  $SUDO install -d -m 0755 /etc/init.d\n"
+                + "  $SUDO tee /etc/init.d/tgproxy-relay >/dev/null <<'EOF'\n"
+                + "#!/sbin/openrc-run\nname=\"TG Proxy VPS Relay\"\ncommand=/opt/tgproxy-relay/tgproxy-relay\ncommand_args=\"-config /etc/tgproxy-relay/config.json\"\ncommand_user=tgproxy-relay:tgproxy-relay\ncommand_background=yes\npidfile=/run/tgproxy-relay.pid\noutput_log=/var/log/tgproxy-relay/service.log\nerror_log=/var/log/tgproxy-relay/service.log\nretry=\"TERM/15/KILL/5\"\ndepend() { need net; }\nEOF\n"
+                + "  $SUDO chmod 0755 /etc/init.d/tgproxy-relay\n"
+                + "elif [ \"$INIT_SYSTEM\" = runit ]; then\n"
+                + "  $SUDO install -d -m 0755 /etc/sv/tgproxy-relay\n"
+                + "  $SUDO tee /etc/sv/tgproxy-relay/run >/dev/null <<'EOF'\n"
+                + "#!/bin/sh\nexec >>/var/log/tgproxy-relay/service.log 2>&1\nif command -v chpst >/dev/null 2>&1; then exec chpst -u tgproxy-relay:tgproxy-relay /opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json; fi\nif command -v setpriv >/dev/null 2>&1; then exec setpriv --reuid=tgproxy-relay --regid=tgproxy-relay --init-groups /opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json; fi\nexec su -s /bin/sh tgproxy-relay -c 'exec /opt/tgproxy-relay/tgproxy-relay -config /etc/tgproxy-relay/config.json'\nEOF\n"
+                + "  $SUDO chmod 0755 /etc/sv/tgproxy-relay/run\n"
+                + "else\n"
+                + "  $SUDO install -d -m 0755 /etc/init.d /run\n"
+                + "  $SUDO tee /etc/init.d/tgproxy-relay >/dev/null <<'EOF'\n"
+                + "#!/bin/sh\n### BEGIN INIT INFO\n# Provides: tgproxy-relay\n# Required-Start: $network\n# Required-Stop: $network\n# Default-Start: 2 3 4 5\n# Default-Stop: 0 1 6\n# Short-Description: TG Proxy VPS Relay\n### END INIT INFO\nDAEMON=/opt/tgproxy-relay/tgproxy-relay\nCONFIG=/etc/tgproxy-relay/config.json\nPIDFILE=/run/tgproxy-relay.pid\nLOGFILE=/var/log/tgproxy-relay/service.log\nstart_relay() {\n  [ -x \"$DAEMON\" ] || return 1\n  if [ -s \"$PIDFILE\" ] && kill -0 \"$(cat \"$PIDFILE\")\" 2>/dev/null; then return 0; fi\n  rm -f \"$PIDFILE\"\n  if command -v start-stop-daemon >/dev/null 2>&1; then start-stop-daemon -S -b -m -p \"$PIDFILE\" -x \"$DAEMON\" -c tgproxy-relay -- -config \"$CONFIG\";\n  elif command -v su >/dev/null 2>&1; then su -s /bin/sh tgproxy-relay -c \"nohup '$DAEMON' -config '$CONFIG' >>'$LOGFILE' 2>&1 & echo \\$! >'$PIDFILE'\";\n  else nohup \"$DAEMON\" -config \"$CONFIG\" >>\"$LOGFILE\" 2>&1 & echo $! >\"$PIDFILE\"; fi\n}\nstop_relay() {\n  [ -s \"$PIDFILE\" ] || return 0\n  pid=$(cat \"$PIDFILE\")\n  kill \"$pid\" 2>/dev/null || true\n  n=0; while kill -0 \"$pid\" 2>/dev/null && [ \"$n\" -lt 15 ]; do sleep 1; n=$((n + 1)); done\n  kill -9 \"$pid\" 2>/dev/null || true\n  rm -f \"$PIDFILE\"\n}\ncase \"$1\" in\n  start) start_relay ;;\n  stop) stop_relay ;;\n  restart|force-reload) stop_relay; start_relay ;;\n  status) [ -s \"$PIDFILE\" ] && kill -0 \"$(cat \"$PIDFILE\")\" 2>/dev/null ;;\n  *) echo \"Usage: $0 {start|stop|restart|status}\" >&2; exit 2 ;;\nesac\nEOF\n"
+                + "  $SUDO chmod 0755 /etc/init.d/tgproxy-relay\n"
+                + "fi\n";
+    }
+
+    private static String ensureBaseDependencies() {
+        return "if ! command -v tar >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1 || "
+                + "{ ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; }; then\n"
+                + "  if command -v apt-get >/dev/null 2>&1; then\n"
+                + "    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y\n"
+                + "    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl tar coreutils\n"
+                + "  elif command -v dnf >/dev/null 2>&1; then\n"
+                + "    $SUDO dnf install -y ca-certificates curl tar coreutils\n"
+                + "  elif command -v microdnf >/dev/null 2>&1; then\n"
+                + "    $SUDO microdnf install -y ca-certificates curl tar coreutils\n"
+                + "  elif command -v yum >/dev/null 2>&1; then\n"
+                + "    $SUDO yum install -y ca-certificates curl tar coreutils\n"
+                + "  elif command -v zypper >/dev/null 2>&1; then\n"
+                + "    $SUDO zypper --non-interactive install -y ca-certificates curl tar coreutils\n"
+                + "  elif command -v apk >/dev/null 2>&1; then\n"
+                + "    $SUDO apk add --no-cache ca-certificates curl tar coreutils shadow\n"
+                + "  elif command -v pacman >/dev/null 2>&1; then\n"
+                + "    $SUDO pacman -Sy --noconfirm --needed ca-certificates curl tar coreutils shadow\n"
+                + "  elif command -v xbps-install >/dev/null 2>&1; then\n"
+                + "    $SUDO xbps-install -Sy ca-certificates curl tar coreutils shadow\n"
+                + "  elif command -v emerge >/dev/null 2>&1; then\n"
+                + "    $SUDO emerge --noreplace app-misc/ca-certificates net-misc/curl app-arch/tar sys-apps/coreutils sys-apps/shadow\n"
+                + "  else echo supported_package_manager_required >&2; exit 43; fi\n"
+                + "fi\n";
+    }
+
     private static void collectMutationPaths(Set<String> paths, VpsSetupRequest request,
                                              VpsSetupPlan.InstallMode mode,
                                              String targetPath) {
@@ -918,6 +1144,13 @@ final class VpsSetupScripts {
                 || mode == VpsSetupPlan.InstallMode.EXISTING_RELAY_UPDATE) {
             paths.add(targetPath == null || targetPath.trim().isEmpty()
                     ? "/etc/tgproxy-relay/config.json" : targetPath.trim());
+        } else if (mode == VpsSetupPlan.InstallMode.NGINX_MANAGED_TLS) {
+            paths.add("/etc/nginx/conf.d/tgproxy-relay-"
+                    + safeName(request.relayHost()) + ".conf");
+            paths.add("/usr/local/sbin/tgproxy-certbot-renew");
+            paths.add("/etc/systemd/system/tgproxy-certbot-renew.service");
+            paths.add("/etc/systemd/system/tgproxy-certbot-renew.timer");
+            paths.add("/etc/cron.d/tgproxy-certbot-renew");
         } else if (mode == VpsSetupPlan.InstallMode.NGINX_NEW_SERVER) {
             paths.add("/etc/nginx/conf.d/tgproxy-relay-"
                     + safeName(request.relayHost()) + ".conf");
@@ -941,9 +1174,11 @@ final class VpsSetupScripts {
         return "#!/bin/sh\n"
                 + "set -eu\n"
                 + sudoPrelude()
+                + servicePrelude()
                 + "LATEST=" + shellQuote("/var/backups/tgproxy-relay/txn-" + transaction) + "\n"
                 + "$SUDO test -d \"$LATEST\" || { echo backup_transaction_missing >&2; exit 72; }\n"
-                + "$SUDO systemctl stop tgproxy-relay >/dev/null 2>&1 || true\n"
+                + "if $SUDO test -f \"$LATEST/managed-tls\"; then cert_renewal_disable; fi\n"
+                + "relay_service_stop >/dev/null 2>&1 || true\n"
                 + "if $SUDO test -f \"$LATEST/binary.absent\"; then $SUDO rm -f /opt/tgproxy-relay/tgproxy-relay; elif $SUDO test -f \"$LATEST/tgproxy-relay\"; then $SUDO install -m 0755 \"$LATEST/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/config.absent\"; then $SUDO rm -f /etc/tgproxy-relay/config.json; elif $SUDO test -f \"$LATEST/config.json\"; then $SUDO cp -p \"$LATEST/config.json\" /etc/tgproxy-relay/config.json; fi\n"
                 + "if $SUDO test -f \"$LATEST/state-dir.absent\"; then $SUDO rm -rf -- /var/lib/tgproxy-relay; elif $SUDO test -d \"$LATEST/state-dir\"; then $SUDO rm -rf -- /var/lib/tgproxy-relay; $SUDO cp -a \"$LATEST/state-dir\" /var/lib/tgproxy-relay; else echo rollback_state_snapshot_missing >&2; exit 79; fi\n"
@@ -952,7 +1187,7 @@ final class VpsSetupScripts {
                 + "if $SUDO test -f \"$LATEST/absent-paths.txt\"; then\n"
                 + "  $SUDO cat \"$LATEST/absent-paths.txt\" | while IFS= read -r target; do\n"
                 + "    [ -n \"$target\" ] || continue\n"
-                + "    case \"$target\" in /etc/nginx/*|/etc/caddy/*|/etc/ufw/user.rules|/etc/ufw/user6.rules|/var/lib/docker/volumes/*|/opt/*|/srv/*|/root/*|/home/*) ;; *) echo unsafe_rollback_path >&2; exit 73 ;; esac\n"
+                + "    case \"$target\" in /etc/nginx/*|/etc/caddy/*|/etc/systemd/system/tgproxy-certbot-renew.*|/etc/cron.d/tgproxy-certbot-renew|/usr/local/sbin/tgproxy-certbot-renew|/etc/ufw/user.rules|/etc/ufw/user6.rules|/var/lib/docker/volumes/*|/opt/*|/srv/*|/root/*|/home/*) ;; *) echo unsafe_rollback_path >&2; exit 73 ;; esac\n"
                 + "    $SUDO rm -f -- \"$target\"\n"
                 + "  done\n"
                 + "fi\n"
@@ -965,23 +1200,24 @@ final class VpsSetupScripts {
                 + "  done\n"
                 + "fi\n"
                 + "if $SUDO test -f \"$LATEST/service.absent\"; then\n"
-                + "  $SUDO systemctl disable --now tgproxy-relay >/dev/null 2>&1 || true\n"
                 + "  $SUDO rm -f /etc/systemd/system/tgproxy-relay.service\n"
-                + "  $SUDO systemctl daemon-reload\n"
                 + "else\n"
                 + "  $SUDO test -f \"$LATEST/tgproxy-relay.service\" || { echo rollback_service_snapshot_missing >&2; exit 75; }\n"
                 + "  $SUDO cp -p \"$LATEST/tgproxy-relay.service\" /etc/systemd/system/tgproxy-relay.service\n"
-                + "  $SUDO systemctl daemon-reload\n"
-                + "  if $SUDO test -f \"$LATEST/service.was-enabled\"; then $SUDO systemctl enable tgproxy-relay; else $SUDO systemctl disable tgproxy-relay; fi\n"
-                + "  if $SUDO test -f \"$LATEST/service.was-active\"; then $SUDO systemctl restart tgproxy-relay; else $SUDO systemctl stop tgproxy-relay; fi\n"
                 + "fi\n"
+                + "if $SUDO test -f \"$LATEST/init-script.absent\"; then $SUDO rm -f /etc/init.d/tgproxy-relay; else $SUDO test -f \"$LATEST/tgproxy-relay.init\" || { echo rollback_init_snapshot_missing >&2; exit 75; }; $SUDO install -m 0755 \"$LATEST/tgproxy-relay.init\" /etc/init.d/tgproxy-relay; fi\n"
+                + "if $SUDO test -f \"$LATEST/runit-service.absent\"; then $SUDO rm -rf /etc/sv/tgproxy-relay; else $SUDO test -d \"$LATEST/runit-service\" || { echo rollback_runit_snapshot_missing >&2; exit 75; }; $SUDO rm -rf /etc/sv/tgproxy-relay; $SUDO cp -a \"$LATEST/runit-service\" /etc/sv/tgproxy-relay; fi\n"
+                + "if $SUDO test -f \"$LATEST/portable-cron.absent\"; then $SUDO rm -f /etc/cron.d/tgproxy-relay; else $SUDO test -f \"$LATEST/tgproxy-relay.cron\" || { echo rollback_cron_snapshot_missing >&2; exit 75; }; $SUDO install -m 0644 \"$LATEST/tgproxy-relay.cron\" /etc/cron.d/tgproxy-relay; fi\n"
+                + "if [ \"$INIT_SYSTEM\" = systemd ]; then $SUDO systemctl daemon-reload; fi\n"
+                + "if $SUDO test -f \"$LATEST/service.was-enabled\"; then relay_service_enable; else relay_service_disable; fi\n"
+                + "if $SUDO test -f \"$LATEST/service.was-active\"; then relay_service_restart; else relay_service_stop >/dev/null 2>&1 || true; fi\n"
                 + "if $SUDO test -f \"$LATEST/ufw.was-active\"; then command -v ufw >/dev/null 2>&1 || { echo rollback_ufw_missing >&2; exit 78; }; $SUDO ufw reload; fi\n"
                 + "if $SUDO test -f \"$LATEST/opt-dir.absent\"; then $SUDO rm -rf -- /opt/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/etc-dir.absent\"; then $SUDO rm -rf -- /etc/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/log-dir.absent\"; then $SUDO rm -rf -- /var/log/tgproxy-relay; fi\n"
-                + "if $SUDO test -f \"$LATEST/user.absent\" && id tgproxy-relay >/dev/null 2>&1; then $SUDO userdel tgproxy-relay; fi\n"
-                + "if $SUDO test -f \"$LATEST/group.absent\" && getent group tgproxy-relay >/dev/null 2>&1; then $SUDO groupdel tgproxy-relay; fi\n"
-                + "if $SUDO test -f \"$LATEST/reload-nginx\"; then $SUDO nginx -t; $SUDO systemctl reload nginx; fi\n"
+                + "if $SUDO test -f \"$LATEST/user.absent\" && id tgproxy-relay >/dev/null 2>&1; then if command -v userdel >/dev/null 2>&1; then $SUDO userdel tgproxy-relay; elif command -v deluser >/dev/null 2>&1; then $SUDO deluser tgproxy-relay; fi; fi\n"
+                + "if $SUDO test -f \"$LATEST/group.absent\" && group_exists tgproxy-relay; then if command -v groupdel >/dev/null 2>&1; then $SUDO groupdel tgproxy-relay; elif command -v delgroup >/dev/null 2>&1; then $SUDO delgroup tgproxy-relay; fi; fi\n"
+                + "if $SUDO test -f \"$LATEST/reload-nginx\"; then $SUDO nginx -t; nginx_service_reload; fi\n"
                 + "if $SUDO test -f \"$LATEST/reload-caddy-target\"; then\n"
                 + "  CADDY_TARGET=$($SUDO cat \"$LATEST/reload-caddy-target\")\n"
                 + "  [ -n \"$CADDY_TARGET\" ] || { echo rollback_caddy_target_missing >&2; exit 76; }\n"
@@ -1004,6 +1240,132 @@ final class VpsSetupScripts {
         return normalized;
     }
 
+    private static String nginxManagedTlsConfig(VpsSetupRequest request) {
+        String endpoint = request.relayHost();
+        String path = request.relayPath();
+        String upstream = "http://127.0.0.1:" + request.internalRelayPort();
+        String configPath = "/etc/nginx/conf.d/tgproxy-relay-" + safeName(endpoint) + ".conf";
+        String healthPath = managementPath(path, "/healthz");
+        String versionPath = managementPath(path, "/version");
+        String capabilitiesPath = managementPath(path, "/capabilities");
+        String testRoutesPath = managementPath(path, "/test-routes");
+        String certificateCommand = request.relayHostIsIp()
+                ? "$SUDO \"$CERTBOT\" certonly --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring --webroot -w \"$ACME_ROOT\" --cert-name \"$DOMAIN\" --preferred-profile shortlived --ip-address \"$DOMAIN\"\n"
+                : "$SUDO \"$CERTBOT\" certonly --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring --webroot -w \"$ACME_ROOT\" --cert-name \"$DOMAIN\" -d \"$DOMAIN\"\n";
+        return "NGINX_CONF=" + shellQuote(configPath) + "\n"
+                + "ACME_ROOT=/var/lib/tgproxy-acme\n"
+                + "CERTBOT=/opt/tgproxy-certbot/bin/certbot\n"
+                + "if command -v apt-get >/dev/null 2>&1; then\n"
+                + "  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y\n"
+                + "  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y nginx python3 python3-venv python3-pip ca-certificates cron\n"
+                + "elif command -v dnf >/dev/null 2>&1; then\n"
+                + "  $SUDO dnf install -y nginx python3 python3-pip ca-certificates cronie\n"
+                + "elif command -v microdnf >/dev/null 2>&1; then\n"
+                + "  $SUDO microdnf install -y nginx python3 python3-pip ca-certificates cronie\n"
+                + "elif command -v yum >/dev/null 2>&1; then\n"
+                + "  $SUDO yum install -y nginx python3 python3-pip ca-certificates cronie\n"
+                + "elif command -v zypper >/dev/null 2>&1; then\n"
+                + "  $SUDO zypper --non-interactive install -y nginx python3 python3-pip python3-virtualenv ca-certificates cron\n"
+                + "elif command -v apk >/dev/null 2>&1; then\n"
+                + "  $SUDO apk add --no-cache nginx python3 py3-pip py3-virtualenv ca-certificates dcron\n"
+                + "elif command -v pacman >/dev/null 2>&1; then\n"
+                + "  $SUDO pacman -Sy --noconfirm --needed nginx python python-pip python-virtualenv ca-certificates cronie\n"
+                + "elif command -v xbps-install >/dev/null 2>&1; then\n"
+                + "  $SUDO xbps-install -Sy nginx python3 python3-pip python3-virtualenv ca-certificates cronie\n"
+                + "elif command -v emerge >/dev/null 2>&1; then\n"
+                + "  $SUDO emerge --noreplace www-servers/nginx dev-lang/python dev-python/pip dev-python/virtualenv app-misc/ca-certificates sys-process/cronie\n"
+                + "else echo supported_package_manager_required >&2; exit 55; fi\n"
+                + "$SUDO install -d -m 0755 /etc/nginx/conf.d \"$ACME_ROOT/.well-known/acme-challenge\"\n"
+                + "if [ ! -x \"$CERTBOT\" ]; then\n"
+                + "  $SUDO rm -rf /opt/tgproxy-certbot\n"
+                + "  $SUDO python3 -m venv /opt/tgproxy-certbot || $SUDO python3 -m virtualenv /opt/tgproxy-certbot\n"
+                + "fi\n"
+                + "$SUDO /opt/tgproxy-certbot/bin/python -m pip install --disable-pip-version-check --upgrade 'certbot>=5.4'\n"
+                + "$SUDO tee \"$NGINX_CONF\" >/dev/null <<'EOF'\n"
+                + "server {\n"
+                + "    listen 80;\n"
+                + "    listen [::]:80;\n"
+                + "    server_name " + endpoint + ";\n"
+                + "    location ^~ /.well-known/acme-challenge/ { root /var/lib/tgproxy-acme; try_files $uri =404; }\n"
+                + "    location / { return 404; }\n"
+                + "}\n"
+                + "EOF\n"
+                + "$SUDO nginx -t\n"
+                + "nginx_service_start\n"
+                + "nginx_service_reload\n"
+                + "if command -v ufw >/dev/null 2>&1; then $SUDO ufw allow 80/tcp || true; $SUDO ufw allow 443/tcp || true; fi\n"
+                + "if [ ! -s \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\" ] || [ ! -s \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\" ]; then\n"
+                + certificateCommand
+                + "fi\n"
+                + "[ -s \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\" ] || { echo certificate_fullchain_missing >&2; exit 56; }\n"
+                + "[ -s \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\" ] || { echo certificate_private_key_missing >&2; exit 56; }\n"
+                + "$SUDO tee \"$NGINX_CONF\" >/dev/null <<'EOF'\n"
+                + "server {\n"
+                + "    listen 80;\n"
+                + "    listen [::]:80;\n"
+                + "    server_name " + endpoint + ";\n"
+                + "    location ^~ /.well-known/acme-challenge/ { root /var/lib/tgproxy-acme; try_files $uri =404; }\n"
+                + "    location / { return 404; }\n"
+                + "}\n\n"
+                + "server {\n"
+                + "    listen 443 ssl http2;\n"
+                + "    listen [::]:443 ssl http2;\n"
+                + "    server_name " + endpoint + ";\n\n"
+                + "    ssl_certificate /etc/letsencrypt/live/" + endpoint + "/fullchain.pem;\n"
+                + "    ssl_certificate_key /etc/letsencrypt/live/" + endpoint + "/privkey.pem;\n"
+                + "    ssl_protocols TLSv1.2 TLSv1.3;\n"
+                + "    ssl_session_cache shared:TGProxyTLS:10m;\n"
+                + "    ssl_session_timeout 1d;\n\n"
+                + "    location = " + healthPath + " { proxy_pass " + upstream + "/healthz; }\n"
+                + "    location = " + versionPath + " { proxy_pass " + upstream + "/version; }\n"
+                + "    location = " + capabilitiesPath + " { proxy_pass " + upstream + "/capabilities; }\n"
+                + "    location = " + testRoutesPath + " { proxy_pass " + upstream + "/test-routes; }\n\n"
+                + "    location ^~ " + path + " {\n"
+                + "        proxy_http_version 1.1;\n"
+                + "        proxy_set_header Host $host;\n"
+                + "        proxy_set_header X-Real-IP $remote_addr;\n"
+                + "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+                + "        proxy_set_header X-Forwarded-Proto https;\n"
+                + "        proxy_set_header Upgrade $http_upgrade;\n"
+                + "        proxy_set_header Connection \"upgrade\";\n"
+                + "        proxy_read_timeout 3600s;\n"
+                + "        proxy_send_timeout 3600s;\n"
+                + "        proxy_buffering off;\n"
+                + "        proxy_request_buffering off;\n"
+                + "        proxy_pass " + upstream + ";\n"
+                + "    }\n"
+                + "}\n"
+                + "EOF\n"
+                + "$SUDO tee /usr/local/sbin/tgproxy-certbot-renew >/dev/null <<'EOF'\n"
+                + "#!/bin/sh\n"
+                + "set -eu\n"
+                + "/opt/tgproxy-certbot/bin/certbot renew --quiet\n"
+                + "/usr/sbin/nginx -t\n"
+                + "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl reload nginx\n"
+                + "elif command -v rc-service >/dev/null 2>&1; then rc-service nginx reload >/dev/null 2>&1 || rc-service nginx restart\n"
+                + "else /usr/sbin/nginx -s reload; fi\n"
+                + "EOF\n"
+                + "$SUDO chmod 0755 /usr/local/sbin/tgproxy-certbot-renew\n"
+                + "if [ \"$INIT_SYSTEM\" = systemd ]; then\n"
+                + "$SUDO tee /etc/systemd/system/tgproxy-certbot-renew.service >/dev/null <<'EOF'\n"
+                + "[Unit]\nDescription=Renew TG Proxy HTTPS certificate\nAfter=network-online.target nginx.service\nWants=network-online.target\n\n"
+                + "[Service]\nType=oneshot\nExecStart=/usr/local/sbin/tgproxy-certbot-renew\n"
+                + "EOF\n"
+                + "$SUDO tee /etc/systemd/system/tgproxy-certbot-renew.timer >/dev/null <<'EOF'\n"
+                + "[Unit]\nDescription=Regular TG Proxy HTTPS certificate renewal\n\n"
+                + "[Timer]\nOnBootSec=10m\nOnUnitActiveSec=12h\nRandomizedDelaySec=30m\nPersistent=true\n\n"
+                + "[Install]\nWantedBy=timers.target\n"
+                + "EOF\n"
+                + "$SUDO rm -f /etc/cron.d/tgproxy-certbot-renew\n"
+                + "else\n"
+                + "$SUDO install -d -m 0755 /etc/cron.d\n"
+                + "printf '%s\\n' '17 */12 * * * root /usr/local/sbin/tgproxy-certbot-renew >/dev/null 2>&1' | $SUDO tee /etc/cron.d/tgproxy-certbot-renew >/dev/null\n"
+                + "$SUDO chmod 0644 /etc/cron.d/tgproxy-certbot-renew\n"
+                + "fi\n"
+                + "$SUDO nginx -t\n"
+                + "nginx_service_reload\n";
+    }
+
     private static String nginxReverseProxyConfig(VpsSetupRequest request) {
         String domain = request.relayHost();
         String path = request.relayPath();
@@ -1011,6 +1373,7 @@ final class VpsSetupScripts {
         String configPath = "/etc/nginx/conf.d/tgproxy-relay-" + safeName(domain) + ".conf";
         String healthPath = managementPath(path, "/healthz");
         String versionPath = managementPath(path, "/version");
+        String capabilitiesPath = managementPath(path, "/capabilities");
         String testRoutesPath = managementPath(path, "/test-routes");
         return "NGINX_CONF=" + shellQuote(configPath) + "\n"
                 + "$SUDO install -d -m 0755 /etc/nginx/conf.d\n"
@@ -1022,6 +1385,7 @@ final class VpsSetupScripts {
                 + "    ssl_certificate_key /etc/letsencrypt/live/" + domain + "/privkey.pem;\n\n"
                 + "    location = " + healthPath + " { proxy_pass " + upstream + "/healthz; }\n"
                 + "    location = " + versionPath + " { proxy_pass " + upstream + "/version; }\n"
+                + "    location = " + capabilitiesPath + " { proxy_pass " + upstream + "/capabilities; }\n"
                 + "    location = " + testRoutesPath + " { proxy_pass " + upstream + "/test-routes; }\n\n"
                 + "    location ^~ " + path + " {\n"
                 + "        proxy_http_version 1.1;\n"
@@ -1040,7 +1404,7 @@ final class VpsSetupScripts {
                 + "}\n"
                 + "EOF\n"
                 + "$SUDO nginx -t\n"
-                + "$SUDO systemctl reload nginx\n";
+                + "nginx_service_reload\n";
     }
 
     private static String nginxExistingLocationConfig(VpsSetupRequest request, String targetPath) {
@@ -1049,6 +1413,7 @@ final class VpsSetupScripts {
         String upstream = "http://127.0.0.1:" + request.internalRelayPort();
         String healthPath = managementPath(path, "/healthz");
         String versionPath = managementPath(path, "/version");
+        String capabilitiesPath = managementPath(path, "/capabilities");
         String testRoutesPath = managementPath(path, "/test-routes");
         String target = (targetPath == null || targetPath.trim().isEmpty())
                 ? "/etc/nginx/sites-enabled/" + safeName(domain) + ".conf"
@@ -1063,6 +1428,7 @@ final class VpsSetupScripts {
                 + "$SUDO tee \"$NGINX_SNIPPET\" >/dev/null <<'EOF'\n"
                 + "location = " + healthPath + " { proxy_pass " + upstream + "/healthz; }\n"
                 + "location = " + versionPath + " { proxy_pass " + upstream + "/version; }\n"
+                + "location = " + capabilitiesPath + " { proxy_pass " + upstream + "/capabilities; }\n"
                 + "location = " + testRoutesPath + " { proxy_pass " + upstream + "/test-routes; }\n\n"
                 + "location ^~ " + path + " {\n"
                 + "    proxy_http_version 1.1;\n"
@@ -1099,7 +1465,7 @@ final class VpsSetupScripts {
                 + "  rm -f \"$TMP_NGINX\"\n"
                 + "fi\n"
                 + "$SUDO nginx -t\n"
-                + "$SUDO systemctl reload nginx\n";
+                + "nginx_service_reload\n";
     }
 
     private static String sudoPrelude() {

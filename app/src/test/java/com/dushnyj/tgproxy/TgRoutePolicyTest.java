@@ -12,11 +12,11 @@ import static org.junit.Assert.assertTrue;
 public class TgRoutePolicyTest {
 
     @Test
-    public void directWsAcceptsAnyPositiveConfiguredDc() {
+    public void directWsOnlyAcceptsPublishedTelegramWebDcRange() {
         assertTrue(TgRoutePolicy.canUseDirectWs(2));
         assertTrue(TgRoutePolicy.canUseDirectWs(4));
-        assertTrue(TgRoutePolicy.canUseDirectWs(203));
-        assertTrue(TgRoutePolicy.canUseDirectWs(204));
+        assertFalse(TgRoutePolicy.canUseDirectWs(203));
+        assertFalse(TgRoutePolicy.canUseDirectWs(204));
 
         assertFalse(TgRoutePolicy.canUseDirectWs(0));
     }

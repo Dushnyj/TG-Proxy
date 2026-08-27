@@ -56,6 +56,18 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".VpsSetupActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".VpsOwnerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".ProxyService"
             android:exported="false"

@@ -73,6 +73,39 @@ public class VpsRelayClientTest {
     }
 
     @Test
+    public void unsupportedFutureRelayProtocolIsRejectedWithoutGuessingCompatibility()
+            throws Exception {
+        server = TinyRelayServer.start("token", 3, 1, 200);
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.OUTDATED_VERSION, result.status());
+    }
+
+    @Test
+    public void negotiatedCapabilitiesDriveServerAndMtprotoRouteChecks() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        server.capabilitiesBody = "{\"name\":\"tgproxy-relay\","
+                + "\"protocol\":{\"min\":1,\"max\":2},"
+                + "\"topology\":{\"dynamic\":true,\"revision\":9,"
+                + "\"productionDcs\":[2,204],\"testDcs\":[1,2,3]}}";
+        final Map<Integer, String>[] verified = new Map[]{null};
+        VpsRelayClient client = new VpsRelayClient((config, routes) -> {
+            verified[0] = new LinkedHashMap<>(routes);
+            return VpsRelayClient.RouteValidation.ok();
+        });
+
+        VpsRelayCheckResult result = client.check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.OK, result.status());
+        assertTrue(result.capabilities().dynamicTopology());
+        assertTrue(server.lastRoutesBody.contains("\"dc\":204"));
+        assertTrue(!server.lastRoutesBody.contains("\"dc\":203"));
+        assertEquals(2, verified[0].size());
+        assertTrue(verified[0].containsKey(204));
+    }
+
+    @Test
     public void successfulNonRelayVersionBodyIsReportedAsWrongEndpoint() throws Exception {
         server = TinyRelayServer.startWithVersionBody("token",
                 "Slovofon service is online.", 200);
@@ -97,6 +130,22 @@ public class VpsRelayClientTest {
         assertEquals(1, info.protocol());
         assertEquals(1, info.minAppProtocol());
         assertTrue(info.updateAvailable());
+    }
+
+    @Test
+    public void inspectRefreshesStaticRelayCapabilitiesWithoutFullRouteProbe() throws Exception {
+        server = TinyRelayServer.start("token", "1.2.0", 1, 1, 200);
+        server.capabilitiesBody = "{\"name\":\"tgproxy-relay\","
+                + "\"protocol\":{\"min\":1,\"max\":2},"
+                + "\"topology\":{\"dynamic\":false,\"revision\":12,"
+                + "\"productionDcs\":[2,204],\"testDcs\":[1,2,3]}}";
+
+        VpsRelayInfo info = client().inspect(config("token", false), "1.2.0");
+
+        assertEquals(VpsRelayCheckResult.Status.OK, info.status());
+        assertTrue(info.capabilities().known());
+        assertTrue(info.capabilities().productionDcs().contains(204));
+        assertEquals(12L, info.capabilities().topologyRevision());
     }
 
     @Test
@@ -193,6 +242,7 @@ public class VpsRelayClientTest {
         private final int minAppProtocol;
         private final int routeStatus;
         private String rawVersionBody;
+        private String capabilitiesBody = "";
         private String routeBody = "DC2 main OK\nDC2 media OK";
         private String pathPrefix = "";
         private volatile String lastRoutesBody = "";
@@ -302,6 +352,9 @@ public class VpsRelayClientTest {
                 } else if ((pathPrefix + "/test-routes").equals(path)) {
                     lastRoutesBody = requestBody.toString();
                     respond(accepted, routeStatus, routeBody);
+                } else if ((pathPrefix + "/capabilities").equals(path)
+                        && !capabilitiesBody.isEmpty()) {
+                    respond(accepted, 200, capabilitiesBody);
                 } else {
                     respond(accepted, 404, "not found");
                 }

@@ -45,25 +45,32 @@ public class MainUiStateTest {
     public void settingsSectionsAreSplitIntoNavigationGroups() {
         assertEquals(Arrays.asList(
                 MainUiState.SettingsSection.CONNECTION,
+                MainUiState.SettingsSection.ROUTES,
+                MainUiState.SettingsSection.RELAY,
                 MainUiState.SettingsSection.SYSTEM,
                 MainUiState.SettingsSection.ABOUT),
                 MainUiState.settingsSections());
     }
 
     @Test
-    public void settingsContentIsGroupedUnderThreeTabs() {
+    public void settingsContentIsGroupedUnderFocusedTabs() {
         assertEquals(Arrays.asList(
-                MainUiState.SettingsContent.CONNECTION,
                 MainUiState.SettingsContent.PROFILES,
-                MainUiState.SettingsContent.ROUTING,
-                MainUiState.SettingsContent.VPS_RELAY,
-                MainUiState.SettingsContent.CLOUDFLARE_WORKER,
-                MainUiState.SettingsContent.IMPORT_EXPORT),
+                MainUiState.SettingsContent.CONNECTION),
                 MainUiState.settingsContent(MainUiState.SettingsSection.CONNECTION));
+        assertEquals(Arrays.asList(
+                MainUiState.SettingsContent.ROUTING,
+                MainUiState.SettingsContent.CLOUDFLARE_WORKER),
+                MainUiState.settingsContent(MainUiState.SettingsSection.ROUTES));
+        assertEquals(Arrays.asList(
+                MainUiState.SettingsContent.VPS_RELAY,
+                MainUiState.SettingsContent.IMPORT_EXPORT),
+                MainUiState.settingsContent(MainUiState.SettingsSection.RELAY));
         assertEquals(Arrays.asList(
                 MainUiState.SettingsContent.INTERFACE,
                 MainUiState.SettingsContent.BEHAVIOR,
                 MainUiState.SettingsContent.DIAGNOSTICS_LOGS,
+                MainUiState.SettingsContent.ADVANCED,
                 MainUiState.SettingsContent.UPDATES),
                 MainUiState.settingsContent(MainUiState.SettingsSection.SYSTEM));
         assertEquals(Arrays.asList(
@@ -105,6 +112,30 @@ public class MainUiStateTest {
         RouteCandidate route = RouteCandidate.publicCloudflare(2, "public");
         RouteState first = RouteState.active(route, "first.example", 240, "stable");
         RouteState second = RouteState.active(route, "second.example", 310, "stable");
+
+        assertEquals(310, MainUiState.displayedPing(
+                second, MainUiState.routeIdentity(first), 80, 10_000L, 10_500L));
+    }
+
+    @Test
+    public void directSniChangeInvalidatesMeasuredPingForSameEndpoint() {
+        RouteCandidate route = RouteCandidate.directWs(4, true, "149.154.167.220");
+        RouteState first = RouteState.active(route, "149.154.167.220",
+                "kws4.web.telegram.org", 240, "stable", 10_000L);
+        RouteState second = RouteState.active(route, "149.154.167.220",
+                "kws4-1.web.telegram.org", 310, "stable", 10_100L);
+
+        assertEquals(310, MainUiState.displayedPing(
+                second, MainUiState.routeIdentity(first), 80, 10_000L, 10_500L));
+    }
+
+    @Test
+    public void serviceGenerationChangeInvalidatesMeasuredPingForSameRoute() {
+        RouteCandidate route = RouteCandidate.directWs(4, false, "149.154.167.220");
+        RouteState first = RouteState.active(route, "149.154.167.220",
+                "kws4.web.telegram.org", 240, "stable", 10_000L, 7L);
+        RouteState second = RouteState.active(route, "149.154.167.220",
+                "kws4.web.telegram.org", 310, "stable", 10_100L, 8L);
 
         assertEquals(310, MainUiState.displayedPing(
                 second, MainUiState.routeIdentity(first), 80, 10_000L, 10_500L));

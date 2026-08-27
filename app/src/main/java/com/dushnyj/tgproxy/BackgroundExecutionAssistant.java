@@ -3,6 +3,7 @@ package com.dushnyj.tgproxy;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.app.AppOpsManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.net.Uri;
@@ -17,8 +18,18 @@ import androidx.core.app.NotificationManagerCompat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.lang.reflect.Method;
 
 final class BackgroundExecutionAssistant {
+    private static final int MIUI_OP_AUTO_START = 10008;
+
+    enum AutostartState {
+        NOT_REQUIRED,
+        ALLOWED,
+        DENIED,
+        UNKNOWN
+    }
+
     private BackgroundExecutionAssistant() {
     }
 
@@ -59,6 +70,42 @@ final class BackgroundExecutionAssistant {
                 || manufacturer.contains("samsung");
     }
 
+    static AutostartState manufacturerAutostartState(Context context) {
+        String manufacturer = manufacturer().toLowerCase(Locale.US);
+        if (!requiresManualAutostartConfirmation()) return AutostartState.NOT_REQUIRED;
+        if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi")
+                || manufacturer.contains("poco")) {
+            return readMiuiAutostartState(context);
+        }
+        return AutostartState.UNKNOWN;
+    }
+
+    private static AutostartState readMiuiAutostartState(Context context) {
+        if (context == null) return AutostartState.UNKNOWN;
+        AppOpsManager manager = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
+        if (manager == null) return AutostartState.UNKNOWN;
+        String[] methodNames = {"checkOpNoThrow", "unsafeCheckOpNoThrow"};
+        for (String methodName : methodNames) {
+            try {
+                Method method = AppOpsManager.class.getDeclaredMethod(methodName,
+                        int.class, int.class, String.class);
+                method.setAccessible(true);
+                Object result = method.invoke(manager, MIUI_OP_AUTO_START,
+                        context.getApplicationInfo().uid, context.getPackageName());
+                if (!(result instanceof Integer)) continue;
+                int mode = (Integer) result;
+                if (mode == AppOpsManager.MODE_ALLOWED) return AutostartState.ALLOWED;
+                if (mode == AppOpsManager.MODE_IGNORED || mode == AppOpsManager.MODE_ERRORED) {
+                    return AutostartState.DENIED;
+                }
+                return AutostartState.UNKNOWN;
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // MIUI does not expose this AppOp consistently across releases.
+            }
+        }
+        return AutostartState.UNKNOWN;
+    }
+
     static boolean areNotificationsAllowed(Context context) {
         if (context == null) return false;
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
@@ -97,6 +144,20 @@ final class BackgroundExecutionAssistant {
         } catch (RuntimeException ignored) {
             return false;
         }
+    }
+
+    static boolean hasNetworkIdentityPermissions(Context context) {
+        if (context == null) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && (context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+                || context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED)) {
+            return false;
+        }
+        return Build.VERSION.SDK_INT < 33
+                || context.checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES)
+                == PackageManager.PERMISSION_GRANTED;
     }
 
     static boolean openLocationSettings(Context context) {

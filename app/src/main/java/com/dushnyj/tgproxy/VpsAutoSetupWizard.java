@@ -7,7 +7,7 @@ import java.util.UUID;
 final class VpsAutoSetupWizard {
     private static final int AUDIT_TIMEOUT_MS = 30_000;
     private static final int BACKUP_TIMEOUT_MS = 30_000;
-    private static final int INSTALL_TIMEOUT_MS = 180_000;
+    private static final int INSTALL_TIMEOUT_MS = 600_000;
     private static final int ROLLBACK_TIMEOUT_MS = 60_000;
 
     interface Listener {
@@ -47,8 +47,11 @@ final class VpsAutoSetupWizard {
             VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
             progress(listener, VpsSetupProgress.Stage.PLAN, 25,
                     "План изменений готов");
-            if (!plan.canApply()) throw new VpsSetupException(plan.summary());
-            if (listener != null && !listener.onPlan(plan)) {
+            boolean approved = listener == null || listener.onPlan(plan);
+            if (!plan.canApply()) {
+                throw new VpsSetupException(plan.blockingSummary());
+            }
+            if (!approved) {
                 throw new VpsSetupException("VPS setup cancelled");
             }
 
@@ -59,7 +62,7 @@ final class VpsAutoSetupWizard {
             backupCompleted = true;
 
             progress(listener, VpsSetupProgress.Stage.INSTALL, 70,
-                    "Установка tgproxy-relay и systemd unit");
+                    "Установка tgproxy-relay и службы автозапуска");
             execute(request, VpsSetupProgress.Stage.INSTALL,
                     VpsSetupScripts.install(request, plan), INSTALL_TIMEOUT_MS);
 

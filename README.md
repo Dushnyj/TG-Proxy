@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.2-3390EC?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-3390EC?style=for-the-badge">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge">
@@ -58,9 +58,12 @@ Direct WS идет напрямую к Telegram WebSocket endpoint, Cloudflare C
 - восстановление foreground service после завершения процесса, перезагрузки и обновления;
 - помощник фоновой работы: уведомления, boot-start, батарея и OEM-автозапуск с постоянным предупреждением о неполной настройке;
 - сетевые профили для Wi-Fi, операторов, dual SIM и eSIM;
+- независимые выключатели Direct, VPS Relay, Worker, своего и публичного Cloudflare для каждого
+  сетевого профиля, включая режим `Только Direct`;
 - безопасно сохранённые данные владельца VPS и автонастройка с транзакционным rollback;
-- owner-управление Relay: список/создание/отзыв токенов и известные устройства пользователей;
+- owner-управление Relay: токены, известные устройства, отключение, блокировка и разблокировка;
 - одна команда «Поделиться Relay»: кликабельная HTTPS-ссылка, QR, системный Share или файл;
+- capability negotiation и подписанная dynamic topology Relay с atomic last-known-good fallback;
 - Cloudflare Worker и пользовательские Cloudflare-домены;
 - диагностика с TXT/ZIP-отчетом, копированием и сбросом результата;
 - обновления Android-приложения через GitHub Releases.
@@ -98,7 +101,8 @@ Secret: значение из приложения
 1. Сначала проверьте автоматический маршрут.
 2. Если сеть режет Telegram, настройте Cloudflare Worker или свой Cloudflare-домен.
 3. Если нужен личный стабильный маршрут, настройте VPS Relay.
-4. Если медиа грузится хуже чатов, проверьте DC mapping.
+4. В `Настройки -> Маршруты` отключите заведомо неработающие на этой сети типы; не оставляйте
+   включённым route только потому, что он существует в списке.
 
 ## VPS Relay
 
@@ -108,7 +112,10 @@ Android-приложение умеет сохранить Relay, выполни
 SSH-пароль, SSH host key и owner/admin token не входят ни в ссылку, ни в QR-код.
 
 Автонастройка Android скачивает release asset из `TG-Proxy-Relay`, а не из Android-репозитория.
-Текущий контракт: `TG Proxy Android 1.1.2` и `TG Proxy VPS Relay 1.1.0`.
+Текущий контракт: `TG Proxy Android 1.2.0` и `TG Proxy VPS Relay 1.2.0`.
+Мастер определяет Linux-дистрибутив, пакетный менеджер, init-систему и архитектуру сам: он не
+ограничен Ubuntu или systemd. Собственный домен вводится вручную и может вообще отсутствовать
+в текущих конфигурациях VPS — достаточно направить его A/AAAA-запись на публичный IP сервера.
 
 ## Диагностика
 
@@ -122,6 +129,9 @@ SSH-пароль, SSH host key и owner/admin token не входят ни в с
 - [Cloudflare-домен](docs/CLOUDFLARE_DOMAIN.md)
 - [Диагностика](docs/DIAGNOSTICS.md)
 - [Маршрутизация](docs/ROUTING.md)
+- [Telegram topology и границы маршрутов](docs/TELEGRAM_TOPOLOGY.md)
+- [Failure injection и полевая проверка](docs/FAILURE_INJECTION.md)
+- [Исследование whitelist-only сетей РФ](docs/RUSSIAN_WHITELIST_RESEARCH.md)
 - [Надежность Android-сервиса](docs/RELIABILITY.md)
 - [Архитектура](docs/ARCHITECTURE.md)
 

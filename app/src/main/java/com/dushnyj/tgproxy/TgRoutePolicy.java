@@ -9,12 +9,16 @@ public final class TgRoutePolicy {
     private static final String FLOWSEAL_REACHABLE_IP = "149.154.167.220";
 
     public static boolean canUseDirectWs(int dc) {
-        return MtProtoConfig.isValidDc(dc);
+        return TgConstants.supportsTelegramWebSocketDc(dc);
     }
 
     public static String[] targetIpsForDirectWs(int dc) {
         if (!canUseDirectWs(dc)) return new String[0];
         return new String[]{FLOWSEAL_REACHABLE_IP};
+    }
+
+    static String defaultDirectEndpoint(int dc) {
+        return canUseDirectWs(dc) ? FLOWSEAL_REACHABLE_IP : "";
     }
 
     public static boolean shouldUseDirectWs(int dc, boolean media, Map<Integer, String> dcRedirects) {

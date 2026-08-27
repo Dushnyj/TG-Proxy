@@ -343,6 +343,7 @@ final class SettingsTransfer {
         fields.put("kind", kind.wireName);
         fields.put("profileName", data.profileName());
         fields.put("routePreference", data.routePreference().name());
+        fields.put("routeAvailability", data.routeAvailability().toStored());
         fields.put("customIp", data.customIp());
         fields.put("customPort", String.valueOf(data.customPort()));
         fields.put("dcRules", data.dcRules());
@@ -478,6 +479,9 @@ final class SettingsTransfer {
 
     private static void validateImportedData(Kind kind, Data data)
             throws SettingsTransferException {
+        if (data == null || !data.routeAvailability().hasAny()) {
+            throw new SettingsTransferException("at least one route must remain enabled");
+        }
         VpsRelayConfig relay = data == null ? null : data.relayConfig();
         if (kind == Kind.VPS_RELAY && (relay == null || !relay.isUsable())) {
             throw new SettingsTransferException("invalid VPS Relay profile");
@@ -495,7 +499,7 @@ final class SettingsTransfer {
 
     private static void validateFieldSchema(Kind kind, Map<String, String> fields)
             throws SettingsTransferException {
-        String[] base = {"kind", "profileName", "routePreference", "customIp", "customPort",
+        String[] base = {"kind", "profileName", "routePreference", "routeAvailability", "customIp", "customPort",
                 "dcRules", "cfMode", "cfDomains", "workerDomains"};
         String[] relay = {"relay.enabled", "relay.name", "relay.host", "relay.port",
                 "relay.tls", "relay.path", "relay.token"};
@@ -538,6 +542,7 @@ final class SettingsTransfer {
     static final class Data {
         private final String profileName;
         private final RoutePreference routePreference;
+        private final RouteAvailability routeAvailability;
         private final String customIp;
         private final int customPort;
         private final String mtProtoSecret;
@@ -550,6 +555,8 @@ final class SettingsTransfer {
         private Data(Builder builder) {
             this.profileName = clean(builder.profileName);
             this.routePreference = builder.routePreference == null ? RoutePreference.AUTO : builder.routePreference;
+            this.routeAvailability = builder.routeAvailability == null
+                    ? RouteAvailability.all() : builder.routeAvailability;
             this.customIp = valueOr(builder.customIp, MtProtoConfig.DEFAULT_HOST);
             this.customPort = builder.customPort <= 0 || builder.customPort > 65535
                     ? MtProtoConfig.DEFAULT_PORT : builder.customPort;
@@ -581,6 +588,7 @@ final class SettingsTransfer {
             return builder()
                     .profileName(fields.get("profileName"))
                     .routePreference(routePreference(fields.get("routePreference")))
+                    .routeAvailability(RouteAvailability.fromStored(fields.get("routeAvailability")))
                     .customIp(fields.get("customIp"))
                     .customPort(intValue(fields.get("customPort"), MtProtoConfig.DEFAULT_PORT))
                     // SAFE_PROFILE is plaintext and must not be able to smuggle a secret by
@@ -601,6 +609,10 @@ final class SettingsTransfer {
 
         RoutePreference routePreference() {
             return routePreference;
+        }
+
+        RouteAvailability routeAvailability() {
+            return routeAvailability;
         }
 
         String customIp() {
@@ -638,6 +650,7 @@ final class SettingsTransfer {
         static final class Builder {
             private String profileName = "";
             private RoutePreference routePreference = RoutePreference.AUTO;
+            private RouteAvailability routeAvailability = RouteAvailability.all();
             private String customIp = MtProtoConfig.DEFAULT_HOST;
             private int customPort = MtProtoConfig.DEFAULT_PORT;
             private String mtProtoSecret = "";
@@ -654,6 +667,11 @@ final class SettingsTransfer {
 
             Builder routePreference(RoutePreference value) {
                 routePreference = value;
+                return this;
+            }
+
+            Builder routeAvailability(RouteAvailability value) {
+                routeAvailability = value == null ? RouteAvailability.all() : value;
                 return this;
             }
 

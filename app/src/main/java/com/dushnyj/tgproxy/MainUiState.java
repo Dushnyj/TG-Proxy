@@ -25,6 +25,8 @@ final class MainUiState {
 
     enum SettingsSection {
         CONNECTION,
+        ROUTES,
+        RELAY,
         SYSTEM,
         ABOUT
     }
@@ -40,6 +42,7 @@ final class MainUiState {
         BEHAVIOR,
         INTERFACE,
         UPDATES,
+        ADVANCED,
         ABOUT
     }
 
@@ -51,21 +54,28 @@ final class MainUiState {
 
     private static final List<SettingsSection> SETTINGS_SECTIONS = Collections.unmodifiableList(Arrays.asList(
             SettingsSection.CONNECTION,
+            SettingsSection.ROUTES,
+            SettingsSection.RELAY,
             SettingsSection.SYSTEM,
             SettingsSection.ABOUT));
     private static final List<SettingsContent> CONNECTION_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
-                    SettingsContent.CONNECTION,
                     SettingsContent.PROFILES,
+                    SettingsContent.CONNECTION));
+    private static final List<SettingsContent> ROUTES_CONTENT =
+            Collections.unmodifiableList(Arrays.asList(
                     SettingsContent.ROUTING,
+                    SettingsContent.CLOUDFLARE_WORKER));
+    private static final List<SettingsContent> RELAY_CONTENT =
+            Collections.unmodifiableList(Arrays.asList(
                     SettingsContent.VPS_RELAY,
-                    SettingsContent.CLOUDFLARE_WORKER,
                     SettingsContent.IMPORT_EXPORT));
     private static final List<SettingsContent> SYSTEM_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
                     SettingsContent.INTERFACE,
                     SettingsContent.BEHAVIOR,
                     SettingsContent.DIAGNOSTICS_LOGS,
+                    SettingsContent.ADVANCED,
                     SettingsContent.UPDATES));
     private static final List<SettingsContent> ABOUT_CONTENT =
             Collections.unmodifiableList(Collections.singletonList(SettingsContent.ABOUT));
@@ -83,6 +93,8 @@ final class MainUiState {
     }
 
     static List<SettingsContent> settingsContent(SettingsSection section) {
+        if (section == SettingsSection.ROUTES) return ROUTES_CONTENT;
+        if (section == SettingsSection.RELAY) return RELAY_CONTENT;
         if (section == SettingsSection.SYSTEM) return SYSTEM_CONTENT;
         if (section == SettingsSection.ABOUT) return ABOUT_CONTENT;
         return CONNECTION_CONTENT;
@@ -123,7 +135,10 @@ final class MainUiState {
         if (routeState == null || !routeState.active()) return "";
         String endpoint = routeState.activeEndpoint() == null
                 ? "" : routeState.activeEndpoint().trim().toLowerCase(java.util.Locale.US);
-        return routeState.key() + "|" + endpoint;
+        String sni = routeState.activeSni() == null
+                ? "" : routeState.activeSni().trim().toLowerCase(java.util.Locale.US);
+        return routeState.key() + "|" + endpoint + "|" + sni
+                + "|" + routeState.routeGeneration();
     }
 
     static String connectionSummary(int activeConnections) {

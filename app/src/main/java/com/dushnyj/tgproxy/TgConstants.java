@@ -18,17 +18,22 @@ public final class TgConstants {
     }
 
     public static String[] wsDomains(int dc, boolean isMedia) {
-        int webDc = dc == 203 ? 2 : dc;
+        if (!supportsTelegramWebSocketDc(dc)) return new String[0];
         if (isMedia) {
             return new String[]{
-                    "kws" + webDc + "-1.web.telegram.org",
-                    "kws" + webDc + ".web.telegram.org"
+                    "kws" + dc + "-1.web.telegram.org",
+                    "kws" + dc + ".web.telegram.org"
             };
         }
         return new String[]{
-                "kws" + webDc + ".web.telegram.org",
-                "kws" + webDc + "-1.web.telegram.org"
+                "kws" + dc + ".web.telegram.org",
+                "kws" + dc + "-1.web.telegram.org"
         };
+    }
+
+    /** Official Telegram Web K currently publishes explicit WSS ingress only for DC 1..5. */
+    static boolean supportsTelegramWebSocketDc(int dc) {
+        return dc >= 1 && dc <= 5;
     }
 
     private TgConstants() {

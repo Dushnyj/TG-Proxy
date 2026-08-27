@@ -12,20 +12,32 @@ import static org.junit.Assert.assertTrue;
 
 public class MainActivityDialogPolicyTest {
     @Test
-    public void relayShareAndOwnerMenusUseVisibleNotedLists() throws Exception {
-        String source = new String(Files.readAllBytes(sourcePath()), StandardCharsets.UTF_8);
+    public void relayShareAndOwnerManagementUseResponsiveDedicatedSurfaces() throws Exception {
+        String source = read("MainActivity.java");
+        String owner = read("VpsOwnerActivity.java");
+        String share = read("RelayShareSheet.java");
 
-        assertTrue(source.contains("showNotedItemsDialog(R.string.relay_share_title, "
-                + "R.string.relay_share_note"));
-        assertTrue(source.contains("showNotedItemsDialog(R.string.vps_owner_manage, "
-                + "R.string.vps_owner_manage_note"));
+        assertTrue(source.contains("RelayShareSheet.show(this, relay)"));
+        assertTrue(source.contains("VpsOwnerActivity.intent(this, profileKey, relayId)"));
+        assertTrue(owner.contains("setContentView(R.layout.activity_vps_owner)"));
+        assertTrue(share.contains("new BottomSheetDialog(activity)"));
         assertFalse(source.contains(".setMessage(R.string.relay_share_note)"));
         assertFalse(source.contains(".setMessage(R.string.vps_owner_manage_note)"));
     }
 
-    private static Path sourcePath() {
-        Path path = Paths.get("app/src/main/java/com/dushnyj/tgproxy/MainActivity.java");
-        if (Files.exists(path)) return path;
-        return Paths.get("src/main/java/com/dushnyj/tgproxy/MainActivity.java");
+    @Test
+    public void backgroundReadinessIsVisibleAndManualRelayStartsCollapsed() throws Exception {
+        String source = read("MainActivity.java");
+
+        assertTrue(source.contains("addBackgroundStatusRow(R.string.background_condition_boot"));
+        assertTrue(source.contains("R.string.background_condition_network_identity"));
+        assertTrue(source.contains("R.string.background_condition_location"));
+        assertTrue(source.contains("setExpandableSection(vpsManualContent, btnVpsManualToggle, false"));
+    }
+
+    private static String read(String name) throws Exception {
+        Path path = Paths.get("app/src/main/java/com/dushnyj/tgproxy/" + name);
+        if (!Files.exists(path)) path = Paths.get("src/main/java/com/dushnyj/tgproxy/" + name);
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
     }
 }

@@ -292,7 +292,7 @@ public class RawWebSocket {
                 .append("Connection: Upgrade\r\n")
                 .append("Sec-WebSocket-Key: ").append(wsKey).append("\r\n")
                 .append("Sec-WebSocket-Version: 13\r\n")
-                .append("Sec-WebSocket-Protocol: binary\r\n")
+                .append("Sec-WebSocket-Protocol: tgproxy-relay.v2, binary\r\n")
                 .append("Origin: https://web.telegram.org\r\n");
         RelayClientMetadata.appendHttpHeaders(request);
         request.append("\r\n");
@@ -303,6 +303,7 @@ public class RawWebSocket {
 
         int statusCode = 0;
         String acceptHeader = "";
+        String selectedSubprotocol = "";
         boolean firstLine = true;
         int[] headerBytes = {0};
         while (true) {
@@ -319,12 +320,19 @@ public class RawWebSocket {
                 int colon = line.indexOf(':');
                 if (colon > 0 && "sec-websocket-accept".equalsIgnoreCase(line.substring(0, colon).trim())) {
                     acceptHeader = line.substring(colon + 1).trim();
+                } else if (colon > 0 && "sec-websocket-protocol".equalsIgnoreCase(
+                        line.substring(0, colon).trim())) {
+                    selectedSubprotocol = line.substring(colon + 1).trim();
                 }
             }
         }
-        if (statusCode != 101 || !websocketAccept(wsKey).equals(acceptHeader)) {
+        boolean compatibleProtocol = selectedSubprotocol.isEmpty()
+                || "binary".equalsIgnoreCase(selectedSubprotocol)
+                || "tgproxy-relay.v2".equalsIgnoreCase(selectedSubprotocol);
+        if (statusCode != 101 || !websocketAccept(wsKey).equals(acceptHeader)
+                || !compatibleProtocol) {
             ws.closeQuiet();
-            if (statusCode == 101) throw new WsProtocolException("invalid Sec-WebSocket-Accept");
+            if (statusCode == 101) throw new WsProtocolException("invalid WebSocket negotiation");
             throw new WsHandshakeException(statusCode);
         }
     }

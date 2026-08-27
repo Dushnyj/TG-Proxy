@@ -61,32 +61,38 @@ final class RouteEngine {
 
         ArrayList<RouteCandidate> direct = new ArrayList<>();
         String targetIp = s.dcRedirects.get(dc);
-        if (targetIp != null && TgRoutePolicy.shouldUseDirectWs(dc, media, s.dcRedirects)) {
+        if (targetIp == null && !s.testDc) targetIp = TgRoutePolicy.defaultDirectEndpoint(dc);
+        if (s.routeAvailability.isEnabled(RouteType.DIRECT_WS)
+                && targetIp != null && TgRoutePolicy.shouldUseDirectWs(dc, media, s.dcRedirects)) {
             direct.add(RouteCandidate.directWs(dc, media, s.testDc, targetIp));
         }
 
         ArrayList<RouteCandidate> vps = new ArrayList<>();
-        if (s.vpsRelayEnabled) {
+        if (s.routeAvailability.isEnabled(RouteType.VPS_RELAY) && s.vpsRelayEnabled
+                && s.vpsRelayCapabilities.supports(dc, s.testDc)) {
             vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort,
                     dc, media, s.testDc));
         }
 
         ArrayList<RouteCandidate> worker = new ArrayList<>();
-        if (!s.workerDomains.isEmpty() && knownRawTelegramDc) {
+        if (s.routeAvailability.isEnabled(RouteType.WORKER)
+                && !s.workerDomains.isEmpty() && knownRawTelegramDc) {
             worker.add(RouteCandidate.worker(dc, media, s.testDc, s.workerDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> customCf = new ArrayList<>();
-        if (!s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+        if (s.routeAvailability.isEnabled(RouteType.CUSTOM_CLOUDFLARE)
+                && !s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
                 && !s.customCfDomains.isEmpty()
-                && knownRawTelegramDc) {
+                && TgConstants.supportsTelegramWebSocketDc(dc)) {
             customCf.add(RouteCandidate.customCloudflare(dc, media, s.customCfDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> publicCf = new ArrayList<>();
-        if (!s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
+        if (s.routeAvailability.isEnabled(RouteType.PUBLIC_CLOUDFLARE)
+                && !s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
                 && !s.publicCfDomains.isEmpty()
-                && knownRawTelegramDc) {
+                && TgConstants.supportsTelegramWebSocketDc(dc)) {
             publicCf.add(RouteCandidate.publicCloudflare(dc, media, "public-cf"));
         }
 
@@ -218,6 +224,7 @@ final class RouteEngine {
     static final class Settings {
         private final NetworkProfile networkProfile;
         private final RoutePreference routePreference;
+        private final RouteAvailability routeAvailability;
         private final String cfMode;
         private final Map<Integer, String> dcRedirects;
         private final List<String> workerDomains;
@@ -227,6 +234,7 @@ final class RouteEngine {
         private final String vpsRelayName;
         private final String vpsRelayHost;
         private final int vpsRelayPort;
+        private final VpsRelayCapabilities vpsRelayCapabilities;
         private final boolean testDc;
 
         private Settings(Builder builder) {
@@ -234,6 +242,8 @@ final class RouteEngine {
                     ? NetworkProfile.defaultProfile() : builder.networkProfile;
             this.routePreference = builder.routePreference == null
                     ? RoutePreference.AUTO : builder.routePreference;
+            this.routeAvailability = builder.routeAvailability == null
+                    ? RouteAvailability.all() : builder.routeAvailability;
             this.cfMode = MtProtoProxyEngine.normalizeCfProxyMode(builder.cfMode);
             this.dcRedirects = new LinkedHashMap<>(builder.dcRedirects);
             this.workerDomains = copy(builder.workerDomains);
@@ -243,6 +253,8 @@ final class RouteEngine {
             this.vpsRelayName = builder.vpsRelayName;
             this.vpsRelayHost = builder.vpsRelayHost;
             this.vpsRelayPort = builder.vpsRelayPort;
+            this.vpsRelayCapabilities = builder.vpsRelayCapabilities == null
+                    ? VpsRelayCapabilities.unknown() : builder.vpsRelayCapabilities;
             this.testDc = builder.testDc;
         }
 
@@ -256,6 +268,10 @@ final class RouteEngine {
 
         RoutePreference routePreference() {
             return routePreference;
+        }
+
+        RouteAvailability routeAvailability() {
+            return routeAvailability;
         }
 
         String cfMode() {
@@ -289,6 +305,7 @@ final class RouteEngine {
         static final class Builder {
             private NetworkProfile networkProfile = NetworkProfile.defaultProfile();
             private RoutePreference routePreference = RoutePreference.AUTO;
+            private RouteAvailability routeAvailability = RouteAvailability.all();
             private String cfMode = MtProtoProxyEngine.CF_MODE_AUTO;
             private Map<Integer, String> dcRedirects = new LinkedHashMap<>();
             private List<String> workerDomains = Collections.emptyList();
@@ -298,6 +315,7 @@ final class RouteEngine {
             private String vpsRelayName = "";
             private String vpsRelayHost = "";
             private int vpsRelayPort;
+            private VpsRelayCapabilities vpsRelayCapabilities = VpsRelayCapabilities.unknown();
             private boolean testDc;
 
             Builder networkProfile(NetworkProfile networkProfile) {
@@ -342,6 +360,22 @@ final class RouteEngine {
                 this.vpsRelayName = name;
                 this.vpsRelayHost = host;
                 this.vpsRelayPort = port;
+                return this;
+            }
+
+            Builder vpsRelay(VpsRelayConfig relay) {
+                if (relay == null || !relay.isUsable()) return this;
+                this.vpsRelayEnabled = true;
+                this.vpsRelayName = relay.name();
+                this.vpsRelayHost = relay.host();
+                this.vpsRelayPort = relay.port();
+                this.vpsRelayCapabilities = relay.capabilities();
+                return this;
+            }
+
+            Builder routeAvailability(RouteAvailability routeAvailability) {
+                this.routeAvailability = routeAvailability == null
+                        ? RouteAvailability.all() : routeAvailability;
                 return this;
             }
 

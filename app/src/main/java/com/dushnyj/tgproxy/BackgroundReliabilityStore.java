@@ -24,11 +24,21 @@ final class BackgroundReliabilityStore {
         boolean battery = BackgroundExecutionAssistant.isBatteryOptimizationDisabled(context);
         boolean notifications = BackgroundExecutionAssistant.areNotificationsAllowed(context);
         boolean bootEnabled = prefs != null && prefs.getBoolean("autostart_boot", true);
-        boolean manufacturerConfirmed = !BackgroundExecutionAssistant
-                .requiresManualAutostartConfirmation()
-                || (prefs != null && (prefs.getBoolean(KEY_AUTOSTART_CONFIRMED, false)
-                || prefs.getLong(KEY_BOOT_RECEIVER_AT, 0L) > 0L));
-        return new Status(battery, notifications, bootEnabled, manufacturerConfirmed);
+        BackgroundExecutionAssistant.AutostartState autostartState =
+                BackgroundExecutionAssistant.manufacturerAutostartState(context);
+        boolean previouslyObserved = prefs != null
+                && (prefs.getBoolean(KEY_AUTOSTART_CONFIRMED, false)
+                || prefs.getLong(KEY_BOOT_RECEIVER_AT, 0L) > 0L);
+        boolean manufacturerConfirmed = autostartState
+                == BackgroundExecutionAssistant.AutostartState.NOT_REQUIRED
+                || autostartState == BackgroundExecutionAssistant.AutostartState.ALLOWED
+                || (autostartState == BackgroundExecutionAssistant.AutostartState.UNKNOWN
+                && previouslyObserved);
+        boolean networkIdentityAllowed = BackgroundExecutionAssistant
+                .hasNetworkIdentityPermissions(context);
+        boolean locationEnabled = BackgroundExecutionAssistant.isLocationEnabled(context);
+        return new Status(battery, notifications, bootEnabled, manufacturerConfirmed,
+                autostartState, networkIdentityAllowed, locationEnabled);
     }
 
     boolean shouldPrompt(int versionCode) {
@@ -43,10 +53,6 @@ final class BackgroundReliabilityStore {
 
     void setAutostartConfirmed(boolean confirmed) {
         if (prefs != null) prefs.edit().putBoolean(KEY_AUTOSTART_CONFIRMED, confirmed).commit();
-    }
-
-    boolean autostartConfirmed() {
-        return prefs != null && prefs.getBoolean(KEY_AUTOSTART_CONFIRMED, false);
     }
 
     boolean shouldRequestNetworkIdentityPermissions(int versionCode) {
@@ -77,18 +83,36 @@ final class BackgroundReliabilityStore {
         final boolean notificationsAllowed;
         final boolean bootEnabled;
         final boolean autostartConfirmed;
+        final BackgroundExecutionAssistant.AutostartState autostartState;
+        final boolean networkIdentityAllowed;
+        final boolean locationEnabled;
 
         Status(boolean batteryUnrestricted, boolean notificationsAllowed,
-               boolean bootEnabled, boolean autostartConfirmed) {
+               boolean bootEnabled, boolean autostartConfirmed,
+               boolean networkIdentityAllowed, boolean locationEnabled) {
+            this(batteryUnrestricted, notificationsAllowed, bootEnabled, autostartConfirmed,
+                    autostartConfirmed ? BackgroundExecutionAssistant.AutostartState.ALLOWED
+                            : BackgroundExecutionAssistant.AutostartState.UNKNOWN,
+                    networkIdentityAllowed, locationEnabled);
+        }
+
+        Status(boolean batteryUnrestricted, boolean notificationsAllowed,
+               boolean bootEnabled, boolean autostartConfirmed,
+               BackgroundExecutionAssistant.AutostartState autostartState,
+               boolean networkIdentityAllowed, boolean locationEnabled) {
             this.batteryUnrestricted = batteryUnrestricted;
             this.notificationsAllowed = notificationsAllowed;
             this.bootEnabled = bootEnabled;
             this.autostartConfirmed = autostartConfirmed;
+            this.autostartState = autostartState;
+            this.networkIdentityAllowed = networkIdentityAllowed;
+            this.locationEnabled = locationEnabled;
         }
 
         boolean ready() {
             return batteryUnrestricted && notificationsAllowed
-                    && bootEnabled && autostartConfirmed;
+                    && bootEnabled && autostartConfirmed
+                    && networkIdentityAllowed && locationEnabled;
         }
     }
 }

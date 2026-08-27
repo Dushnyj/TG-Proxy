@@ -3,12 +3,14 @@ package com.dushnyj.tgproxy;
 import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.res.ColorStateList;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -35,6 +37,7 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.view.Gravity;
 import android.view.View;
 
 import androidx.appcompat.app.AlertDialog;
@@ -46,6 +49,8 @@ import androidx.preference.PreferenceManager;
 
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -74,6 +79,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String REPO_URL = "https://github.com/Dushnyj/TG-Proxy";
     private static final int REQUEST_IMPORT_FILE = 1101;
     private static final int REQUEST_INSTALL_UPDATE = 1102;
+    private static final int REQUEST_VPS_SETUP = 1103;
+    private static final int REQUEST_VPS_OWNER = 1104;
     private static final int REQUEST_NETWORK_IDENTITY_PERMISSIONS = 100;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 101;
     private static final String STATE_SCREEN = "screen";
@@ -94,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnStop, btnRegenerateSecret;
     private View btnOpenSettings, btnBackMain, btnOpenDiagnostics, btnOpenGithub, btnOpenTelegram, btnMainMenu;
     private Button btnTestCf, btnTestWorker;
+    private Button btnRouteDirectOnly;
     private Button btnVpsRelayTest;
     private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
     private Button btnVpsOwnerManage;
@@ -124,11 +132,12 @@ public class MainActivity extends AppCompatActivity {
     private CheckBox cbSmartSleep, cbAutostartOpen, cbAutostartBoot;
     private CheckBox cbVpsRelayEnabled, cbVpsRelayTls, cbVpsRelayBindProfile;
     private CheckBox cbCfCustomDomain, cbCfWarmup, cbCfRecheckNetwork, cbVerbose, cbCheckUpdates;
+    private CheckBox cbRouteDirect, cbRouteRelay, cbRouteWorker, cbRouteCustomCf, cbRoutePublicCf;
     private ProgressBar progressUpdate;
     private ProgressBar progressVpsSetup;
     private Spinner spCfMode, spTheme, spLanguage, spProfileSelector, spRoutePreference, spVpsRelaySaved;
     private View mainScreen, settingsScreen, diagnosticsScreen, btnBackDiagnostics;
-    private View navConnection, navSystem, navAbout;
+    private View navConnection, navRoutes, navRelay, navSystem, navAbout;
     private View sectionConnection, sectionRoute, sectionProfiles, sectionOptimization, sectionVpsRelay;
     private View sectionImportExport, sectionDiagnosticsLogs, sectionBehavior;
     private View sectionInterface, sectionUpdates, sectionAdvanced, sectionAbout;
@@ -148,6 +157,12 @@ public class MainActivity extends AppCompatActivity {
     private boolean vpsRelayFormBinding;
     private boolean vpsSetupRunning;
     private boolean backgroundSetupDialogShowing;
+    private AlertDialog backgroundSetupDialog;
+    private LinearLayout backgroundSetupStatusList;
+    private CheckBox backgroundSetupBootToggle, backgroundSetupAutostartToggle;
+    private Button backgroundSetupBatteryAction, backgroundSetupAutostartAction;
+    private Button backgroundSetupNotificationAction, backgroundSetupLocationAction;
+    private Button backgroundSetupNetworkIdentityAction;
     private final AtomicBoolean vpsRelayTestRunning = new AtomicBoolean(false);
     private final AtomicBoolean vpsRelayVersionCheckRunning = new AtomicBoolean(false);
     private String vpsRelayUpdateDialogKey = "";
@@ -289,6 +304,10 @@ public class MainActivity extends AppCompatActivity {
             }
         } else if (requestCode == REQUEST_INSTALL_UPDATE) {
             verifyPendingUpdateInstall();
+        } else if (requestCode == REQUEST_VPS_SETUP || requestCode == REQUEST_VPS_OWNER) {
+            refreshVpsRelaySelector();
+            refreshConnectionFields();
+            updateVpsRelayFieldsEnabled();
         }
     }
 
@@ -330,6 +349,7 @@ public class MainActivity extends AppCompatActivity {
         btnRegenerateSecret = findViewById(R.id.btn_regenerate_secret);
         btnTestCf = findViewById(R.id.btn_test_cf);
         btnTestWorker = findViewById(R.id.btn_test_worker);
+        btnRouteDirectOnly = findViewById(R.id.btn_route_direct_only);
         btnVpsRelayTest = findViewById(R.id.btn_vps_relay_test);
         btnVpsRelayNew = findViewById(R.id.btn_vps_relay_new);
         btnVpsRelaySave = findViewById(R.id.btn_vps_relay_save);
@@ -416,6 +436,11 @@ public class MainActivity extends AppCompatActivity {
         cbCfRecheckNetwork = findViewById(R.id.cb_cf_recheck_network);
         cbVerbose = findViewById(R.id.cb_verbose);
         cbCheckUpdates = findViewById(R.id.cb_check_updates);
+        cbRouteDirect = findViewById(R.id.cb_route_direct);
+        cbRouteRelay = findViewById(R.id.cb_route_relay);
+        cbRouteWorker = findViewById(R.id.cb_route_worker);
+        cbRouteCustomCf = findViewById(R.id.cb_route_custom_cf);
+        cbRoutePublicCf = findViewById(R.id.cb_route_public_cf);
         spCfMode = findViewById(R.id.sp_cf_mode);
         spTheme = findViewById(R.id.sp_theme);
         spLanguage = findViewById(R.id.sp_language);
@@ -424,6 +449,8 @@ public class MainActivity extends AppCompatActivity {
         spVpsRelaySaved = findViewById(R.id.sp_vps_relay_saved);
 
         navConnection = findViewById(R.id.nav_connection);
+        navRoutes = findViewById(R.id.nav_routes);
+        navRelay = findViewById(R.id.nav_relay);
         navSystem = findViewById(R.id.nav_system);
         navAbout = findViewById(R.id.nav_about);
 
@@ -497,6 +524,12 @@ public class MainActivity extends AppCompatActivity {
         });
         btnTestCf.setOnClickListener(v -> testCfProxy());
         btnTestWorker.setOnClickListener(v -> testWorker());
+        btnRouteDirectOnly.setOnClickListener(v -> {
+            profileControlReady = false;
+            applyRouteAvailabilityToControls(RouteAvailability.directOnly());
+            profileControlReady = true;
+            saveDisplayedRouteAvailability();
+        });
         btnVpsRelayTest.setOnClickListener(v -> testVpsRelay());
         btnVpsRelayNew.setOnClickListener(v -> {
             vpsRelaySelectorReady = false;
@@ -510,16 +543,13 @@ public class MainActivity extends AppCompatActivity {
             setEnabled(btnVpsRelayDelete, false);
         });
         btnVpsRelaySave.setOnClickListener(v -> {
-            VpsRelayConfig relay = currentVpsRelayConfig();
-            if (relay.isEnabled()) {
-                testVpsRelay();
-            } else if (saveCurrentVpsRelayFromForm()) {
+            if (saveCurrentVpsRelayFromForm()) {
                 Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show();
             }
         });
         btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
-        btnVpsRelayAutoSetup.setOnClickListener(v -> showVpsAutoSetupDialog());
-        btnVpsOwnerManage.setOnClickListener(v -> showVpsOwnerManager());
+        btnVpsRelayAutoSetup.setOnClickListener(v -> openVpsSetup(false));
+        btnVpsOwnerManage.setOnClickListener(v -> openVpsOwnerManager());
         btnVpsManualToggle.setOnClickListener(v -> setExpandableSection(
                 vpsManualContent, btnVpsManualToggle,
                 vpsManualContent.getVisibility() != View.VISIBLE,
@@ -588,6 +618,13 @@ public class MainActivity extends AppCompatActivity {
         });
         cbVerbose.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("verbose_logging", checked).apply());
         cbCheckUpdates.setOnCheckedChangeListener((v, checked) -> prefs.edit().putBoolean("check_updates", checked).apply());
+        android.widget.CompoundButton.OnCheckedChangeListener routeAvailabilityListener =
+                (button, checked) -> onRouteAvailabilityChanged((CheckBox) button);
+        cbRouteDirect.setOnCheckedChangeListener(routeAvailabilityListener);
+        cbRouteRelay.setOnCheckedChangeListener(routeAvailabilityListener);
+        cbRouteWorker.setOnCheckedChangeListener(routeAvailabilityListener);
+        cbRouteCustomCf.setOnCheckedChangeListener(routeAvailabilityListener);
+        cbRoutePublicCf.setOnCheckedChangeListener(routeAvailabilityListener);
     }
 
     private void setupAppearanceControls() {
@@ -701,18 +738,28 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (!vpsRelaySelectorReady || position < 0 || position >= vpsRelaySelectorIds.size()) return;
                 String relayId = vpsRelaySelectorIds.get(position);
+                VpsRelayStore store = VpsRelayStore.fromContext(MainActivity.this);
+                String profileKey = cbVpsRelayBindProfile != null && cbVpsRelayBindProfile.isChecked()
+                        ? vpsRelayProfileKeyForUi() : "";
+                String previouslySelected = store.selectedRelayId(profileKey);
+                if (previouslySelected == null) previouslySelected = "";
                 if (relayId.isEmpty()) {
+                    // Adapter refresh may briefly report its zero item before setSelection()
+                    // restores the actual Relay. Never mutate a binding from that callback.
                     clearVpsRelayForm();
-                    setExpandableSection(vpsManualContent, btnVpsManualToggle, true,
+                    setExpandableSection(vpsManualContent, btnVpsManualToggle, false,
                             R.string.vps_manual_show, R.string.vps_manual_hide);
                     setEnabled(btnVpsRelayDelete, false);
                     return;
                 }
-                VpsRelayStore store = VpsRelayStore.fromContext(MainActivity.this);
                 VpsRelayStore.Record record = store.relay(relayId);
                 if (record == null) return;
-                String profileKey = cbVpsRelayBindProfile != null && cbVpsRelayBindProfile.isChecked()
-                        ? vpsRelayProfileKeyForUi() : "";
+                if (relayId.equals(previouslySelected)) {
+                    // refreshVpsRelaySelector() already synchronized the form. A delayed callback
+                    // for the same selection must be a complete no-op: otherwise it rewrites a
+                    // form while the owner is typing and emits a Toast every refresh interval.
+                    return;
+                }
                 if (!store.bindProfile(profileKey, relayId)) {
                     DiagnosticsLog.record("VPS Relay profile binding commit failed");
                     Toast.makeText(MainActivity.this, R.string.settings_save_failed,
@@ -722,7 +769,6 @@ public class MainActivity extends AppCompatActivity {
                 }
                 fillVpsRelayForm(record.config().withProfileKey(profileKey));
                 refreshConnectionFields();
-                Toast.makeText(MainActivity.this, R.string.vps_relay_selected, Toast.LENGTH_SHORT).show();
             }
 
             @Override public void onNothingSelected(AdapterView<?> parent) {}
@@ -799,6 +845,7 @@ public class MainActivity extends AppCompatActivity {
         tvProfileKey.setText(record.key());
         etProfileName.setText(record.displayName());
         spRoutePreference.setSelection(routePreferenceIndex(record.routePreference()));
+        applyRouteAvailabilityToControls(record.routeAvailability());
         profileControlReady = true;
     }
 
@@ -940,6 +987,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void showSettingsScreen(boolean show) {
         if (show) {
+            setExpandableSection(vpsManualContent, btnVpsManualToggle, false,
+                    R.string.vps_manual_show, R.string.vps_manual_hide);
             refreshProfileControls(true);
             showSettingsSection(currentSettingsSection);
             updateSettingsEditability();
@@ -964,6 +1013,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupSettingsNavigation() {
         navConnection.setOnClickListener(v -> showSettingsSection(MainUiState.SettingsSection.CONNECTION));
+        navRoutes.setOnClickListener(v -> showSettingsSection(MainUiState.SettingsSection.ROUTES));
+        navRelay.setOnClickListener(v -> showSettingsSection(MainUiState.SettingsSection.RELAY));
         navSystem.setOnClickListener(v -> showSettingsSection(MainUiState.SettingsSection.SYSTEM));
         navAbout.setOnClickListener(v -> showSettingsSection(MainUiState.SettingsSection.ABOUT));
         showSettingsSection(currentSettingsSection);
@@ -973,15 +1024,17 @@ public class MainActivity extends AppCompatActivity {
         currentSettingsSection = section == null ? MainUiState.SettingsSection.CONNECTION : section;
 
         boolean connection = currentSettingsSection == MainUiState.SettingsSection.CONNECTION;
+        boolean routes = currentSettingsSection == MainUiState.SettingsSection.ROUTES;
+        boolean relay = currentSettingsSection == MainUiState.SettingsSection.RELAY;
         boolean system = currentSettingsSection == MainUiState.SettingsSection.SYSTEM;
         boolean about = currentSettingsSection == MainUiState.SettingsSection.ABOUT;
 
         setVisible(sectionConnection, connection);
         setVisible(sectionProfiles, connection);
-        setVisible(sectionRoute, connection);
-        setVisible(sectionOptimization, connection);
-        setVisible(sectionVpsRelay, connection);
-        setVisible(sectionImportExport, connection);
+        setVisible(sectionRoute, routes);
+        setVisible(sectionOptimization, routes);
+        setVisible(sectionVpsRelay, relay);
+        setVisible(sectionImportExport, relay);
         setVisible(sectionDiagnosticsLogs, system);
         setVisible(sectionBehavior, system);
         setVisible(sectionAdvanced, system);
@@ -990,8 +1043,25 @@ public class MainActivity extends AppCompatActivity {
         setVisible(sectionAbout, about);
 
         setNavState(navConnection, connection);
+        setNavState(navRoutes, routes);
+        setNavState(navRelay, relay);
         setNavState(navSystem, system);
         setNavState(navAbout, about);
+        centerSelectedSettingsTab(connection ? navConnection
+                : routes ? navRoutes
+                : relay ? navRelay
+                : system ? navSystem : navAbout);
+    }
+
+    private void centerSelectedSettingsTab(View selected) {
+        View scroll = findViewById(R.id.settings_nav_scroll);
+        if (!(scroll instanceof android.widget.HorizontalScrollView) || selected == null) return;
+        android.widget.HorizontalScrollView navScroll = (android.widget.HorizontalScrollView) scroll;
+        navScroll.post(() -> {
+            int target = selected.getLeft() + selected.getWidth() / 2 - navScroll.getWidth() / 2;
+            int max = Math.max(0, navScroll.getChildAt(0).getWidth() - navScroll.getWidth());
+            navScroll.smoothScrollTo(Math.max(0, Math.min(max, target)), 0);
+        });
     }
 
     private void setVisible(View view, boolean visible) {
@@ -1025,10 +1095,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean saveSettings() {
-        return saveSettings(false);
+        return saveSettingsWithRelay(null);
     }
 
-    private boolean saveSettings(boolean relayAlreadyValidated) {
+    private boolean saveSettingsWithRelay(VpsRelayConfig relayOverride) {
         try {
             int port = Integer.parseInt(etCustomPort.getText().toString().trim());
             if (port < 1 || port > 65535) throw new IllegalArgumentException();
@@ -1037,14 +1107,10 @@ public class MainActivity extends AppCompatActivity {
             if (!secret.matches("[0-9a-f]{32}")) throw new IllegalArgumentException();
             String dcRules = MtProtoConfig.formatDcRules(
                     MtProtoConfig.parseUserDcRules(etDcRules.getText().toString()));
-            VpsRelayConfig relay = currentVpsRelayConfig();
+            VpsRelayConfig relay = relayOverride == null
+                    ? preserveSavedVpsRelayCapabilities(currentVpsRelayConfig())
+                    : relayOverride;
             if (relay.isEnabled() && !relay.isUsable()) throw new IllegalArgumentException();
-            if (relay.isEnabled() && !relayAlreadyValidated
-                    && !matchesSavedVpsRelay(relay)) {
-                Toast.makeText(this, R.string.vps_relay_test_required,
-                        Toast.LENGTH_LONG).show();
-                return false;
-            }
             SharedPreferences.Editor editor = prefs.edit()
                     .putString("custom_ip", valueOrDefault(etCustomIp, MtProtoConfig.DEFAULT_HOST))
                     .putInt("custom_port", port)
@@ -1072,6 +1138,7 @@ public class MainActivity extends AppCompatActivity {
             if (spRoutePreference != null) {
                 stagedProfiles.setRoutePreference(stagedProfileKey, selectedRoutePreference());
             }
+            stagedProfiles.setRouteAvailability(stagedProfileKey, routeAvailabilityFromControls());
             editor.putString(NetworkProfileStore.KEY_PROFILES, stagedProfiles.exportProfiles());
             if (!updateStoredVpsRelaySelection(editor, relay)) {
                 throw new IllegalStateException("secure Relay staging failed");
@@ -1087,13 +1154,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
             return false;
         }
-    }
-
-    private boolean matchesSavedVpsRelay(VpsRelayConfig relay) {
-        if (relay == null || !relay.isEnabled() || prefs == null) return false;
-        VpsRelayConfig saved = VpsRelayStore.fromContext(this)
-                .selectedRelay(relay.profileKey());
-        return saved != null && saved.sameRoutingIdentity(relay);
     }
 
     private void refreshConnectionFields() {
@@ -1438,8 +1498,9 @@ public class MainActivity extends AppCompatActivity {
                 btnVpsRelaySave.setEnabled(true);
                 btnVpsRelayTest.setText(R.string.test);
                 if (result.status() == VpsRelayCheckResult.Status.OK) {
-                    if (!saveVpsRelaySettings(relay)) return;
-                    DiagnosticsLog.record("vps relay check ok " + relay.host());
+                    VpsRelayConfig validatedRelay = relay.withCapabilities(result.capabilities());
+                    if (!saveVpsRelaySettings(validatedRelay)) return;
+                    DiagnosticsLog.record("vps relay check ok " + validatedRelay.host());
                     if (result.warning().isEmpty()) {
                         Toast.makeText(this, R.string.vps_relay_test_ok,
                                 Toast.LENGTH_LONG).show();
@@ -1474,6 +1535,15 @@ public class MainActivity extends AppCompatActivity {
             VpsRelayInfo info = new VpsRelayClient().inspect(relay, VpsSetupScripts.RELAY_VERSION);
             handler.post(() -> {
                 vpsRelayVersionCheckRunning.set(false);
+                if (info.status() == VpsRelayCheckResult.Status.OK
+                        && info.capabilities().known()
+                        && !info.capabilities().equals(relay.capabilities())) {
+                    if (saveVpsRelaySettings(relay.withCapabilities(info.capabilities()))) {
+                        DiagnosticsLog.record("vps relay capabilities refreshed revision="
+                                + info.capabilities().topologyRevision());
+                        refreshConnectionFields();
+                    }
+                }
                 if (info.updateAvailable()) {
                     DiagnosticsLog.record("vps relay update available "
                             + relay.host() + " " + info.relayVersion() + " -> " + info.targetVersion());
@@ -1491,19 +1561,19 @@ public class MainActivity extends AppCompatActivity {
                 + ">" + info.targetVersion();
         if (key.equals(vpsRelayUpdateDialogKey)) return;
         vpsRelayUpdateDialogKey = key;
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_relay_update_title)
                 .setMessage(getString(R.string.vps_relay_update_message,
                         info.relayVersion(), info.targetVersion()))
                 .setPositiveButton(R.string.vps_relay_update_server,
-                        (dialog, which) -> showVpsAutoSetupDialog(true))
+                        (dialog, which) -> openVpsSetup(true))
                 .setNegativeButton(R.string.skip_update, null)
                 .show();
     }
 
     private void showAutoCfProxyResult(FlowsealConnectivity.Result result) {
         int ok = result.okCount();
-        int total = FlowsealConnectivity.TEST_DCS.length;
+        int total = result.expectedCount();
         String title = getString(ok > 0 ? R.string.cf_proxy_available : R.string.cf_proxy_unavailable);
         String message;
         if (ok > 0) {
@@ -1517,7 +1587,7 @@ public class MainActivity extends AppCompatActivity {
         if (ok < total && !result.failDetails("kws").isEmpty()) {
             message += "\n\n" + result.failDetails("kws");
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(title)
                 .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
@@ -1527,11 +1597,11 @@ public class MainActivity extends AppCompatActivity {
     private void showMultiConnectivityResults(int titleRes, Map<String, FlowsealConnectivity.Result> results,
                                               String prefix) {
         StringBuilder message = new StringBuilder();
-        int total = FlowsealConnectivity.TEST_DCS.length;
         boolean anyOk = false;
         for (Map.Entry<String, FlowsealConnectivity.Result> entry : results.entrySet()) {
             FlowsealConnectivity.Result result = entry.getValue();
             int ok = result.okCount();
+            int total = result.expectedCount();
             if (message.length() > 0) message.append("\n\n");
             if (ok == total) {
                 anyOk = true;
@@ -1546,7 +1616,7 @@ public class MainActivity extends AppCompatActivity {
                 if (!fail.isEmpty()) message.append("\n").append(fail);
             }
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(anyOk ? getString(R.string.cf_proxy_available) : getString(R.string.cf_proxy_unavailable))
                 .setMessage(message.length() == 0 ? getString(R.string.test_failed) : message.toString())
                 .setPositiveButton(android.R.string.ok, null)
@@ -1650,7 +1720,7 @@ public class MainActivity extends AppCompatActivity {
     private void showUpdateOffer(GithubReleaseUpdater.ReleaseInfo info) {
         if (info.version.equals(updateDialogVersion)) return;
         updateDialogVersion = info.version;
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.update_dialog_title)
                 .setMessage(getString(R.string.update_dialog_message, info.version))
                 .setPositiveButton(R.string.install_update, (dialog, which) -> installLastRelease())
@@ -1660,7 +1730,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showInstallPermissionDialog(Intent intent) {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.install_permission_title)
                 .setMessage(R.string.install_permission_message)
                 .setPositiveButton(R.string.open_settings, (dialog, which) -> {
@@ -1684,7 +1754,7 @@ public class MainActivity extends AppCompatActivity {
             if (restoreProxy) ProxyServiceLauncher.restoreIfDesired(this, "update-installed");
             tvUpdateStatus.setText(R.string.update_installed_restart);
             btnInstallUpdate.setEnabled(false);
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.update_installed_title)
                     .setMessage(R.string.update_installed_message)
                     .setPositiveButton(R.string.restart_app, (dialog, which) -> restartApp())
@@ -1732,7 +1802,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void exportVpsRelay() {
-        VpsRelayConfig relay = activeVpsRelayConfig();
+        VpsRelayConfig relay = selectedStoredVpsRelayConfig();
         if (relay == null || !relay.isUsable()) {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
             return;
@@ -1741,34 +1811,50 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showRelayShareMenu(VpsRelayConfig relay) {
-        try {
-            String payload = SettingsTransfer.exportVpsRelay(relay);
-            String link = SettingsTransfer.toRelayShareLink(relay, payload);
-            String[] actions = getResources().getStringArray(R.array.relay_share_options);
-            showNotedItemsDialog(R.string.relay_share_title, R.string.relay_share_note,
-                    actions, (dialog, which) -> {
-                if (which == 0) {
-                    copy(link);
-                    Toast.makeText(this, R.string.copy_done, Toast.LENGTH_SHORT).show();
-                } else if (which == 1) {
-                    showTransferQr(payload, link);
-                } else if (which == 2) {
-                    shareRelayLink(link);
-                } else if (which == 3) {
-                    saveTransferPayload(payload, "tgproxy-vps-relay.tgproxy");
-                }
-            });
-        } catch (Exception error) {
-            Toast.makeText(this, getString(R.string.import_failed,
-                    error.getMessage()), Toast.LENGTH_LONG).show();
+        RelayShareSheet.show(this, relay);
+    }
+
+    private void openVpsSetup(boolean updateExistingRelay) {
+        if (vpsSetupRunning) {
+            Toast.makeText(this, R.string.vps_setup_running, Toast.LENGTH_SHORT).show();
+            return;
         }
+        String profileKey = vpsRelayProfileKeyForUi();
+        String relayId = selectedVpsRelayId();
+        if (relayId.isEmpty()) {
+            relayId = VpsRelayStore.fromContext(this).selectedRelayId(profileKey);
+        }
+        startActivityForResult(VpsSetupActivity.intent(
+                this, profileKey, relayId, updateExistingRelay), REQUEST_VPS_SETUP);
+    }
+
+    private void openVpsOwnerManager() {
+        VpsRelayConfig relay = selectedStoredVpsRelayConfig();
+        VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(relay);
+        if (relay == null || !relay.isUsable() || owner == null || !owner.canManage()) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.vps_owner_manage)
+                    .setMessage(R.string.vps_owner_not_available)
+                    .setPositiveButton(R.string.vps_relay_auto_setup,
+                            (dialog, which) -> openVpsSetup(true))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return;
+        }
+        String profileKey = vpsRelayProfileKeyForUi();
+        String relayId = selectedVpsRelayId();
+        if (relayId.isEmpty()) {
+            relayId = VpsRelayStore.fromContext(this).selectedRelayId(profileKey);
+        }
+        startActivityForResult(VpsOwnerActivity.intent(this, profileKey, relayId),
+                REQUEST_VPS_OWNER);
     }
 
     private void showVpsOwnerManager() {
         VpsRelayConfig relay = activeVpsRelayConfig();
         VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(relay);
         if (relay == null || !relay.isUsable() || owner == null || !owner.canManage()) {
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.vps_owner_manage)
                     .setMessage(R.string.vps_owner_not_available)
                     .setPositiveButton(R.string.vps_relay_auto_setup,
@@ -1779,7 +1865,7 @@ public class MainActivity extends AppCompatActivity {
         }
         ProgressBar progress = new ProgressBar(this);
         progress.setPadding(dp(24), dp(18), dp(24), dp(18));
-        AlertDialog loading = new AlertDialog.Builder(this)
+        AlertDialog loading = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_owner_loading)
                 .setView(progress)
                 .setCancelable(false)
@@ -1799,7 +1885,7 @@ public class MainActivity extends AppCompatActivity {
                 handler.post(() -> {
                     loading.dismiss();
                     setEnabled(btnVpsOwnerManage, true);
-                    new AlertDialog.Builder(this)
+                    new MaterialAlertDialogBuilder(this)
                             .setTitle(R.string.vps_owner_manage)
                             .setMessage(getString(R.string.vps_owner_failed,
                                     firstLine(error.getMessage())))
@@ -1819,7 +1905,8 @@ public class MainActivity extends AppCompatActivity {
             VpsOwnerClient.Token token = tokens.get(i);
             labels[i + 1] = getString(R.string.vps_owner_token_summary,
                     token.name().isEmpty() ? token.id() : token.name(),
-                    token.activeDevices(), token.knownDevices());
+                    token.id(), token.activeDevices(), token.knownDevices(),
+                    token.createdAt().isEmpty() ? "—" : token.createdAt());
         }
         labels[labels.length - 1] = getString(R.string.vps_owner_forget_local);
         showNotedItemsDialog(R.string.vps_owner_manage, R.string.vps_owner_manage_note,
@@ -1832,16 +1919,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showNotedItemsDialog(int titleRes, int noteRes, String[] labels,
+                                       DialogInterface.OnClickListener listener) {
+        showNotedItemsDialog(getText(titleRes), getText(noteRes), labels, listener);
+    }
+
+    private void showNotedItemsDialog(CharSequence title, CharSequence noteText, String[] labels,
                                       DialogInterface.OnClickListener listener) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(8), 0, dp(8), 0);
+        content.setPadding(dp(8), dp(2), dp(8), dp(4));
 
         TextView note = new TextView(this);
-        note.setText(noteRes);
+        note.setText(noteText == null ? "" : noteText);
         note.setTextColor(getColorValue(R.color.text_secondary));
-        note.setTextSize(15);
-        note.setPadding(dp(16), dp(4), dp(16), dp(8));
+        note.setTextSize(14);
+        note.setLineSpacing(0f, 1.12f);
+        note.setPadding(dp(16), dp(4), dp(16), dp(12));
         content.addView(note, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -1849,12 +1942,14 @@ public class MainActivity extends AppCompatActivity {
         ListView list = new ListView(this);
         list.setAdapter(new ArrayAdapter<>(this, R.layout.dialog_list_item, labels));
         list.setDividerHeight(0);
+        list.setClipToPadding(false);
+        list.setPadding(0, dp(2), 0, dp(2));
         int visibleRows = Math.max(1, Math.min(labels.length, 5));
         content.addView(list, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(80 * visibleRows)));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(76 * visibleRows)));
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(titleRes)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(title)
                 .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
@@ -1868,7 +1963,7 @@ public class MainActivity extends AppCompatActivity {
     private void showVpsOwnerCreateToken(VpsRelayConfig relay, VpsOwnerRecord owner) {
         EditText name = dialogField(R.string.vps_owner_token_name, "",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_owner_create_token)
                 .setView(name)
                 .setPositiveButton(R.string.vps_owner_create_token, (dialog, which) -> {
@@ -1900,7 +1995,7 @@ public class MainActivity extends AppCompatActivity {
                                     Toast.makeText(this, R.string.vps_owner_save_rolled_back,
                                             Toast.LENGTH_LONG).show();
                                 } else {
-                                    new AlertDialog.Builder(this)
+                                    new MaterialAlertDialogBuilder(this)
                                             .setTitle(R.string.vps_owner_save_failed_title)
                                             .setMessage(R.string.vps_owner_save_failed_recovery)
                                             .setPositiveButton(R.string.relay_share_title,
@@ -1931,25 +2026,26 @@ public class MainActivity extends AppCompatActivity {
         if (local != null && !local.secret().isEmpty()) actions.add(getString(R.string.relay_share_title));
         actions.add(getString(R.string.vps_owner_devices));
         actions.add(getString(R.string.vps_owner_delete_token));
-        new AlertDialog.Builder(this)
-                .setTitle(token.name().isEmpty() ? token.id() : token.name())
-                .setItems(actions.toArray(new String[0]), (dialog, which) -> {
+        showNotedItemsDialog(token.name().isEmpty() ? token.id() : token.name(),
+                getString(R.string.vps_owner_token_actions_note, token.id()),
+                actions.toArray(new String[0]), (dialog, which) -> {
                     String action = actions.get(which);
                     if (action.equals(getString(R.string.relay_share_title)) && local != null) {
                         showRelayShareMenu(relay.withTokenAndName(local.secret(), token.name()));
                     } else if (action.equals(getString(R.string.vps_owner_devices))) {
-                        showVpsOwnerDevices(overview.clientsFor(token.id()));
+                        showVpsOwnerDevices(relay, owner, token,
+                                overview.clientsFor(token.id()));
                     } else {
                         confirmDeleteVpsOwnerToken(relay, owner, token);
                     }
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+                });
     }
 
-    private void showVpsOwnerDevices(List<VpsOwnerClient.Client> clients) {
+    private void showVpsOwnerDevices(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                     VpsOwnerClient.Token token,
+                                     List<VpsOwnerClient.Client> clients) {
         if (clients == null || clients.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle(R.string.vps_owner_devices)
+            new MaterialAlertDialogBuilder(this).setTitle(R.string.vps_owner_devices)
                     .setMessage(R.string.vps_owner_no_devices)
                     .setPositiveButton(android.R.string.ok, null).show();
             return;
@@ -1957,17 +2053,79 @@ public class MainActivity extends AppCompatActivity {
         String[] labels = new String[clients.size()];
         for (int i = 0; i < clients.size(); i++) {
             VpsOwnerClient.Client client = clients.get(i);
+            String state = getString(client.blocked()
+                    ? R.string.vps_owner_device_blocked : R.string.vps_owner_device_active);
             labels[i] = getString(R.string.vps_owner_device_summary, client.deviceLabel(),
                     client.appVersion(), client.android(), client.locationLabel(),
-                    client.activeSessions(), client.lastSeen());
+                    client.activeSessions(), client.lastSeen()) + " • " + state;
         }
-        new AlertDialog.Builder(this).setTitle(R.string.vps_owner_devices)
-                .setItems(labels, null).setPositiveButton(android.R.string.ok, null).show();
+        showNotedItemsDialog(getText(R.string.vps_owner_devices),
+                getString(R.string.vps_owner_devices_note,
+                        token.name().isEmpty() ? token.id() : token.name()),
+                labels, (dialog, which) -> showVpsOwnerDeviceActions(
+                        relay, owner, token, clients.get(which)));
+    }
+
+    private void showVpsOwnerDeviceActions(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                           VpsOwnerClient.Token token,
+                                           VpsOwnerClient.Client client) {
+        String state = getString(client.blocked()
+                ? R.string.vps_owner_device_blocked : R.string.vps_owner_device_active);
+        String details = getString(R.string.vps_owner_device_detail,
+                client.deviceLabel(), client.deviceId(), client.appVersion(), client.appCode(),
+                client.android(), client.locationLabel(), client.firstSeen(), client.lastSeen(),
+                client.activeSessions(), state);
+        if (client.blocked() && !client.blockedAt().isEmpty()) {
+            details += "\n" + getString(R.string.vps_owner_device_blocked_at,
+                    client.blockedAt());
+        }
+        ArrayList<String> actions = new ArrayList<>();
+        if (client.activeSessions() > 0) {
+            actions.add(getString(R.string.vps_owner_disconnect_device));
+        }
+        actions.add(getString(client.blocked()
+                ? R.string.vps_owner_unblock_device : R.string.vps_owner_block_device));
+        showNotedItemsDialog(client.deviceLabel(), details, actions.toArray(new String[0]),
+                (dialog, which) -> {
+                    String action = actions.get(which);
+                    if (action.equals(getString(R.string.vps_owner_disconnect_device))) {
+                        runVpsOwnerDeviceAction(relay, owner, token, client, 0);
+                    } else {
+                        runVpsOwnerDeviceAction(relay, owner, token, client,
+                                client.blocked() ? 2 : 1);
+                    }
+                });
+    }
+
+    private void runVpsOwnerDeviceAction(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                         VpsOwnerClient.Token token,
+                                         VpsOwnerClient.Client client, int action) {
+        new Thread(() -> {
+            try {
+                VpsOwnerClient api = new VpsOwnerClient();
+                if (action == 0) {
+                    api.disconnectDevice(relay, owner.adminToken(), token.id(), client.deviceId());
+                } else if (action == 1) {
+                    api.blockDevice(relay, owner.adminToken(), token.id(), client.deviceId());
+                } else {
+                    api.unblockDevice(relay, owner.adminToken(), token.id(), client.deviceId());
+                }
+                handler.post(() -> {
+                    Toast.makeText(this, R.string.vps_owner_device_action_done,
+                            Toast.LENGTH_SHORT).show();
+                    showVpsOwnerManager();
+                });
+            } catch (Exception error) {
+                handler.post(() -> Toast.makeText(this,
+                        getString(R.string.vps_owner_failed, firstLine(error.getMessage())),
+                        Toast.LENGTH_LONG).show());
+            }
+        }, "tg-vps-owner-device-action").start();
     }
 
     private void confirmDeleteVpsOwnerToken(VpsRelayConfig relay, VpsOwnerRecord owner,
                                             VpsOwnerClient.Token token) {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_owner_delete_token)
                 .setMessage(R.string.vps_owner_delete_token_warning)
                 .setPositiveButton(R.string.vps_owner_delete_token, (dialog, which) ->
@@ -1999,7 +2157,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void confirmForgetVpsOwnerData(VpsRelayConfig relay) {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_owner_forget_local)
                 .setMessage(R.string.vps_owner_forget_local_warning)
                 .setPositiveButton(R.string.vps_owner_forget_local, (dialog, which) -> {
@@ -2024,7 +2182,7 @@ public class MainActivity extends AppCompatActivity {
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         password.setTextColor(getColorValue(R.color.text_primary));
         password.setHintTextColor(getColorValue(R.color.text_hint));
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.export_password_title)
                 .setView(password)
                 .setPositiveButton(R.string.export_encrypted_profile, (dialog, which) -> {
@@ -2077,7 +2235,7 @@ public class MainActivity extends AppCompatActivity {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(payload);
         form.addView(password);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.import_settings)
                 .setView(form)
                 .setPositiveButton(R.string.import_settings, (dialog, which) ->
@@ -2128,7 +2286,7 @@ public class MainActivity extends AppCompatActivity {
         shareButton.setOnClickListener(v -> shareTransferPayload(payload));
         qrButton.setOnClickListener(v -> showTransferQr(payload));
 
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.export_ready)
                 .setView(layout)
                 .setPositiveButton(android.R.string.ok, null)
@@ -2136,9 +2294,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Button exportActionButton(int textRes) {
-        Button button = new Button(this);
+        MaterialButton button = new MaterialButton(this, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
         button.setText(textRes);
         button.setAllCaps(false);
+        button.setMinHeight(dp(48));
+        button.setCornerRadius(dp(12));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setStrokeWidth(dp(1));
+        button.setStrokeColor(ColorStateList.valueOf(getColorValue(R.color.input_border)));
+        button.setTextColor(getColorValue(R.color.accent));
         return button;
     }
 
@@ -2211,7 +2377,7 @@ public class MainActivity extends AppCompatActivity {
         });
         layout.addView(image);
         layout.addView(text);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.export_qr_title)
                 .setView(layout)
                 .setPositiveButton(R.string.share_qr,
@@ -2376,7 +2542,7 @@ public class MainActivity extends AppCompatActivity {
                             ? getString(R.string.import_preview_secret_replaced)
                             : getString(R.string.import_preview_secret_unchanged));
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(imported.kind() == SettingsTransfer.Kind.VPS_RELAY
                         ? R.string.import_relay_add_title : R.string.import_preview_title)
                 .setMessage(getString(R.string.import_preview_message,
@@ -2408,7 +2574,7 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < options.size(); i++) {
             labels[i] = relayImportTargetLabel(options.get(i));
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.import_relay_target_title)
                 .setItems(labels, (dialog, which) -> {
                     if (which < 0 || which >= options.size()) return;
@@ -2455,7 +2621,7 @@ public class MainActivity extends AppCompatActivity {
         progressLayout.addView(progress, new LinearLayout.LayoutParams(dp(36), dp(36)));
         progressLayout.addView(message, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        AlertDialog progressDialog = new AlertDialog.Builder(this)
+        AlertDialog progressDialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.import_relay_target_title)
                 .setView(progressLayout)
                 .setCancelable(false)
@@ -2477,12 +2643,12 @@ public class MainActivity extends AppCompatActivity {
                 if (progressDialog.isShowing()) progressDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
                 if (result.status() == VpsRelayCheckResult.Status.OK) {
-                    commitImportedSettings(imported, boundRelay.profileKey());
+                    commitImportedSettings(imported, boundRelay.profileKey(), result.capabilities());
                     return;
                 }
                 DiagnosticsLog.record("vps relay import rejected "
                         + boundRelay.host() + " " + result.status().name());
-                new AlertDialog.Builder(this)
+                new MaterialAlertDialogBuilder(this)
                         .setTitle(R.string.import_failed_title)
                         .setMessage(getString(R.string.import_relay_rejected,
                                 result.status().name(), result.message()))
@@ -2494,6 +2660,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void commitImportedSettings(SettingsTransfer.Imported imported,
                                         String relayProfileKey) {
+        commitImportedSettings(imported, relayProfileKey, VpsRelayCapabilities.unknown());
+    }
+
+    private void commitImportedSettings(SettingsTransfer.Imported imported,
+                                        String relayProfileKey,
+                                        VpsRelayCapabilities capabilities) {
         if (imported == null) return;
         SettingsTransfer.Data data = imported.data();
         if (imported.kind() != SettingsTransfer.Kind.VPS_RELAY) {
@@ -2510,22 +2682,24 @@ public class MainActivity extends AppCompatActivity {
             etWorkerDomains.setText(data.workerDomains());
             updateCfCustomDomainEnabled();
             spRoutePreference.setSelection(routePreferenceIndex(data.routePreference()));
+            applyRouteAvailabilityToControls(data.routeAvailability());
             if (data.profileName() != null && !data.profileName().trim().isEmpty()) {
                 etProfileName.setText(data.profileName());
             }
         }
         VpsRelayConfig relay = data.relayConfig();
+        VpsRelayConfig relayToCommit = null;
         if (relay != null && relay.isUsable()) {
+            relay = relay.withCapabilities(capabilities);
             String targetProfileKey = relayProfileKey == null ? "" : relayProfileKey.trim();
-            VpsRelayConfig boundRelay = relay.withProfileKey(targetProfileKey);
-            fillVpsRelayForm(boundRelay);
+            relayToCommit = relay.withProfileKey(targetProfileKey);
+            fillVpsRelayForm(relayToCommit);
         }
         boolean committed = true;
         if (imported.kind() != SettingsTransfer.Kind.VPS_RELAY) {
-            committed = saveSettings(relay != null && relay.isUsable());
-        } else if (relay != null && relay.isUsable()) {
-            committed = saveVpsRelaySettings(relay.withProfileKey(
-                    relayProfileKey == null ? "" : relayProfileKey.trim()));
+            committed = saveSettingsWithRelay(relayToCommit);
+        } else if (relayToCommit != null) {
+            committed = saveVpsRelaySettings(relayToCommit);
         }
         if (!committed) {
             loadSettings();
@@ -2546,6 +2720,7 @@ public class MainActivity extends AppCompatActivity {
         return SettingsTransfer.Data.builder()
                 .profileName(record == null ? "" : record.displayName())
                 .routePreference(selectedRoutePreference())
+                .routeAvailability(routeAvailabilityFromControls())
                 .customIp(valueOrDefault(etCustomIp, MtProtoConfig.DEFAULT_HOST))
                 .customPort(intOrDefault(etCustomPort, MtProtoConfig.DEFAULT_PORT))
                 .mtProtoSecret(MtProtoConfig.normalizeSecretHex(etSecret.getText().toString()))
@@ -2704,6 +2879,9 @@ public class MainActivity extends AppCompatActivity {
         diagnosticLine(out, "Route", route == null || !route.active()
                 ? valueOrDash(route == null ? "" : route.reason()) : route.displayName());
         diagnosticLine(out, "Endpoint", route == null ? "-" : route.activeEndpoint());
+        if (route != null && !route.activeSni().isEmpty()) {
+            diagnosticLine(out, "SNI", route.activeSni());
+        }
         diagnosticLine(out, "Ping", route != null && route.pingMs() >= 0
                 ? route.pingMs() + " ms" : MainUiState.pingSummary(lastMeasuredPingMs));
         diagnosticLine(out, "Last error", lastRouteErrorLabel(snapshot.routeStats()));
@@ -2775,6 +2953,7 @@ public class MainActivity extends AppCompatActivity {
         diagnosticLine(out, "Key", route.key());
         diagnosticLine(out, "Type", route.type() == null ? "-" : route.type().name());
         diagnosticLine(out, "Endpoint", route.activeEndpoint());
+        if (!route.activeSni().isEmpty()) diagnosticLine(out, "SNI", route.activeSni());
         if (candidate != null) {
             diagnosticLine(out, "DC", String.valueOf(candidate.dc()));
             diagnosticLine(out, "Media", candidate.media() ? "yes" : "no");
@@ -3104,6 +3283,15 @@ public class MainActivity extends AppCompatActivity {
         return selected == null ? VpsRelayConfig.disabled() : selected;
     }
 
+    private VpsRelayConfig selectedStoredVpsRelayConfig() {
+        VpsRelayStore store = VpsRelayStore.fromContext(this);
+        String relayId = selectedVpsRelayId();
+        VpsRelayStore.Record record = relayId.isEmpty() ? null : store.relay(relayId);
+        if (record != null) return record.config().withProfileKey(vpsRelayProfileKeyForUi());
+        VpsRelayConfig selected = store.selectedRelay(vpsRelayProfileKeyForUi());
+        return selected == null ? activeVpsRelayConfig() : selected;
+    }
+
     private String vpsRelayProfileKeyForUi() {
         if (displayedProfileKey != null && !displayedProfileKey.trim().isEmpty()) {
             return displayedProfileKey;
@@ -3179,7 +3367,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean saveCurrentVpsRelayFromForm() {
-        VpsRelayConfig relay = currentVpsRelayConfig();
+        VpsRelayConfig relay = preserveSavedVpsRelayCapabilities(currentVpsRelayConfig());
         if (relay.isEnabled() && !relay.isUsable()) {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
             return false;
@@ -3190,10 +3378,18 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
+    private VpsRelayConfig preserveSavedVpsRelayCapabilities(VpsRelayConfig relay) {
+        if (relay == null || !relay.isUsable() || prefs == null) return relay;
+        VpsRelayConfig saved = VpsRelayStore.fromContext(this)
+                .selectedRelay(relay.profileKey());
+        if (saved == null || !saved.sameRelayConnection(relay)) return relay;
+        return relay.withCapabilities(saved.capabilities());
+    }
+
     private void confirmDeleteSelectedVpsRelay() {
         String relayId = selectedVpsRelayId();
         if (relayId.isEmpty()) return;
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_relay_delete_title)
                 .setMessage(R.string.vps_relay_delete_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -3306,7 +3502,7 @@ public class MainActivity extends AppCompatActivity {
         form.addView(relayTls);
         form.addView(tlsNote);
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(updateExistingRelay ? R.string.vps_relay_update_server : R.string.vps_setup_title)
                 .setView(form)
                 .setPositiveButton(updateExistingRelay ? R.string.vps_relay_update_server : R.string.vps_relay_auto_setup, (buttonDialog, which) ->
@@ -3338,6 +3534,9 @@ public class MainActivity extends AppCompatActivity {
         editText.setTextColor(getColorValue(R.color.text_primary));
         editText.setHintTextColor(getColorValue(R.color.text_hint));
         editText.setTextSize(14f);
+        editText.setMinHeight(dp(52));
+        editText.setBackgroundResource(R.drawable.edit_bg);
+        editText.setPadding(dp(14), 0, dp(14), 0);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(6), 0, 0);
@@ -3447,7 +3646,7 @@ public class MainActivity extends AppCompatActivity {
                                      String adminToken, boolean rememberSshPassword,
                                      boolean updateExistingRelay) {
         if (domains == null || domains.isEmpty()) {
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.vps_domain_discovery_title)
                     .setMessage(R.string.vps_domain_discovery_empty)
                     .setPositiveButton(android.R.string.ok, null)
@@ -3455,7 +3654,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         String[] items = domains.toArray(new String[0]);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_domain_discovery_title)
                 .setItems(items, (dialog, which) -> startVpsAutoSetup(
                         sshHost,
@@ -3530,7 +3729,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean confirmVpsSetupPlan(VpsSetupPlan plan) {
         AtomicBoolean approved = new AtomicBoolean(false);
         CountDownLatch latch = new CountDownLatch(1);
-        handler.post(() -> new AlertDialog.Builder(this)
+        handler.post(() -> new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_setup_plan_title)
                 .setMessage(plan == null ? "" : plan.summary())
                 .setPositiveButton(R.string.vps_setup_continue, (dialog, which) -> {
@@ -3559,7 +3758,7 @@ public class MainActivity extends AppCompatActivity {
         text.setPadding(dp(18), dp(10), dp(18), dp(6));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(text);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_setup_error_title)
                 .setView(scroll)
                 .setPositiveButton(android.R.string.ok, null)
@@ -3680,6 +3879,7 @@ public class MainActivity extends AppCompatActivity {
         RouteEngine.Settings.Builder builder = RouteEngine.Settings.builder()
                 .networkProfile(profileRecord.profile())
                 .routePreference(profileRecord.routePreference())
+                .routeAvailability(profileRecord.routeAvailability())
                 .cfMode(selectedCfProxyMode())
                 .dcRedirects(dcRules)
                 .workerDomains(splitDomains(etWorkerDomains.getText().toString()));
@@ -3693,7 +3893,7 @@ public class MainActivity extends AppCompatActivity {
         }
         VpsRelayConfig relay = activeVpsRelayConfig();
         if (relay.isAllowedForProfile(profileRecord.key())) {
-            builder.vpsRelay(relay.name(), relay.host(), relay.port());
+            builder.vpsRelay(relay);
         }
         return builder.build();
     }
@@ -3725,6 +3925,7 @@ public class MainActivity extends AppCompatActivity {
         NetworkProfileStore staged = NetworkProfileStore.inMemory(current.exportProfiles());
         staged.renameProfile(key, etProfileName.getText().toString());
         staged.setRoutePreference(key, selectedRoutePreference());
+        staged.setRouteAvailability(key, routeAvailabilityFromControls());
         if (!prefs.edit().putString(NetworkProfileStore.KEY_PROFILES,
                 staged.exportProfiles()).commit()) {
             NetworkProfileRecord persisted = current.profile(key);
@@ -3758,6 +3959,54 @@ public class MainActivity extends AppCompatActivity {
         refreshProfilesList(store, activeProfileKey);
     }
 
+    private RouteAvailability routeAvailabilityFromControls() {
+        return RouteAvailability.of(
+                cbRouteDirect != null && cbRouteDirect.isChecked(),
+                cbRouteRelay != null && cbRouteRelay.isChecked(),
+                cbRouteWorker != null && cbRouteWorker.isChecked(),
+                cbRouteCustomCf != null && cbRouteCustomCf.isChecked(),
+                cbRoutePublicCf != null && cbRoutePublicCf.isChecked());
+    }
+
+    private void applyRouteAvailabilityToControls(RouteAvailability availability) {
+        RouteAvailability value = availability == null ? RouteAvailability.all() : availability;
+        if (cbRouteDirect != null) cbRouteDirect.setChecked(value.isEnabled(RouteType.DIRECT_WS));
+        if (cbRouteRelay != null) cbRouteRelay.setChecked(value.isEnabled(RouteType.VPS_RELAY));
+        if (cbRouteWorker != null) cbRouteWorker.setChecked(value.isEnabled(RouteType.WORKER));
+        if (cbRouteCustomCf != null) cbRouteCustomCf.setChecked(
+                value.isEnabled(RouteType.CUSTOM_CLOUDFLARE));
+        if (cbRoutePublicCf != null) cbRoutePublicCf.setChecked(
+                value.isEnabled(RouteType.PUBLIC_CLOUDFLARE));
+    }
+
+    private void onRouteAvailabilityChanged(CheckBox source) {
+        if (!profileControlReady) return;
+        if (!routeAvailabilityFromControls().hasAny()) {
+            profileControlReady = false;
+            source.setChecked(true);
+            profileControlReady = true;
+            Toast.makeText(this, R.string.route_none_warning, Toast.LENGTH_LONG).show();
+            return;
+        }
+        saveDisplayedRouteAvailability();
+        refreshConnectionFields();
+    }
+
+    private void saveDisplayedRouteAvailability() {
+        NetworkProfileStore current = NetworkProfileStore.fromPreferences(prefs);
+        String key = selectedProfileKey(current);
+        NetworkProfileStore staged = NetworkProfileStore.inMemory(current.exportProfiles());
+        staged.setRouteAvailability(key, routeAvailabilityFromControls());
+        if (!prefs.edit().putString(NetworkProfileStore.KEY_PROFILES,
+                staged.exportProfiles()).commit()) {
+            NetworkProfileRecord persisted = current.profile(key);
+            if (persisted != null) showProfileRecord(persisted);
+            Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+        refreshProfilesList(NetworkProfileStore.fromPreferences(prefs), activeProfileKey);
+    }
+
     private String selectedProfileKey(NetworkProfileStore store) {
         String key = displayedProfileKey;
         if (key == null || key.isEmpty() || store.profile(key) == null) {
@@ -3772,7 +4021,7 @@ public class MainActivity extends AppCompatActivity {
         NetworkProfileStore store = NetworkProfileStore.fromPreferences(prefs);
         String key = displayedProfileKey;
         if (key == null || key.isEmpty() || store.profile(key) == null) return;
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.delete_profile_title)
                 .setMessage(R.string.delete_profile_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -3850,9 +4099,18 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean requestNetworkIdentityPermissions(boolean userInitiated) {
         ArrayList<String> permissions = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 12+ requires COARSE and FINE to be requested together when precise
+            // location is needed. Some Android 10/11 vendor builds also grant FINE without
+            // making COARSE/WIFI_SCAN usable, which leaves WifiInfo permanently redacted.
+            if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+            }
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            }
         }
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -3917,9 +4175,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showBackgroundSetupDialog() {
+        if (backgroundSetupDialog != null && backgroundSetupDialog.isShowing()) {
+            refreshBackgroundSetupDialog();
+            return;
+        }
+
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18), dp(4), dp(18), 0);
+        layout.setPadding(dp(18), dp(4), dp(18), dp(8));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(layout, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView text = new TextView(this);
         text.setText(getString(R.string.background_setup_message,
@@ -3928,88 +4196,139 @@ public class MainActivity extends AppCompatActivity {
         text.setTextSize(13f);
         layout.addView(text);
 
-        CheckBox boot = new CheckBox(this);
-        boot.setText(R.string.background_enable_boot);
-        boot.setTextColor(getColorValue(R.color.text_primary));
-        boot.setChecked(prefs.getBoolean("autostart_boot", true));
-        layout.addView(boot);
+        TextView conditionsTitle = new TextView(this);
+        conditionsTitle.setText(R.string.background_conditions_title);
+        conditionsTitle.setTextColor(getColorValue(R.color.text_primary));
+        conditionsTitle.setTextSize(15f);
+        conditionsTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        titleParams.topMargin = dp(14);
+        layout.addView(conditionsTitle, titleParams);
 
-        Button battery = exportActionButton(
-                BackgroundExecutionAssistant.isBatteryOptimizationDisabled(this)
-                        ? R.string.background_battery_ready
-                        : R.string.background_disable_battery_optimization);
-        battery.setEnabled(!BackgroundExecutionAssistant.isBatteryOptimizationDisabled(this));
-        battery.setOnClickListener(v ->
-                BackgroundExecutionAssistant.requestBatteryOptimizationExemption(this));
-        layout.addView(battery, new LinearLayout.LayoutParams(
+        TextView conditionsHint = new TextView(this);
+        conditionsHint.setText(R.string.background_conditions_hint);
+        conditionsHint.setTextColor(getColorValue(R.color.text_secondary));
+        conditionsHint.setTextSize(11.5f);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hintParams.topMargin = dp(2);
+        hintParams.bottomMargin = dp(5);
+        layout.addView(conditionsHint, hintParams);
+
+        backgroundSetupStatusList = new LinearLayout(this);
+        backgroundSetupStatusList.setOrientation(LinearLayout.VERTICAL);
+        layout.addView(backgroundSetupStatusList, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        Button autostart = exportActionButton(R.string.background_open_autostart);
-        autostart.setOnClickListener(v -> {
+        backgroundSetupBootToggle = new CheckBox(this);
+        backgroundSetupBootToggle.setText(R.string.background_enable_boot);
+        backgroundSetupBootToggle.setTextColor(getColorValue(R.color.text_primary));
+        backgroundSetupBootToggle.setTextSize(13f);
+        backgroundSetupBootToggle.setChecked(prefs.getBoolean("autostart_boot", true));
+        backgroundSetupBootToggle.setOnCheckedChangeListener((button, checked) ->
+                refreshBackgroundSetupDialog());
+        LinearLayout.LayoutParams checkboxParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        checkboxParams.topMargin = dp(6);
+        layout.addView(backgroundSetupBootToggle, checkboxParams);
+
+        backgroundSetupBatteryAction = exportActionButton(
+                R.string.background_disable_battery_optimization);
+        backgroundSetupBatteryAction.setOnClickListener(v ->
+                BackgroundExecutionAssistant.requestBatteryOptimizationExemption(this));
+        layout.addView(backgroundSetupBatteryAction, backgroundActionParams());
+
+        backgroundSetupAutostartAction = exportActionButton(R.string.background_open_autostart);
+        backgroundSetupAutostartAction.setOnClickListener(v -> {
             if (!BackgroundExecutionAssistant.openManufacturerAutostart(this)) {
                 Toast.makeText(this, R.string.background_settings_unavailable,
                         Toast.LENGTH_LONG).show();
             }
         });
-        layout.addView(autostart, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        layout.addView(backgroundSetupAutostartAction, backgroundActionParams());
 
-        CheckBox autostartConfirmed = new CheckBox(this);
-        autostartConfirmed.setText(R.string.background_autostart_confirmed);
-        autostartConfirmed.setTextColor(getColorValue(R.color.text_primary));
+        backgroundSetupAutostartToggle = new CheckBox(this);
+        backgroundSetupAutostartToggle.setText(R.string.background_autostart_confirmed);
+        backgroundSetupAutostartToggle.setTextColor(getColorValue(R.color.text_primary));
+        backgroundSetupAutostartToggle.setTextSize(13f);
         BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
-        autostartConfirmed.setChecked(reliability.autostartConfirmed()
-                || !BackgroundExecutionAssistant.requiresManualAutostartConfirmation());
-        autostartConfirmed.setVisibility(BackgroundExecutionAssistant
-                .requiresManualAutostartConfirmation() ? View.VISIBLE : View.GONE);
-        layout.addView(autostartConfirmed);
+        BackgroundReliabilityStore.Status initialStatus = reliability.status();
+        backgroundSetupAutostartToggle.setChecked(initialStatus.autostartConfirmed);
+        backgroundSetupAutostartToggle.setVisibility(initialStatus.autostartState
+                == BackgroundExecutionAssistant.AutostartState.UNKNOWN
+                && BackgroundExecutionAssistant.requiresManualAutostartConfirmation()
+                ? View.VISIBLE : View.GONE);
+        backgroundSetupAutostartToggle.setOnCheckedChangeListener((button, checked) ->
+                refreshBackgroundSetupDialog());
+        layout.addView(backgroundSetupAutostartToggle);
 
-        if (!BackgroundExecutionAssistant.areNotificationsAllowed(this)) {
-            Button notifications = exportActionButton(R.string.background_allow_notifications);
-            notifications.setOnClickListener(v -> requestNotificationPermission());
-            layout.addView(notifications, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
+        backgroundSetupNotificationAction = exportActionButton(
+                R.string.background_allow_notifications);
+        backgroundSetupNotificationAction.setOnClickListener(v -> requestNotificationPermission());
+        layout.addView(backgroundSetupNotificationAction, backgroundActionParams());
 
-        if (!BackgroundExecutionAssistant.isLocationEnabled(this)) {
-            Button location = exportActionButton(R.string.background_enable_location_for_wifi);
-            location.setOnClickListener(v -> BackgroundExecutionAssistant.openLocationSettings(this));
-            layout.addView(location, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
+        backgroundSetupNetworkIdentityAction = exportActionButton(
+                R.string.background_allow_network_identity);
+        backgroundSetupNetworkIdentityAction.setOnClickListener(v ->
+                requestNetworkIdentityPermissions(true));
+        layout.addView(backgroundSetupNetworkIdentityAction, backgroundActionParams());
 
-        if (hasMissingNetworkIdentityPermission()) {
-            Button networkIdentity = exportActionButton(
-                    R.string.background_allow_network_identity);
-            networkIdentity.setOnClickListener(v -> requestNetworkIdentityPermissions(true));
-            layout.addView(networkIdentity, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
+        backgroundSetupLocationAction = exportActionButton(
+                R.string.background_enable_location_for_wifi);
+        backgroundSetupLocationAction.setOnClickListener(v ->
+                BackgroundExecutionAssistant.openLocationSettings(this));
+        layout.addView(backgroundSetupLocationAction, backgroundActionParams());
 
         Button appSettings = exportActionButton(R.string.background_open_app_settings);
         appSettings.setOnClickListener(v -> BackgroundExecutionAssistant.openAppSettings(this));
-        layout.addView(appSettings, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        layout.addView(appSettings, backgroundActionParams());
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.background_setup_title)
-                .setView(layout)
+                .setView(scroll)
                 .setPositiveButton(R.string.background_check_ready, null)
                 .setNegativeButton(R.string.background_not_now, null)
                 .create();
+        backgroundSetupDialog = dialog;
         backgroundSetupDialogShowing = true;
-        dialog.setOnDismissListener(ignored -> backgroundSetupDialogShowing = false);
+        dialog.setOnDismissListener(ignored -> {
+            backgroundSetupDialogShowing = false;
+            if (backgroundSetupDialog == dialog) {
+                backgroundSetupDialog = null;
+                backgroundSetupStatusList = null;
+                backgroundSetupBootToggle = null;
+                backgroundSetupAutostartToggle = null;
+                backgroundSetupBatteryAction = null;
+                backgroundSetupAutostartAction = null;
+                backgroundSetupNotificationAction = null;
+                backgroundSetupLocationAction = null;
+                backgroundSetupNetworkIdentityAction = null;
+            }
+        });
         dialog.setOnShowListener(ignored -> {
+            refreshBackgroundSetupDialog();
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                prefs.edit().putBoolean("autostart_boot", boot.isChecked()).commit();
-                cbAutostartBoot.setChecked(boot.isChecked());
-                reliability.setAutostartConfirmed(autostartConfirmed.isChecked());
+                boolean bootEnabled = backgroundSetupBootToggle != null
+                        && backgroundSetupBootToggle.isChecked();
+                boolean autostartConfirmationVisible = backgroundSetupAutostartToggle != null
+                        && backgroundSetupAutostartToggle.getVisibility() == View.VISIBLE;
+                boolean autostartConfirmed = autostartConfirmationVisible
+                        && backgroundSetupAutostartToggle.isChecked();
+                prefs.edit().putBoolean("autostart_boot", bootEnabled).commit();
+                cbAutostartBoot.setChecked(bootEnabled);
+                if (autostartConfirmationVisible) {
+                    reliability.setAutostartConfirmed(autostartConfirmed);
+                }
                 reliability.markPrompted(BuildConfig.VERSION_CODE);
                 refreshBackgroundExecutionStatus();
+                refreshBackgroundSetupDialog();
                 if (!reliability.status().ready()) {
                     Toast.makeText(this, R.string.background_missing_warning,
                             Toast.LENGTH_LONG).show();
+                    return;
                 }
+                Toast.makeText(this, R.string.background_all_ready, Toast.LENGTH_SHORT).show();
                 dialog.dismiss();
             });
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
@@ -4023,6 +4342,110 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
+    private LinearLayout.LayoutParams backgroundActionParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(6);
+        return params;
+    }
+
+    private void refreshBackgroundSetupDialog() {
+        if (backgroundSetupStatusList == null) return;
+        BackgroundReliabilityStore.Status status = new BackgroundReliabilityStore(this).status();
+        boolean bootEnabled = backgroundSetupBootToggle == null
+                ? status.bootEnabled : backgroundSetupBootToggle.isChecked();
+        boolean manualAutostart = status.autostartState
+                == BackgroundExecutionAssistant.AutostartState.UNKNOWN
+                && BackgroundExecutionAssistant.requiresManualAutostartConfirmation();
+        boolean autostartConfirmed = manualAutostart
+                ? (backgroundSetupAutostartToggle == null
+                ? status.autostartConfirmed : backgroundSetupAutostartToggle.isChecked())
+                : status.autostartConfirmed;
+        if (backgroundSetupAutostartToggle != null) {
+            backgroundSetupAutostartToggle.setVisibility(manualAutostart
+                    ? View.VISIBLE : View.GONE);
+        }
+
+        backgroundSetupStatusList.removeAllViews();
+        addBackgroundStatusRow(R.string.background_condition_boot, bootEnabled,
+                R.string.background_condition_enabled, R.string.background_condition_disabled);
+        addBackgroundStatusRow(R.string.background_condition_battery,
+                status.batteryUnrestricted, R.string.background_battery_ready_short,
+                R.string.background_battery_restricted_short);
+        int autostartReadyDetail = status.autostartState
+                == BackgroundExecutionAssistant.AutostartState.ALLOWED
+                ? R.string.background_condition_system_allowed
+                : (manualAutostart ? R.string.background_condition_confirmed
+                : R.string.background_condition_not_required);
+        int autostartMissingDetail = status.autostartState
+                == BackgroundExecutionAssistant.AutostartState.DENIED
+                ? R.string.background_condition_system_disabled
+                : R.string.background_condition_not_confirmed;
+        addBackgroundStatusRow(R.string.background_condition_autostart, autostartConfirmed,
+                autostartReadyDetail, autostartMissingDetail);
+        addBackgroundStatusRow(R.string.background_condition_notifications,
+                status.notificationsAllowed, R.string.background_condition_allowed,
+                R.string.background_condition_denied);
+        addBackgroundStatusRow(R.string.background_condition_network_identity,
+                status.networkIdentityAllowed, R.string.background_condition_allowed,
+                R.string.background_condition_denied);
+        addBackgroundStatusRow(R.string.background_condition_location,
+                status.locationEnabled, R.string.background_condition_enabled,
+                R.string.background_condition_disabled);
+
+        setVisible(backgroundSetupBatteryAction, !status.batteryUnrestricted);
+        setVisible(backgroundSetupAutostartAction,
+                BackgroundExecutionAssistant.requiresManualAutostartConfirmation()
+                        && !autostartConfirmed);
+        setVisible(backgroundSetupNotificationAction, !status.notificationsAllowed);
+        setVisible(backgroundSetupNetworkIdentityAction, !status.networkIdentityAllowed);
+        setVisible(backgroundSetupLocationAction, !status.locationEnabled);
+    }
+
+    private void addBackgroundStatusRow(int titleRes, boolean ready,
+                                        int readyDetailRes, int missingDetailRes) {
+        if (backgroundSetupStatusList == null) return;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        row.setBackgroundResource(ready ? R.drawable.background_status_ready_row
+                : R.drawable.background_status_missing_row);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(ready ? R.drawable.ic_status_check : R.drawable.ic_status_error);
+        icon.setImageTintList(ColorStateList.valueOf(getColorValue(
+                ready ? R.color.green : R.color.red)));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(24), dp(24));
+        iconParams.rightMargin = dp(10);
+        row.addView(icon, iconParams);
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(titleRes);
+        title.setTextColor(getColorValue(R.color.text_primary));
+        title.setTextSize(13f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        copy.addView(title);
+
+        int detailRes = ready ? readyDetailRes : missingDetailRes;
+        TextView detail = new TextView(this);
+        detail.setText(detailRes);
+        detail.setTextColor(getColorValue(ready ? R.color.green : R.color.red));
+        detail.setTextSize(11.5f);
+        copy.addView(detail);
+        row.addView(copy, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.setContentDescription(getString(titleRes) + ". " + getString(detailRes));
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.topMargin = dp(4);
+        backgroundSetupStatusList.addView(row, rowParams);
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
@@ -4032,9 +4455,12 @@ public class MainActivity extends AppCompatActivity {
             // shown only after the system has fully dismissed it, regardless of allow/deny.
             refreshProfileControls(true);
             refreshConnectionFields();
+            ProxyService.refreshNetworkProfileIfRunning();
+            refreshBackgroundSetupDialog();
             handler.postDelayed(this::showBackgroundSetupOnce, 350L);
         } else if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
             refreshBackgroundExecutionStatus();
+            refreshBackgroundSetupDialog();
         }
     }
 
@@ -4052,7 +4478,7 @@ public class MainActivity extends AppCompatActivity {
                 latch.countDown();
                 return;
             }
-            AlertDialog dialog = new AlertDialog.Builder(this)
+            AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.vps_setup_ssh_key_confirm_title)
                     .setMessage(getString(R.string.vps_setup_ssh_key_confirm_message,
                             host, algorithm, fingerprint))
@@ -4081,7 +4507,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.vps_setup_ssh_host_required, Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_setup_forget_ssh_key)
                 .setMessage(getString(R.string.vps_setup_forget_ssh_key_confirm,
                         normalizedHost, port))
@@ -4120,6 +4546,9 @@ public class MainActivity extends AppCompatActivity {
                 getString(reliability.notificationsAllowed
                         ? R.string.background_notifications_ready_short
                         : R.string.background_notifications_missing_short),
+                getString(reliability.networkIdentityAllowed && reliability.locationEnabled
+                        ? R.string.background_wifi_ready_short
+                        : R.string.background_wifi_missing_short),
                 getString(desired ? R.string.background_desired_on
                         : R.string.background_desired_off),
                 getString(serviceStatus)));
@@ -4128,20 +4557,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean hasMissingNetworkIdentityPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            return true;
-        }
-        return Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
-                != PackageManager.PERMISSION_GRANTED;
+        return !BackgroundExecutionAssistant.hasNetworkIdentityPermissions(this);
     }
 
     @Override protected void onResume() {
         super.onResume();
         refreshBackgroundExecutionStatus();
+        refreshBackgroundSetupDialog();
         refreshProfileControls(true);
+        ProxyService.refreshNetworkProfileIfRunning();
         if (statsUpdater != null) handler.post(statsUpdater);
         if (pendingInstallAfterPermission && GithubReleaseUpdater.canInstallPackages(this)) {
             pendingInstallAfterPermission = false;

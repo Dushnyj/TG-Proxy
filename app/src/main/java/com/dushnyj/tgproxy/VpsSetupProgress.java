@@ -34,7 +34,7 @@ final class VpsSetupProgress {
         steps.add(of(Stage.AUDIT, 5, "Выполняется read-only аудит VPS"));
         steps.add(of(Stage.PLAN, 25, "Подготовка плана изменений"));
         steps.add(of(Stage.BACKUP, 45, "Создание backup перед изменениями"));
-        steps.add(of(Stage.INSTALL, 70, "Установка tgproxy-relay и systemd unit"));
+        steps.add(of(Stage.INSTALL, 70, "Установка tgproxy-relay и службы автозапуска"));
         steps.add(of(Stage.VERIFY, 90, "Проверка /healthz, /version и /test-routes"));
         steps.add(of(Stage.SAVE, 100, "Relay проверен и сохранён в профиле"));
         return Collections.unmodifiableList(steps);

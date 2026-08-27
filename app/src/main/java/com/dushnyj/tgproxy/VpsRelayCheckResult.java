@@ -15,14 +15,24 @@ final class VpsRelayCheckResult {
     private final String routeReport;
     private final String relayVersion;
     private final String warning;
+    private final VpsRelayCapabilities capabilities;
 
     private VpsRelayCheckResult(Status status, String message, String routeReport,
                                 String relayVersion, String warning) {
+        this(status, message, routeReport, relayVersion, warning,
+                VpsRelayCapabilities.unknown());
+    }
+
+    private VpsRelayCheckResult(Status status, String message, String routeReport,
+                                String relayVersion, String warning,
+                                VpsRelayCapabilities capabilities) {
         this.status = status == null ? Status.UNAVAILABLE : status;
         this.message = message == null ? "" : message;
         this.routeReport = routeReport == null ? "" : routeReport;
         this.relayVersion = relayVersion == null ? "" : relayVersion.trim();
         this.warning = warning == null ? "" : warning.trim();
+        this.capabilities = capabilities == null
+                ? VpsRelayCapabilities.unknown() : capabilities;
     }
 
     static VpsRelayCheckResult of(Status status, String message) {
@@ -40,6 +50,12 @@ final class VpsRelayCheckResult {
     static VpsRelayCheckResult ok(String routeReport, String relayVersion, String warning) {
         return new VpsRelayCheckResult(Status.OK, "relay is available", routeReport,
                 relayVersion, warning);
+    }
+
+    static VpsRelayCheckResult ok(String routeReport, String relayVersion, String warning,
+                                  VpsRelayCapabilities capabilities) {
+        return new VpsRelayCheckResult(Status.OK, "relay is available", routeReport,
+                relayVersion, warning, capabilities);
     }
 
     Status status() {
@@ -61,4 +77,6 @@ final class VpsRelayCheckResult {
     String warning() {
         return warning;
     }
+
+    VpsRelayCapabilities capabilities() { return capabilities; }
 }

@@ -8,10 +8,11 @@ import static org.junit.Assert.assertEquals;
 
 public class VpsSetupUiPolicyTest {
     @Test
-    public void ipHostNeverUsesTlsDomainMode() {
+    public void ipHostUsesTlsEndpointWithoutPretendingToBeDomain() {
         assertFalse(VpsSetupUiPolicy.useTlsDomain("203.0.113.10", true));
-        assertEquals(18080, VpsSetupUiPolicy.effectiveRelayPort("203.0.113.10", 443, true));
-        assertFalse(VpsSetupUiPolicy.initialTlsChecked("203.0.113.10", true, 443));
+        assertTrue(VpsSetupUiPolicy.useTlsEndpoint("203.0.113.10", true));
+        assertEquals(443, VpsSetupUiPolicy.effectiveRelayPort("203.0.113.10", 443, true));
+        assertTrue(VpsSetupUiPolicy.initialTlsChecked("203.0.113.10", true, 443));
     }
 
     @Test

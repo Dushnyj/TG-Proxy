@@ -8,15 +8,20 @@ final class VpsSetupUiPolicy {
     static boolean initialTlsChecked(String host, boolean currentTls, int currentPort) {
         String value = host == null ? "" : host.trim();
         return currentTls && currentPort == 443
-                && (value.isEmpty() || useTlsDomain(value, true));
+                && (value.isEmpty() || useTlsEndpoint(value, true));
     }
 
     static boolean useTlsDomain(String host, boolean tlsChecked) {
         return tlsChecked && isDomainHost(host);
     }
 
+    static boolean useTlsEndpoint(String host, boolean tlsChecked) {
+        return tlsChecked && (isDomainHost(host)
+                || VpsEndpointPolicy.isIpLiteral(VpsEndpointPolicy.normalizeHost(host)));
+    }
+
     static int effectiveRelayPort(String host, int requestedPort, boolean tlsChecked) {
-        if (useTlsDomain(host, tlsChecked)) return 443;
+        if (useTlsEndpoint(host, tlsChecked)) return 443;
         if (requestedPort == 443) return 18080;
         return requestedPort <= 0 || requestedPort > 65535 ? 18080 : requestedPort;
     }

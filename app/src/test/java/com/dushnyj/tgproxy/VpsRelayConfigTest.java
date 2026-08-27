@@ -106,6 +106,27 @@ public class VpsRelayConfigTest {
         assertEquals("https://relay.example.com:8443", domain.baseUrl());
     }
 
+    @Test
+    public void negotiatedCapabilitiesDoNotMakeUnchangedFormLookLikeAnotherServer() throws Exception {
+        VpsRelayConfig form = VpsRelayConfig.manual(true, "Relay", "relay.example.com",
+                443, true, "/apiws", "token", "wifi:ssid:home");
+        VpsRelayCapabilities capabilities = VpsRelayCapabilities.parse(
+                "{\"name\":\"tgproxy-relay\","
+                        + "\"protocol\":{\"min\":1,\"max\":2},"
+                        + "\"topology\":{\"dynamic\":false,\"revision\":7,"
+                        + "\"productionDcs\":[1,2,3,4,5,203],\"testDcs\":[1,2,3]}}");
+        VpsRelayConfig tested = form.withCapabilities(capabilities);
+        VpsRelayConfig renamedAndRebound = VpsRelayConfig.manual(true, "Renamed",
+                "relay.example.com", 443, true, "/apiws", "token", "");
+        VpsRelayConfig anotherToken = VpsRelayConfig.manual(true, "Relay",
+                "relay.example.com", 443, true, "/apiws", "other-token", "");
+
+        assertTrue(form.sameRelayConnection(tested));
+        assertTrue(form.sameRelayConnection(renamedAndRebound));
+        assertFalse(form.sameRoutingIdentity(tested));
+        assertFalse(form.sameRelayConnection(anotherToken));
+    }
+
     private static String repeat(char value, int count) {
         StringBuilder out = new StringBuilder(count);
         for (int i = 0; i < count; i++) out.append(value);

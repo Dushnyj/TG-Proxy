@@ -24,6 +24,7 @@ public class SettingsTransferTest {
         assertTrue(exported.startsWith("TGPROXY-SETTINGS-v1"));
         assertTrue(exported.contains("kind=safe_profile"));
         assertTrue(exported.contains("routePreference=RELAY_FIRST"));
+        assertTrue(exported.contains("routeAvailability=1"));
         assertFalse(exported.contains("mtprotoSecret"));
         assertFalse(exported.contains("relay.token"));
         assertFalse(exported.contains("relay-token"));
@@ -59,6 +60,7 @@ public class SettingsTransferTest {
         assertEquals(SettingsTransfer.Kind.FULL_PROFILE, imported.kind());
         assertEquals("00112233445566778899aabbccddeeff", imported.data().mtProtoSecret());
         assertEquals("relay-token", imported.data().relayConfig().token());
+        assertEquals(RouteAvailability.directOnly(), imported.data().routeAvailability());
     }
 
     @Test
@@ -262,6 +264,14 @@ public class SettingsTransferTest {
                 relay + "\nmissing-separator", ""), "damaged");
     }
 
+    @Test
+    public void importedProfileCannotDisableEveryRoute() throws Exception {
+        String payload = SettingsTransfer.exportSafeProfile(sampleData())
+                .replace("routeAvailability=1", "routeAvailability=0");
+
+        assertRejected(() -> SettingsTransfer.parse(payload, ""), "at least one route");
+    }
+
     private static void assertTooLarge(ThrowingRunnable action) throws Exception {
         try {
             action.run();
@@ -289,6 +299,7 @@ public class SettingsTransferTest {
         return SettingsTransfer.Data.builder()
                 .profileName("Tele2 LTE")
                 .routePreference(RoutePreference.RELAY_FIRST)
+                .routeAvailability(RouteAvailability.directOnly())
                 .customIp("127.0.0.1")
                 .customPort(1080)
                 .mtProtoSecret("00112233445566778899aabbccddeeff")

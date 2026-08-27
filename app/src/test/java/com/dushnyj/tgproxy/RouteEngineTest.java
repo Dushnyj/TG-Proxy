@@ -36,9 +36,9 @@ public class RouteEngineTest {
     }
 
     @Test
-    public void futureProductionDcCanReachAnUpdatedVpsRelayWithoutAppWhitelist() {
+    public void futureProductionDcCanReachAnUpdatedVpsRelayWithoutAppWhitelist() throws Exception {
         RouteEngine.Settings settings = RouteEngine.Settings.builder()
-                .vpsRelay("Relay", "relay.example.com", 443)
+                .vpsRelay(dynamicRelay())
                 .build();
 
         List<RouteCandidate> routes = new RouteEngine().buildCandidates(settings, 204, false);
@@ -46,6 +46,23 @@ public class RouteEngineTest {
         assertEquals(1, routes.size());
         assertEquals(RouteType.VPS_RELAY, routes.get(0).type());
         assertEquals(204, routes.get(0).dc());
+    }
+
+    @Test
+    public void directOnlyIsAnAllowListNotJustAPreference() {
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .routePreference(RoutePreference.RELAY_FIRST)
+                .routeAvailability(RouteAvailability.directOnly())
+                .dcRedirects(dcRules())
+                .vpsRelay("Relay", "relay.example.com", 443)
+                .workerDomains(Collections.singletonList("worker.example.com"))
+                .publicCfDomains(Collections.singletonList("cf.example.com"))
+                .build();
+
+        List<RouteCandidate> routes = new RouteEngine().buildCandidates(settings, 2, false);
+
+        assertEquals(1, routes.size());
+        assertEquals(RouteType.DIRECT_WS, routes.get(0).type());
     }
     @Test
     public void wifiAutoStartsWithDirectAndKeepsCloudflareAsFallback() {
@@ -233,12 +250,12 @@ public class RouteEngineTest {
     }
 
     @Test
-    public void unknownDcUsesOnlyUpdatedVpsRelayWithoutSpeculativePublicRoutes() {
+    public void unknownDcUsesOnlyUpdatedVpsRelayWithoutSpeculativePublicRoutes() throws Exception {
         RouteEngine engine = new RouteEngine();
         RouteEngine.Settings settings = RouteEngine.Settings.builder()
                 .networkProfile(NetworkProfile.mobile("25001"))
                 .routePreference(RoutePreference.RELAY_FIRST)
-                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .vpsRelay(dynamicRelay())
                 .publicCfDomains(Arrays.asList("public.example"))
                 .workerDomains(Arrays.asList("worker.example"))
                 .build();
@@ -252,7 +269,7 @@ public class RouteEngineTest {
     }
 
     @Test
-    public void futureDcWithExplicitMappingCanUseDirectWs() {
+    public void futureDcWithExplicitRawIpIsNotMisroutedToSyntheticWebSocketHost() {
         RouteEngine engine = new RouteEngine();
         LinkedHashMap<Integer, String> dcRules = new LinkedHashMap<>();
         dcRules.put(204, "203.0.113.10");
@@ -263,17 +280,16 @@ public class RouteEngineTest {
 
         RoutePlan plan = engine.plan(settings, 204, false, "", new LinkedHashMap<>(), 11_000L);
 
-        assertEquals(RouteType.DIRECT_WS, plan.selected().type());
-        assertEquals("direct_ws:dc204", plan.selected().key());
+        assertTrue(plan.isEmpty());
     }
 
     @Test
-    public void futureTestDcUsesOnlyVpsRelay() {
+    public void futureTestDcUsesOnlyVpsRelay() throws Exception {
         RouteEngine engine = new RouteEngine();
         RouteEngine.Settings settings = RouteEngine.Settings.builder()
                 .networkProfile(NetworkProfile.mobile("25001"))
                 .testDc(true)
-                .vpsRelay("VPS Relay", "relay.example.com", 443)
+                .vpsRelay(dynamicRelay())
                 .workerDomains(Arrays.asList("worker.example"))
                 .build();
 
@@ -282,6 +298,56 @@ public class RouteEngineTest {
         assertEquals(1, plan.routes().size());
         assertEquals(RouteType.VPS_RELAY, plan.selected().type());
         assertTrue(plan.selected().test());
+    }
+
+    @Test
+    public void staticRelayCapabilitiesSuppressUnsupportedFutureDc() throws Exception {
+        VpsRelayCapabilities capabilities = VpsRelayCapabilities.parse(
+                "{\"name\":\"tgproxy-relay\",\"protocol\":{\"min\":1,\"max\":2},"
+                        + "\"topology\":{\"productionDcs\":[1,2,3,4,5],\"testDcs\":[1,2,3]}}" );
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Relay", "relay.example.com",
+                443, true, "/apiws", "token", "").withCapabilities(capabilities);
+        RouteEngine.Settings settings = RouteEngine.Settings.builder().vpsRelay(relay).build();
+
+        assertTrue(new RouteEngine().buildCandidates(settings, 204, false).isEmpty());
+    }
+
+    @Test
+    public void dynamicRelayCapabilitiesAllowDcAddedAfterLastClientCheck() throws Exception {
+        VpsRelayCapabilities capabilities = VpsRelayCapabilities.parse(
+                "{\"name\":\"tgproxy-relay\",\"protocol\":{\"min\":1,\"max\":2},"
+                        + "\"topology\":{\"dynamic\":true,\"revision\":7,"
+                        + "\"productionDcs\":[1,2,3,4,5],\"testDcs\":[1,2,3]}}" );
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Relay", "relay.example.com",
+                443, true, "/apiws", "token", "").withCapabilities(capabilities);
+        RouteEngine.Settings settings = RouteEngine.Settings.builder().vpsRelay(relay).build();
+
+        List<RouteCandidate> candidates = new RouteEngine().buildCandidates(settings, 204, true);
+
+        assertEquals(1, candidates.size());
+        assertEquals(RouteType.VPS_RELAY, candidates.get(0).type());
+    }
+
+    @Test
+    public void legacyRelayWithoutCapabilitiesDoesNotAdvertiseUnknownDc() {
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Legacy Relay",
+                "relay.example.com", 443, true, "/apiws", "token", "");
+
+        assertTrue(new RouteEngine().buildCandidates(
+                RouteEngine.Settings.builder().vpsRelay(relay).build(),
+                204, false).isEmpty());
+        assertFalse(new RouteEngine().buildCandidates(
+                RouteEngine.Settings.builder().vpsRelay(relay).build(),
+                2, false).isEmpty());
+    }
+
+    private static VpsRelayConfig dynamicRelay() throws Exception {
+        VpsRelayCapabilities capabilities = VpsRelayCapabilities.parse(
+                "{\"name\":\"tgproxy-relay\",\"protocol\":{\"min\":1,\"max\":2},"
+                        + "\"topology\":{\"dynamic\":true,\"revision\":7,"
+                        + "\"productionDcs\":[1,2,3,4,5],\"testDcs\":[1,2,3]}}" );
+        return VpsRelayConfig.manual(true, "Relay", "relay.example.com",
+                443, true, "/apiws", "token", "").withCapabilities(capabilities);
     }
 
     private static Map<Integer, String> dcRules() {

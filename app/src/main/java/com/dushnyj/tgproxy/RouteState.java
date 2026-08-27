@@ -4,20 +4,25 @@ final class RouteState {
     private final boolean active;
     private final RouteCandidate candidate;
     private final String activeEndpoint;
+    private final String activeSni;
     private final int pingMs;
     private final String quality;
     private final String reason;
     private final long verifiedAtMs;
+    private final long routeGeneration;
 
     private RouteState(boolean active, RouteCandidate candidate, String activeEndpoint,
-                       int pingMs, String quality, String reason, long verifiedAtMs) {
+                       String activeSni, int pingMs, String quality, String reason,
+                       long verifiedAtMs, long routeGeneration) {
         this.active = active;
         this.candidate = candidate;
         this.activeEndpoint = activeEndpoint == null ? "" : activeEndpoint;
+        this.activeSni = activeSni == null ? "" : activeSni;
         this.pingMs = pingMs;
         this.quality = quality == null ? "" : quality;
         this.reason = reason == null ? "" : reason;
         this.verifiedAtMs = Math.max(0L, verifiedAtMs);
+        this.routeGeneration = Math.max(0L, routeGeneration);
     }
 
     static RouteState active(RouteCandidate candidate, String activeEndpoint,
@@ -27,12 +32,23 @@ final class RouteState {
 
     static RouteState active(RouteCandidate candidate, String activeEndpoint,
                              int pingMs, String quality, long verifiedAtMs) {
-        return new RouteState(candidate != null, candidate, activeEndpoint, pingMs, quality, "",
-                verifiedAtMs);
+        return active(candidate, activeEndpoint, "", pingMs, quality, verifiedAtMs);
+    }
+
+    static RouteState active(RouteCandidate candidate, String activeEndpoint, String activeSni,
+                             int pingMs, String quality, long verifiedAtMs) {
+        return active(candidate, activeEndpoint, activeSni, pingMs, quality, verifiedAtMs, 0L);
+    }
+
+    static RouteState active(RouteCandidate candidate, String activeEndpoint, String activeSni,
+                             int pingMs, String quality, long verifiedAtMs,
+                             long routeGeneration) {
+        return new RouteState(candidate != null, candidate, activeEndpoint, activeSni, pingMs,
+                quality, "", verifiedAtMs, routeGeneration);
     }
 
     static RouteState inactive(String reason) {
-        return new RouteState(false, null, "", -1, "", reason, 0L);
+        return new RouteState(false, null, "", "", -1, "", reason, 0L, 0L);
     }
 
     boolean active() {
@@ -55,6 +71,10 @@ final class RouteState {
         return activeEndpoint;
     }
 
+    String activeSni() {
+        return activeSni;
+    }
+
     int pingMs() {
         return pingMs;
     }
@@ -69,6 +89,10 @@ final class RouteState {
 
     long verifiedAtMs() {
         return verifiedAtMs;
+    }
+
+    long routeGeneration() {
+        return routeGeneration;
     }
 
     boolean isFresh(long nowMs, long maxAgeMs) {

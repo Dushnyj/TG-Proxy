@@ -65,6 +65,7 @@ public final class MtProtoProxyEngine {
     public final AtomicLong errors = new AtomicLong();
 
     private final ConcurrentHashMap<Socket, Boolean> activeSockets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Socket, RouteType> activeRoutes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RouteStats> routeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RouteEvidence> activeRouteByScope =
             new ConcurrentHashMap<>();
@@ -100,6 +101,7 @@ public final class MtProtoProxyEngine {
     private volatile String networkProfileKey = networkProfile.key();
     private volatile String cfNetworkProfile = networkProfile.cfProfileId();
     private volatile RoutePreference routePreference = RoutePreference.AUTO;
+    private volatile RouteAvailability routeAvailability = RouteAvailability.all();
     private volatile Runnable routeStatsChangedListener;
     private boolean runtimeConfigurationApplied;
 
@@ -194,6 +196,10 @@ public final class MtProtoProxyEngine {
         this.routePreference = preference == null ? RoutePreference.AUTO : preference;
     }
 
+    public void setRouteAvailability(RouteAvailability availability) {
+        this.routeAvailability = availability == null ? RouteAvailability.all() : availability;
+    }
+
     synchronized void replaceRouteStats(Map<String, RouteStats> statsByRoute) {
         routeStats.clear();
         if (statsByRoute != null) {
@@ -227,6 +233,8 @@ public final class MtProtoProxyEngine {
                     ? NetworkProfile.defaultProfile() : snapshot.networkProfile;
             RoutePreference nextPreference = snapshot.routePreference == null
                     ? RoutePreference.AUTO : snapshot.routePreference;
+            RouteAvailability nextAvailability = snapshot.routeAvailability == null
+                    ? RouteAvailability.all() : snapshot.routeAvailability;
             VpsRelayConfig nextRelay = snapshot.relay == null
                     ? VpsRelayConfig.disabled() : snapshot.relay;
 
@@ -237,12 +245,15 @@ public final class MtProtoProxyEngine {
             boolean workerChanged = !cfWorkerDomains.equals(nextWorkerDomains);
             boolean relayChanged = !vpsRelayConfig.sameRoutingIdentity(nextRelay);
             boolean profileChanged = !networkProfileKey.equals(nextProfile.key());
+            java.util.Set<RouteType> disabledRoutes =
+                    routeAvailability.disabledComparedTo(nextAvailability);
             boolean routingChanged = !secretHex.equals(nextSecretHex)
                     || directChanged
                     || cfChanged
                     || workerChanged
                     || profileChanged
                     || routePreference != nextPreference
+                    || !routeAvailability.equals(nextAvailability)
                     || relayChanged;
             boolean poolChanged = routingChanged || cfWarmupEnabled != snapshot.cfWarmupEnabled;
 
@@ -265,6 +276,7 @@ public final class MtProtoProxyEngine {
             networkProfileKey = nextProfile.key();
             cfNetworkProfile = nextProfile.cfProfileId();
             routePreference = nextPreference;
+            routeAvailability = nextAvailability;
 
             if (!runtimeConfigurationApplied || profileChanged) {
                 routeStats.clear();
@@ -300,6 +312,7 @@ public final class MtProtoProxyEngine {
             if (poolChanged) cfPool.clear();
             warmup = poolChanged && running.get() && cfWarmupEnabled
                     && !CF_MODE_OFF.equals(cfProxyMode);
+            if (!disabledRoutes.isEmpty()) closeActiveRoutes(disabledRoutes);
         }
         if (statsInvalidated) notifyRouteStatsChanged();
         if (warmup) warmupCfPool();
@@ -368,6 +381,7 @@ public final class MtProtoProxyEngine {
         if (listenerThread != null) listenerThread.interrupt();
         closeActiveClientSockets();
         activeSockets.clear();
+        activeRoutes.clear();
     }
 
     private void closeActiveClientSockets() {
@@ -387,6 +401,15 @@ public final class MtProtoProxyEngine {
     public void reconnectPool() {
         cfPool.clear();
         warmupCfPool();
+    }
+
+    private void closeActiveRoutes(java.util.Set<RouteType> disabledRoutes) {
+        for (Map.Entry<Socket, RouteType> entry : activeRoutes.entrySet()) {
+            if (disabledRoutes.contains(entry.getValue())) {
+                DiagnosticsLog.record("closing disabled active route " + entry.getValue().id());
+                try { entry.getKey().close(); } catch (Exception ignored) {}
+            }
+        }
     }
 
     /** Invalidates route evidence for a new Android Network without killing established bridges. */
@@ -568,6 +591,7 @@ public final class MtProtoProxyEngine {
             }
 
             ws = connectedRoute.socket;
+            activeRoutes.put(client, connectedRoute.route.type());
             bridge(client, in, out, connectedRoute, crypto, splitter, sessionUp, sessionDown);
         } catch (Exception e) {
             errors.incrementAndGet();
@@ -583,6 +607,7 @@ public final class MtProtoProxyEngine {
                 try { ws.abort(); } catch (Exception ignored) {}
             }
             if (connectedRoute != null) connectedRoute.releaseEvidence();
+            activeRoutes.remove(client);
             activeSockets.remove(client);
             try { client.close(); } catch (Exception ignored) {}
         }
@@ -630,6 +655,7 @@ public final class MtProtoProxyEngine {
         try {
         RawWebSocket ws = null;
         String connectedEndpoint = route.endpoint();
+        String connectedSni = "";
         long attemptStartedMs = System.currentTimeMillis();
         DiagnosticsLog.record("route connecting " + route.key()
                 + " endpoint=" + route.endpoint());
@@ -652,7 +678,13 @@ public final class MtProtoProxyEngine {
                 connectedEndpoint = cfSocket.baseDomain;
             }
         } else if (route.type() == RouteType.DIRECT_WS) {
-            ws = connectDirectWs(route, generation, budget, cancellation, attemptContext);
+            DirectSocket directSocket = connectDirectWs(route, generation, budget,
+                    cancellation, attemptContext);
+            if (directSocket != null) {
+                ws = directSocket.socket;
+                connectedEndpoint = directSocket.target;
+                connectedSni = directSocket.domain;
+            }
         }
         if (ws == null) return null;
         deadlineAbort = ws.abortAtDeadline(budget);
@@ -682,7 +714,8 @@ public final class MtProtoProxyEngine {
             }
             DiagnosticsLog.record("route first-byte ready " + route.key()
                     + " endpoint=" + connectedEndpoint);
-            return new ConnectedRoute(ws, route, scope, connectedEndpoint, firstPayload,
+            return new ConnectedRoute(ws, route, scope, connectedEndpoint, connectedSni,
+                    firstPayload,
                     connectionId, generation, attemptStartedMs);
         } catch (Exception error) {
             ws.abort();
@@ -749,27 +782,55 @@ public final class MtProtoProxyEngine {
                 System.currentTimeMillis());
     }
 
-    private RawWebSocket connectDirectWs(RouteCandidate route, long generation,
+    private DirectSocket connectDirectWs(RouteCandidate route, long generation,
                                          ConnectBudget budget,
                                          ConnectionRacer.Cancellation cancellation,
                                          RawWebSocket.SocketObserver observer) {
         String[] domains = TgConstants.wsDomains(route.dc(), route.media());
-        Exception lastError = null;
+        AtomicReference<Exception> lastError = new AtomicReference<>();
         for (String domain : domains) {
-            if (isRouteAttemptCancelled(generation, cancellation)
-                    || !budget.hasTime()) return null;
-            try {
-                return RawWebSocket.connect(route.endpoint(), domain,
-                        route.test() ? "/apiws_test" : "/apiws", budget,
-                        CONNECT_TIMEOUT_MS, observer);
-            } catch (Exception error) {
-                lastError = error;
-                DiagnosticsLog.record("route failed " + route.key()
-                        + " domain=" + domain + " " + errorSummary(error));
+            ArrayList<String> targets = new ArrayList<>();
+            if (route.endpoint() != null && !route.endpoint().isEmpty()) {
+                targets.add(route.endpoint());
             }
+            if (!targets.contains(domain)) targets.add(domain);
+            ArrayList<ConnectionRacer.Candidate<DirectSocket>> attempts = new ArrayList<>();
+            ConcurrentHashMap<String, DomainSocketObserver> targetObservers =
+                    new ConcurrentHashMap<>();
+            for (String target : targets) {
+                DomainSocketObserver targetObserver = new DomainSocketObserver(observer);
+                targetObservers.put(target, targetObserver);
+                attempts.add(new ConnectionRacer.Candidate<>(innerCancellation -> {
+                    innerCancellation.onCancel(targetObserver::cancel);
+                    if (isRouteAttemptCancelled(generation, cancellation)
+                            || innerCancellation.isCancelled() || !budget.hasTime()) return null;
+                    try {
+                        RawWebSocket socket = RawWebSocket.connect(target, domain,
+                                route.test() ? "/apiws_test" : "/apiws", budget,
+                                CONNECT_TIMEOUT_MS, targetObserver);
+                        return new DirectSocket(socket, target, domain);
+                    } catch (Exception error) {
+                        lastError.set(error);
+                        DiagnosticsLog.record("route failed " + route.key()
+                                + " target=" + target + " domain=" + domain + " "
+                                + errorSummary(error));
+                        return null;
+                    }
+                }));
+            }
+            DirectSocket connected = new ConnectionRacer<DirectSocket>().connect(
+                    attempts, 2, 250L, budget, DirectSocket::close);
+            for (Map.Entry<String, DomainSocketObserver> entry : targetObservers.entrySet()) {
+                if (connected != null && connected.target.equals(entry.getKey())) {
+                    entry.getValue().release();
+                } else {
+                    entry.getValue().cancel();
+                }
+            }
+            if (connected != null) return connected;
         }
         if (shouldRecordRouteFailure(generation, cancellation)) {
-            recordRouteFailure(route, RouteError.classify(lastError), generation);
+            recordRouteFailure(route, RouteError.classify(lastError.get()), generation);
         }
         return null;
     }
@@ -786,7 +847,9 @@ public final class MtProtoProxyEngine {
                     || !budget.hasTime()) return null;
             try {
                 String path = "/apiws?dst=" + URLEncoder.encode(dst, "UTF-8")
-                        + "&dc=" + route.dc();
+                        + "&dc=" + route.dc()
+                        + "&media=" + (route.media() ? "1" : "0")
+                        + "&test=" + (route.test() ? "1" : "0");
                 return new CfSocket(RawWebSocket.connect(workerDomain, workerDomain, path, budget,
                         CONNECT_TIMEOUT_MS, observer), workerDomain);
             } catch (Exception error) {
@@ -859,7 +922,8 @@ public final class MtProtoProxyEngine {
                                 baseDomain, domainObserver);
                         if (raced != null) domainObserver = raced;
                     }
-                    // A custom Cloudflare zone exposes exactly kws<dc> (including kws203).
+                    // A custom Cloudflare zone exposes exactly kws<dc> for the explicitly
+                    // supported Telegram WebSocket DC1..5 contract.
                     // The "-1" hostname is a web.telegram.org origin variant and must never be
                     // appended to the user's base domain.
                     String domain = "kws" + dc + "." + baseDomain;
@@ -952,6 +1016,7 @@ public final class MtProtoProxyEngine {
         RouteCandidate freshestRoute = null;
         RouteStats freshestStats = null;
         String freshestEndpoint = "";
+        String freshestSni = "";
         long freshestAt = 0L;
         for (Map.Entry<String, RouteEvidence> entry : activeRouteByScope.entrySet()) {
             ActiveScope activeScope = ActiveScope.parse(entry.getKey());
@@ -974,12 +1039,14 @@ public final class MtProtoProxyEngine {
             freshestAt = evidence.lastVerifiedMs;
             freshestEndpoint = evidence.endpoint.isEmpty()
                     ? configured.endpoint() : evidence.endpoint;
+            freshestSni = evidence.sni;
         }
         if (freshestRoute != null && freshestStats != null) {
             int ping = freshestStats.medianLatencyMs();
             String quality = freshestStats.totalFailures() == 0
                     ? "stable" : freshestStats.lastError().name();
-            return RouteState.active(freshestRoute, freshestEndpoint, ping, quality, freshestAt);
+            return RouteState.active(freshestRoute, freshestEndpoint, freshestSni,
+                    ping, quality, freshestAt, currentGeneration);
         }
 
         int dc = firstConfiguredDc();
@@ -1047,6 +1114,7 @@ public final class MtProtoProxyEngine {
         RouteEngine.Settings.Builder builder = RouteEngine.Settings.builder()
                 .networkProfile(networkProfile)
                 .routePreference(routePreference)
+                .routeAvailability(routeAvailability)
                 .cfMode(cfProxyMode)
                 .dcRedirects(test ? TEST_DC_IPS : dcRedirects)
                 .workerDomains(cfWorkerDomains)
@@ -1058,7 +1126,7 @@ public final class MtProtoProxyEngine {
         }
         VpsRelayConfig relay = vpsRelayConfig;
         if (relay != null && relay.isAllowedForProfile(networkProfile.key())) {
-            builder.vpsRelay(relay.name(), relay.host(), relay.port());
+            builder.vpsRelay(relay);
         }
         return builder.build();
     }
@@ -1075,6 +1143,12 @@ public final class MtProtoProxyEngine {
     synchronized void recordRouteSuccess(RouteCandidate route, int latencyMs,
                                          long generation, String endpoint,
                                          long evidenceOwner) {
+        recordRouteSuccess(route, latencyMs, generation, endpoint, "", evidenceOwner);
+    }
+
+    private synchronized void recordRouteSuccess(RouteCandidate route, int latencyMs,
+                                                  long generation, String endpoint, String sni,
+                                                  long evidenceOwner) {
         if (route == null || isStaleGeneration(generation)) return;
         long nowMs = System.currentTimeMillis();
         routeStatsFor(route.key()).recordSuccess(nowMs, latencyMs);
@@ -1091,17 +1165,17 @@ public final class MtProtoProxyEngine {
                 scopeEvidence = raced == null ? created : raced;
             }
             scopeEvidence.put(evidenceOwner,
-                    new RouteEvidence(route.key(), actualEndpoint, generation, nowMs));
+                    new RouteEvidence(route.key(), actualEndpoint, sni, generation, nowMs));
         }
         activeRouteByScope.put(scope,
-                new RouteEvidence(route.key(), actualEndpoint, generation, nowMs));
+                new RouteEvidence(route.key(), actualEndpoint, sni, generation, nowMs));
         DiagnosticsLog.record("route success " + route.key()
                 + (latencyMs >= 0 ? " latency=" + latencyMs + "ms" : ""));
         notifyRouteStatsChanged();
     }
 
     private synchronized void refreshRouteEvidence(String scope, long evidenceOwner,
-                                                   RouteCandidate route, String endpoint,
+                                                   RouteCandidate route, String endpoint, String sni,
                                                    long generation, long nowMs) {
         if (scope == null || route == null || evidenceOwner <= 0L
                 || isStaleGeneration(generation)) return;
@@ -1110,10 +1184,10 @@ public final class MtProtoProxyEngine {
         String actualEndpoint = endpoint == null || endpoint.isEmpty()
                 ? route.endpoint() : endpoint;
         scopeEvidence.put(evidenceOwner,
-                new RouteEvidence(route.key(), actualEndpoint, generation, nowMs));
+                new RouteEvidence(route.key(), actualEndpoint, sni, generation, nowMs));
         routeStatsFor(route.key()).recordVerifiedTraffic(nowMs);
         activeRouteByScope.put(scope,
-                new RouteEvidence(route.key(), actualEndpoint, generation, nowMs));
+                new RouteEvidence(route.key(), actualEndpoint, sni, generation, nowMs));
     }
 
     /** Removes one session and promotes the freshest still-live session in the same scope. */
@@ -1488,11 +1562,28 @@ public final class MtProtoProxyEngine {
         down.join();
     }
 
+    private static final class DirectSocket {
+        final RawWebSocket socket;
+        final String target;
+        final String domain;
+
+        DirectSocket(RawWebSocket socket, String target, String domain) {
+            this.socket = socket;
+            this.target = target == null ? "" : target;
+            this.domain = domain == null ? "" : domain;
+        }
+
+        void close() {
+            if (socket != null) socket.abort();
+        }
+    }
+
     private final class ConnectedRoute {
         final RawWebSocket socket;
         final RouteCandidate route;
         final String scope;
         final String endpoint;
+        final String sni;
         final byte[] firstPayload;
         final long connectionId;
         final long generation;
@@ -1503,12 +1594,13 @@ public final class MtProtoProxyEngine {
         final AtomicLong lastEvidenceRefreshMs = new AtomicLong(0L);
 
         ConnectedRoute(RawWebSocket socket, RouteCandidate route, String scope,
-                       String endpoint, byte[] firstPayload, long connectionId,
+                       String endpoint, String sni, byte[] firstPayload, long connectionId,
                        long generation, long attemptStartedMs) {
             this.socket = socket;
             this.route = route;
             this.scope = scope;
             this.endpoint = endpoint == null ? "" : endpoint;
+            this.sni = sni == null ? "" : sni;
             this.firstPayload = firstPayload == null ? new byte[0] : firstPayload;
             this.connectionId = connectionId;
             this.generation = generation;
@@ -1524,7 +1616,7 @@ public final class MtProtoProxyEngine {
             long elapsed = Math.max(0L, System.currentTimeMillis() - attemptStartedMs);
             int latencyMs = (int) Math.min(Integer.MAX_VALUE, elapsed);
             recordRouteSuccess(route, latencyMs, generation,
-                    endpoint.isEmpty() ? route.endpoint() : endpoint, connectionId);
+                    endpoint.isEmpty() ? route.endpoint() : endpoint, sni, connectionId);
             lastEvidenceRefreshMs.set(System.currentTimeMillis());
             DiagnosticsLog.record("route verified first-byte " + route.key()
                     + " latency=" + latencyMs + "ms endpoint="
@@ -1550,7 +1642,7 @@ public final class MtProtoProxyEngine {
             long previous = lastEvidenceRefreshMs.get();
             if (nowMs - previous < ROUTE_EVIDENCE_REFRESH_MS
                     || !lastEvidenceRefreshMs.compareAndSet(previous, nowMs)) return;
-            refreshRouteEvidence(scope, connectionId, route, endpoint, generation, nowMs);
+            refreshRouteEvidence(scope, connectionId, route, endpoint, sni, generation, nowMs);
             notifyRouteStatsChanged();
         }
 
@@ -1571,12 +1663,15 @@ public final class MtProtoProxyEngine {
     private static final class RouteEvidence {
         final String routeKey;
         final String endpoint;
+        final String sni;
         final long generation;
         final long lastVerifiedMs;
 
-        RouteEvidence(String routeKey, String endpoint, long generation, long lastVerifiedMs) {
+        RouteEvidence(String routeKey, String endpoint, String sni, long generation,
+                      long lastVerifiedMs) {
             this.routeKey = routeKey == null ? "" : routeKey;
             this.endpoint = endpoint == null ? "" : endpoint;
+            this.sni = sni == null ? "" : sni;
             this.generation = generation;
             this.lastVerifiedMs = lastVerifiedMs;
         }

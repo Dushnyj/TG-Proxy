@@ -157,6 +157,24 @@ public class VpsRelayStoreTest {
         assertEquals("wifi:hidden", store.selectedRelay("wifi:hidden").profileKey());
     }
 
+    @Test
+    public void negotiatedCapabilitiesSurviveRelayStoreRoundTrip() throws Exception {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayCapabilities capabilities = VpsRelayCapabilities.parse(
+                "{\"name\":\"tgproxy-relay\",\"protocol\":{\"min\":1,\"max\":2},"
+                        + "\"topology\":{\"dynamic\":true,\"revision\":42,"
+                        + "\"productionDcs\":[1,2,204],\"testDcs\":[1,4]}}" );
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Relay",
+                "relay.example.com", 443, true, "/apiws", "token", "")
+                .withCapabilities(capabilities);
+
+        VpsRelayStore.Record saved = store.saveRelay(relay, "wifi:ssid:home");
+        VpsRelayConfig restored = store.relay(saved.id()).config();
+
+        assertEquals(capabilities, restored.capabilities());
+        assertTrue(restored.supportsRoute(999, false));
+    }
+
     private static final class RecordingStore implements VpsRelayStore.KeyValueStore {
         final LinkedHashMap<String, String> values = new LinkedHashMap<>();
         int singleWrites;

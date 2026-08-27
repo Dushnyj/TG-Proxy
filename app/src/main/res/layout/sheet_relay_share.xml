@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/card"
+    android:orientation="vertical"
+    android:paddingStart="20dp"
+    android:paddingTop="18dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="28dp">
+
+    <View
+        android:layout_width="42dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@color/input_border" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:includeFontPadding="false"
+        android:text="@string/relay_share_title"
+        android:textColor="@color/text_primary"
+        android:textSize="21sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:includeFontPadding="false"
+        android:text="@string/relay_share_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tv_share_link"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/edit_bg"
+        android:ellipsize="middle"
+        android:maxLines="2"
+        android:padding="14dp"
+        android:textColor="@color/accent"
+        android:textIsSelectable="true"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/action_share_copy"
+        style="@style/RelayShareAction" />
+
+    <LinearLayout
+        android:id="@+id/action_share_qr"
+        style="@style/RelayShareAction" />
+
+    <LinearLayout
+        android:id="@+id/action_share_system"
+        style="@style/RelayShareAction" />
+
+    <LinearLayout
+        android:id="@+id/action_share_file"
+        style="@style/RelayShareAction" />
+</LinearLayout>

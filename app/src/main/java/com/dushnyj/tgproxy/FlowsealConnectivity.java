@@ -12,7 +12,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public final class FlowsealConnectivity {
-    public static final int[] TEST_DCS = {1, 2, 3, 4, 5, 203};
+    static final int[] WSS_DCS = {1, 2, 3, 4, 5};
+    static final int[] WORKER_DCS = {1, 2, 3, 4, 5, 203};
 
     private static final Map<Integer, String> DEFAULT_DC_IPS = new LinkedHashMap<>();
     static {
@@ -30,7 +31,7 @@ public final class FlowsealConnectivity {
 
     public static void testCfProxyAuto(List<String> domains, Callback callback) {
         new Thread(() -> {
-            Result merged = new Result("");
+            Result merged = new Result("", WSS_DCS.length);
             String bestDomain = "";
             List<String> pool = domains == null || domains.isEmpty()
                     ? FlowsealCfDomains.defaults() : domains;
@@ -89,7 +90,7 @@ public final class FlowsealConnectivity {
 
     static List<Probe> cfProxyCases(String domain) {
         ArrayList<Probe> result = new ArrayList<>();
-        for (int dc : TEST_DCS) {
+        for (int dc : WSS_DCS) {
             String host = "kws" + dc + "." + domain;
             String mediaHost = host;
             result.add(new Probe(dc, host, host, host, "/apiws",
@@ -100,7 +101,7 @@ public final class FlowsealConnectivity {
 
     static List<Probe> workerCases(String domain) {
         ArrayList<Probe> result = new ArrayList<>();
-        for (int dc : TEST_DCS) {
+        for (int dc : WORKER_DCS) {
             String dst = DEFAULT_DC_IPS.get(dc);
             String path = "/apiws?dst=" + url(dst) + "&dc=" + dc + "&media=0";
             String mediaPath = "/apiws?dst=" + url(dst) + "&dc=" + dc + "&media=1";
@@ -119,7 +120,7 @@ public final class FlowsealConnectivity {
     }
 
     private static Result runCases(String domain, List<Probe> probes) {
-        Result result = new Result(domain);
+        Result result = new Result(domain, probes == null ? 0 : probes.size());
         if (probes == null || probes.isEmpty()) return result;
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(4, probes.size()));
         ArrayList<Future<ProbeResult>> futures = new ArrayList<>();
@@ -221,9 +222,11 @@ public final class FlowsealConnectivity {
     public static final class Result {
         public String domain;
         public final LinkedHashMap<Integer, String> statuses = new LinkedHashMap<>();
+        private final int expectedCount;
 
-        Result(String domain) {
+        Result(String domain, int expectedCount) {
             this.domain = domain == null ? "" : domain;
+            this.expectedCount = Math.max(0, expectedCount);
         }
 
         public int okCount() {
@@ -239,7 +242,11 @@ public final class FlowsealConnectivity {
         }
 
         public boolean allOk() {
-            return okCount() == TEST_DCS.length;
+            return expectedCount > 0 && okCount() == expectedCount;
+        }
+
+        public int expectedCount() {
+            return expectedCount;
         }
 
         public String okLabels(String prefix) {

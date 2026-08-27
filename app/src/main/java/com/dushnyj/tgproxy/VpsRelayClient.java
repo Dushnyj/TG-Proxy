@@ -29,6 +29,7 @@ import javax.net.ssl.SSLException;
 
 final class VpsRelayClient {
     static final int APP_PROTOCOL = 1;
+    static final int APP_PROTOCOL_MAX = 2;
     private static final int TIMEOUT_MS = 7000;
     private static final int MANAGEMENT_READ_TIMEOUT_MS = 20_000;
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
@@ -100,17 +101,32 @@ final class VpsRelayClient {
             }
             int protocol = intJson(version.body, "protocol", 0);
             int minAppProtocol = intJson(version.body, "minAppProtocol", 0);
-            if (protocol != APP_PROTOCOL || minAppProtocol > APP_PROTOCOL) {
+            if (protocol < APP_PROTOCOL || protocol > APP_PROTOCOL_MAX
+                    || minAppProtocol > APP_PROTOCOL_MAX) {
                 return VpsRelayCheckResult.of(VpsRelayCheckResult.Status.OUTDATED_VERSION,
                         "relay protocol is not compatible");
+            }
+
+            VpsRelayCapabilities capabilities = VpsRelayCapabilities.unknown();
+            HttpResult capabilityResponse = requestManagement(config, "GET", "/capabilities", "");
+            if (isAuthFailure(capabilityResponse.code)) return wrongToken();
+            if (capabilityResponse.isSuccessful()) {
+                capabilities = VpsRelayCapabilities.parse(capabilityResponse.body);
+                if (!capabilities.compatible(APP_PROTOCOL, APP_PROTOCOL_MAX)) {
+                    return VpsRelayCheckResult.of(VpsRelayCheckResult.Status.OUTDATED_VERSION,
+                            "relay capabilities are not compatible");
+                }
+            } else if (capabilityResponse.code != 404 && capabilityResponse.code != 405) {
+                return unavailable("capabilities failed: " + capabilityResponse.code);
             }
 
             HttpResult health = requestManagement(config, "GET", "/healthz", "");
             if (isAuthFailure(health.code)) return wrongToken();
             if (!health.isSuccessful()) return unavailable("healthz failed: " + health.code);
 
+            Map<Integer, String> relayRoutes = effectiveProductionRoutes(capabilities, dcRules);
             HttpResult routes = requestManagement(config, "POST", "/test-routes",
-                    testRoutesBody(dcRules));
+                    testRoutesBody(relayRoutes));
             if (isAuthFailure(routes.code)) return wrongToken();
             if (!routes.isSuccessful()) {
                 return unavailable("test-routes failed: " + routes.code
@@ -120,7 +136,7 @@ final class VpsRelayClient {
                 return unavailable("test-routes reported unavailable routes"
                         + compactBody(routes.body));
             }
-            RouteValidation validation = routeVerifier.verify(config, dcRules);
+            RouteValidation validation = routeVerifier.verify(config, relayRoutes);
             if (validation == null) validation = RouteValidation.ok();
             if (!validation.blockingFailures.isEmpty()) {
                 return unavailable("end-to-end production routes failed: "
@@ -132,7 +148,7 @@ final class VpsRelayClient {
             }
             return VpsRelayCheckResult.ok(routes.body,
                     stringJson(version.body, "version", ""),
-                    validation.advisoryFailures);
+                    validation.advisoryFailures, capabilities);
         } catch (SSLException e) {
             return VpsRelayCheckResult.of(VpsRelayCheckResult.Status.TLS_ERROR,
                     "TLS handshake failed");
@@ -165,12 +181,32 @@ final class VpsRelayClient {
             int minAppProtocol = intJson(version.body, "minAppProtocol", 0);
             VpsRelayCheckResult.Status status = VpsRelayCheckResult.Status.OK;
             String message = "relay version is available";
-            if (protocol != APP_PROTOCOL || minAppProtocol > APP_PROTOCOL) {
+            if (protocol < APP_PROTOCOL || protocol > APP_PROTOCOL_MAX
+                    || minAppProtocol > APP_PROTOCOL_MAX) {
                 status = VpsRelayCheckResult.Status.OUTDATED_VERSION;
                 message = "relay protocol is not compatible";
             }
+            VpsRelayCapabilities capabilities = VpsRelayCapabilities.unknown();
+            if (status == VpsRelayCheckResult.Status.OK) {
+                HttpResult response = requestManagement(config, "GET", "/capabilities", "");
+                if (isAuthFailure(response.code)) {
+                    return VpsRelayInfo.of(VpsRelayCheckResult.Status.WRONG_TOKEN,
+                            "relay token was rejected", relayVersion, targetVersion,
+                            protocol, minAppProtocol);
+                }
+                if (response.isSuccessful()) {
+                    capabilities = VpsRelayCapabilities.parse(response.body);
+                    if (!capabilities.compatible(APP_PROTOCOL, APP_PROTOCOL_MAX)) {
+                        status = VpsRelayCheckResult.Status.OUTDATED_VERSION;
+                        message = "relay capabilities are not compatible";
+                    }
+                } else if (response.code != 404 && response.code != 405) {
+                    status = VpsRelayCheckResult.Status.UNAVAILABLE;
+                    message = "capabilities failed: " + response.code;
+                }
+            }
             return VpsRelayInfo.of(status, message, relayVersion, targetVersion,
-                    protocol, minAppProtocol);
+                    protocol, minAppProtocol, capabilities);
         } catch (SSLException e) {
             return VpsRelayInfo.of(VpsRelayCheckResult.Status.TLS_ERROR,
                     "TLS handshake failed", "", targetVersion, 0, 0);
@@ -446,15 +482,7 @@ final class VpsRelayClient {
         return json.contains("\"" + key + "\"");
     }
 
-    private static String testRoutesBody(Map<Integer, String> dcRules) {
-        LinkedHashMap<Integer, String> routes = new LinkedHashMap<>(MtProtoConfig.relayDcRules());
-        if (dcRules != null) {
-            for (Map.Entry<Integer, String> entry : dcRules.entrySet()) {
-                if (entry.getKey() != null && entry.getKey() > 0) {
-                    routes.put(entry.getKey(), entry.getValue());
-                }
-            }
-        }
+    private static String testRoutesBody(Map<Integer, String> routes) {
         StringBuilder out = new StringBuilder();
         out.append("{\"dcs\":[");
         boolean first = true;
@@ -469,10 +497,32 @@ final class VpsRelayClient {
         return out.toString();
     }
 
+    private static Map<Integer, String> effectiveProductionRoutes(
+            VpsRelayCapabilities capabilities, Map<Integer, String> localRules) {
+        LinkedHashMap<Integer, String> routes = new LinkedHashMap<>();
+        if (capabilities != null && capabilities.known()) {
+            for (Integer dc : capabilities.productionDcs()) {
+                if (dc == null || dc <= 0) continue;
+                String local = localRules == null ? "" : localRules.get(dc);
+                routes.put(dc, local == null ? "" : local);
+            }
+            return routes;
+        }
+        routes.putAll(MtProtoConfig.relayDcRules());
+        if (localRules != null) {
+            for (Map.Entry<Integer, String> entry : localRules.entrySet()) {
+                if (entry.getKey() != null && entry.getKey() > 0) {
+                    routes.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        return routes;
+    }
+
     private static RouteValidation verifyEndToEndRoutes(VpsRelayConfig config,
                                                         Map<Integer, String> dcRules)
             throws Exception {
-        LinkedHashMap<Integer, String> required = new LinkedHashMap<>(MtProtoConfig.relayDcRules());
+        LinkedHashMap<Integer, String> required = new LinkedHashMap<>();
         if (dcRules != null) {
             for (Map.Entry<Integer, String> entry : dcRules.entrySet()) {
                 if (entry.getKey() != null && entry.getKey() > 0) {

@@ -79,6 +79,11 @@ public class ProxyService extends Service {
     private static final long WAKE_LOCK_LEASE_MS = 10 * 60_000L;
 
     public static ProxyService getInstance() { return instance; }
+    static void refreshNetworkProfileIfRunning() {
+        ProxyService current = instance;
+        Handler currentHandler = current == null ? null : current.handler;
+        if (currentHandler != null) currentHandler.post(current::refreshNetworkProfileFromForeground);
+    }
     public MtProtoProxyEngine getEngine()     { return engine; }
     public int         getPort()              { return port; }
     public boolean     isPaused()             { return paused; }
@@ -723,6 +728,23 @@ public class ProxyService extends Service {
         return activateNetworkProfile(NetworkProfileIdentifier.current(this), savePreviousStats);
     }
 
+    private void refreshNetworkProfileFromForeground() {
+        if (prefs == null) return;
+        NetworkProfile detected = NetworkProfileIdentifier.current(this);
+        NetworkProfile selected = NetworkProfileIdentifier.stableProfile(
+                activeNetworkProfile, detected, false);
+        if (activeNetworkProfile != null
+                && activeNetworkProfile.key().equals(selected.key())) return;
+
+        // MainActivity may just have created the resolved SSID profile after location/Wi-Fi
+        // permissions became usable. Reload the store before switching away from the opaque
+        // background identity so its routing and Relay binding are applied immediately.
+        profileStore = NetworkProfileStore.fromPreferences(prefs);
+        NetworkProfileRecord record = activateNetworkProfile(selected, true);
+        DiagnosticsLog.record("foreground network identity refreshed " + record.key());
+        refreshNotification();
+    }
+
     private synchronized NetworkProfileRecord activateNetworkProfile(
             NetworkProfile profile, boolean savePreviousStats) {
         if (profileStore == null) {
@@ -756,6 +778,7 @@ public class ProxyService extends Service {
                 .verbose(prefs.getBoolean("verbose_logging", false))
                 .networkProfile(selected.profile())
                 .routePreference(selected.routePreference())
+                .routeAvailability(selected.routeAvailability())
                 .routeStats(profileStore.routeStats(selected.profile()))
                 .build();
     }

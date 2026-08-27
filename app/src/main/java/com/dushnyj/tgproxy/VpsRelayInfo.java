@@ -8,10 +8,12 @@ final class VpsRelayInfo {
     private final int protocol;
     private final int minAppProtocol;
     private final boolean updateAvailable;
+    private final VpsRelayCapabilities capabilities;
 
     private VpsRelayInfo(VpsRelayCheckResult.Status status, String message,
                          String relayVersion, String targetVersion,
-                         int protocol, int minAppProtocol, boolean updateAvailable) {
+                         int protocol, int minAppProtocol, boolean updateAvailable,
+                         VpsRelayCapabilities capabilities) {
         this.status = status == null ? VpsRelayCheckResult.Status.UNAVAILABLE : status;
         this.message = message == null ? "" : message;
         this.relayVersion = relayVersion == null ? "" : relayVersion;
@@ -19,6 +21,8 @@ final class VpsRelayInfo {
         this.protocol = protocol;
         this.minAppProtocol = minAppProtocol;
         this.updateAvailable = updateAvailable;
+        this.capabilities = capabilities == null
+                ? VpsRelayCapabilities.unknown() : capabilities;
     }
 
     static VpsRelayInfo of(VpsRelayCheckResult.Status status, String message,
@@ -29,7 +33,19 @@ final class VpsRelayInfo {
                 && !targetVersion.isEmpty()
                 && GithubReleaseUpdater.isNewerVersion(targetVersion, relayVersion);
         return new VpsRelayInfo(status, message, relayVersion, targetVersion,
-                protocol, minAppProtocol, update);
+                protocol, minAppProtocol, update, VpsRelayCapabilities.unknown());
+    }
+
+    static VpsRelayInfo of(VpsRelayCheckResult.Status status, String message,
+                           String relayVersion, String targetVersion,
+                           int protocol, int minAppProtocol,
+                           VpsRelayCapabilities capabilities) {
+        boolean update = status == VpsRelayCheckResult.Status.OK
+                && !relayVersion.isEmpty()
+                && !targetVersion.isEmpty()
+                && GithubReleaseUpdater.isNewerVersion(targetVersion, relayVersion);
+        return new VpsRelayInfo(status, message, relayVersion, targetVersion,
+                protocol, minAppProtocol, update, capabilities);
     }
 
     VpsRelayCheckResult.Status status() {
@@ -58,5 +74,9 @@ final class VpsRelayInfo {
 
     boolean updateAvailable() {
         return updateAvailable;
+    }
+
+    VpsRelayCapabilities capabilities() {
+        return capabilities;
     }
 }

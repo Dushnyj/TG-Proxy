@@ -4,9 +4,41 @@
         <item name="colorPrimary">@color/accent</item>
         <item name="colorPrimaryDark">@color/background</item>
         <item name="colorAccent">@color/accent</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnBackground">@color/text_primary</item>
+        <item name="android:colorControlNormal">@color/text_secondary</item>
+        <item name="materialAlertDialogTheme">@style/TgProxyAlertDialogTheme</item>
+        <item name="alertDialogTheme">@style/TgProxyAlertDialogTheme</item>
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:navigationBarColor">@color/background</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+    </style>
+
+    <style name="TgProxyAlertDialogTheme" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.TgProxy.Dialog</item>
+    </style>
+
+    <style name="ShapeAppearance.TgProxy.Dialog" parent="ShapeAppearance.MaterialComponents.MediumComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">22dp</item>
+    </style>
+
+    <style name="RelayShareAction">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">60dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/owner_card_bg</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">12dp</item>
     </style>
 </resources>

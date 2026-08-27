@@ -7,7 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 public class VpsSetupRequestTest {
     @Test
-    public void ipOnlyTlsDoesNotEnterReverseProxyMode() {
+    public void ipTlsUsesManagedReverseProxyMode() {
         VpsSetupRequest request = VpsSetupRequest.builder()
                 .sshHost("203.0.113.10")
                 .sshUser("root")
@@ -20,7 +20,9 @@ public class VpsSetupRequestTest {
                 .build();
 
         assertFalse(request.relayHostIsDomain());
-        assertFalse(request.reverseProxyMode());
+        assertTrue(request.relayHostIsIp());
+        assertTrue(request.reverseProxyMode());
+        assertTrue(request.publicUrl().startsWith("https://203.0.113.10:443/"));
     }
 
     @Test

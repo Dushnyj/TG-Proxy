@@ -8,15 +8,15 @@ import static org.junit.Assert.assertEquals;
 
 public class FlowsealConnectivityTest {
     @Test
-    public void cfProxyTestUsesSameSixDcsAsFlowsealDesktop() {
+    public void cfProxyTestUsesOnlyExplicitTelegramWebSocketDcs() {
         List<FlowsealConnectivity.Probe> cases =
                 FlowsealConnectivity.cfProxyCases("example.com");
 
-        assertEquals(6, cases.size());
+        assertEquals(5, cases.size());
         assertEquals("kws1.example.com", cases.get(0).connectHost);
-        assertEquals("kws203.example.com", cases.get(5).connectHost);
-        assertEquals("kws203.example.com", cases.get(5).mediaConnectHost);
-        assertEquals("/apiws", cases.get(5).path);
+        assertEquals("kws5.example.com", cases.get(4).connectHost);
+        assertEquals("kws5.example.com", cases.get(4).mediaConnectHost);
+        assertEquals("/apiws", cases.get(4).path);
     }
 
     @Test

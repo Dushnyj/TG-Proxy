@@ -25,7 +25,14 @@ final class ActiveRoutePingPlanner {
             case DIRECT_WS:
                 String[] domains = TgConstants.wsDomains(route.dc(), route.media());
                 if (domains.length > 0) {
-                    targets.add(RoutePingTarget.websocket(route.endpoint(), domains[0],
+                    String directEndpoint = routeState.activeEndpoint().isEmpty()
+                            ? route.endpoint() : routeState.activeEndpoint();
+                    String directSni = routeState.activeSni();
+                    if (directSni.isEmpty()) {
+                        directSni = directEndpointMatchesDomain(directEndpoint, domains);
+                    }
+                    if (directSni.isEmpty()) directSni = domains[0];
+                    targets.add(RoutePingTarget.websocket(directEndpoint, directSni,
                             route.test() ? "/apiws_test" : "/apiws", dc, media,
                             route.test()));
                 }
@@ -50,7 +57,9 @@ final class ActiveRoutePingPlanner {
                             : (dcRules == null ? "" : dcRules.get(dc));
                     String path = dst == null || dst.trim().isEmpty()
                             ? "/apiws"
-                            : "/apiws?dst=" + dst.trim() + "&dc=" + dc;
+                            : "/apiws?dst=" + dst.trim() + "&dc=" + dc
+                            + "&media=" + (media ? "1" : "0")
+                            + "&test=" + (route.test() ? "1" : "0");
                     targets.add(RoutePingTarget.websocket(workerEndpoint, workerEndpoint,
                             path, dc, media, route.test()));
                 }
@@ -84,5 +93,13 @@ final class ActiveRoutePingPlanner {
         if (value == null) return false;
         String domain = value.trim();
         return domain.contains(".") && !domain.contains(" ");
+    }
+
+    private static String directEndpointMatchesDomain(String endpoint, String[] domains) {
+        if (endpoint == null || domains == null) return "";
+        for (String domain : domains) {
+            if (domain != null && domain.equalsIgnoreCase(endpoint.trim())) return domain;
+        }
+        return "";
     }
 }

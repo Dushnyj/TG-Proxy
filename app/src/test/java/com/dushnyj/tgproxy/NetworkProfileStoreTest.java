@@ -44,6 +44,32 @@ public class NetworkProfileStoreTest {
     }
 
     @Test
+    public void persistsPerProfileRouteAvailabilityAndMigratesLegacyRowsToAll() {
+        NetworkProfileStore store = NetworkProfileStore.inMemory();
+        NetworkProfile profile = NetworkProfile.mobile("25020", "T2 BLACK");
+        store.ensureProfile(profile, 1_000L);
+        store.setRouteAvailability(profile.key(), RouteAvailability.directOnly());
+
+        NetworkProfileRecord restored = NetworkProfileStore.inMemory(store.exportProfiles())
+                .profile(profile.key());
+
+        assertEquals(true, restored.routeAvailability().isEnabled(RouteType.DIRECT_WS));
+        assertEquals(false, restored.routeAvailability().isEnabled(RouteType.VPS_RELAY));
+
+        String legacy = "wifi%3Assid%3Ahome\tWIFI\thome\tHome\tAUTO\t1\t2\t3";
+        NetworkProfileRecord migrated = NetworkProfileStore.inMemory(legacy)
+                .profile("wifi:ssid:home");
+        assertEquals(true, migrated.routeAvailability().isEnabled(RouteType.VPS_RELAY));
+        assertEquals(true, migrated.routeAvailability().isEnabled(RouteType.PUBLIC_CLOUDFLARE));
+
+        String corrupted = "wifi%3Assid%3Abroken\tWIFI\tbroken\tBroken\tAUTO\t1\t2\t3\t0";
+        NetworkProfileRecord recovered = NetworkProfileStore.inMemory(corrupted)
+                .profile("wifi:ssid:broken");
+        assertEquals(true, recovered.routeAvailability().isEnabled(RouteType.DIRECT_WS));
+        assertEquals(true, recovered.routeAvailability().isEnabled(RouteType.VPS_RELAY));
+    }
+
+    @Test
     public void uiLookupDoesNotRecordAnotherNetworkActivation() {
         NetworkProfileStore store = NetworkProfileStore.inMemory();
         NetworkProfile profile = NetworkProfile.wifi("home");

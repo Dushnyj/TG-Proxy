@@ -128,7 +128,7 @@ final class VpsSetupRequest {
     }
 
     boolean reverseProxyMode() {
-        return relayTls && relayPort == 443 && relayHostIsDomain();
+        return relayTls && relayPort == 443 && (relayHostIsDomain() || relayHostIsIp());
     }
 
     int internalRelayPort() {
@@ -143,6 +143,10 @@ final class VpsSetupRequest {
         return relayHost.indexOf(':') < 0
                 && relayHost.contains(".")
                 && !relayHost.matches("\\d+\\.\\d+\\.\\d+\\.\\d+");
+    }
+
+    boolean relayHostIsIp() {
+        return VpsEndpointPolicy.isIpLiteral(relayHost);
     }
 
     static final class Builder {

@@ -38,6 +38,33 @@ public class ActiveRoutePingPlannerTest {
     }
 
     @Test
+    public void directPingUsesTheEndpointThatWonTheFixedIpDnsRace() {
+        RouteState state = RouteState.active(
+                RouteCandidate.directWs(4, false, "149.154.167.220"),
+                "kws4.web.telegram.org", 70, "stable");
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(state);
+
+        assertEquals(1, targets.size());
+        assertEquals("kws4.web.telegram.org", targets.get(0).host());
+        assertEquals("kws4.web.telegram.org", targets.get(0).sni());
+    }
+
+    @Test
+    public void directPingKeepsTheExactSniThatWonEvenWhenFixedIpWon() {
+        RouteState state = RouteState.active(
+                RouteCandidate.directWs(4, true, "149.154.167.220"),
+                "149.154.167.220", "kws4-1.web.telegram.org",
+                70, "stable", 1_000L);
+
+        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(state);
+
+        assertEquals(1, targets.size());
+        assertEquals("149.154.167.220", targets.get(0).host());
+        assertEquals("kws4-1.web.telegram.org", targets.get(0).sni());
+    }
+
+    @Test
     public void cloudflareMarkerWithoutActiveDomainIsNotUsedAsHost() {
         RouteState state = RouteState.active(
                 RouteCandidate.publicCloudflare(2, "public-cf"),

@@ -47,6 +47,10 @@ npx wrangler deploy
 Шаблон ограничивает `dst` списком Telegram DC IP, которые использует приложение. Не удаляйте
 эту проверку.
 
+Этот allow-list означает, что Worker не является автоматически динамическим route: при новом
+DC/IP/port нужно сначала обновить доверенный server-side список и Android routing knowledge.
+TG Proxy не посылает неизвестный client-controlled destination и не создаёт ложный candidate.
+
 ```javascript
 import { connect } from "cloudflare:sockets";
 
