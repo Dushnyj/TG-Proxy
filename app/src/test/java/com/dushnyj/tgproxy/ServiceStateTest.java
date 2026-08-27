@@ -76,6 +76,15 @@ public class ServiceStateTest {
     }
 
     @Test
+    public void oldFailureWithoutTelegramClientDoesNotMakeHealthyListenerBroken() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.inactive("previous route failed"), false, false,
+                0L, true, 10_000L);
+
+        assertEquals(ServiceState.Status.READY_FOR_TELEGRAM, state.status());
+    }
+
+    @Test
     public void retryingEngineIsNotReportedAsStartingOrActive() {
         ServiceState state = ServiceState.from(true, false, false, false,
                 RouteState.inactive("bind failed"),

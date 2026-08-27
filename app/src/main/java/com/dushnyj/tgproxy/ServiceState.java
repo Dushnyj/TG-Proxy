@@ -72,7 +72,7 @@ final class ServiceState {
             status = Status.SLEEP;
         } else if (!engineRunning) {
             status = retrying ? Status.RETRYING : (starting ? Status.STARTING : Status.DEAD);
-        } else if (!localPortListening || recentRouteFailure) {
+        } else if (!localPortListening || (recentRouteFailure && activeConnections > 0L)) {
             status = Status.DEGRADED;
         } else if (routeState != null && routeState.active()
                 && routeState.isFresh(nowMs, ROUTE_EVIDENCE_MAX_AGE_MS)) {
