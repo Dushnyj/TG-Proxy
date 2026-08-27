@@ -617,14 +617,33 @@ public final class VpsSetupActivity extends AppCompatActivity {
         content.removeAllViews();
         addHero(R.drawable.ic_shield, R.string.vps_setup_plan_title,
                 R.string.vps_setup_plan_note);
-        if (!canApply) addError(getString(R.string.vps_setup_plan_blocked));
-        TextView summary = body(plan == null ? "" : plan.summary());
-        summary.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
-        summary.setTextIsSelectable(true);
-        summary.setBackgroundResource(canApply
-                ? R.drawable.owner_card_bg : R.drawable.danger_section_bg);
-        summary.setPadding(dp(16), dp(16), dp(16), dp(16));
-        content.addView(summary, topMargin(16));
+        List<String> blockers = plan == null
+                ? java.util.Collections.singletonList(getString(R.string.vps_setup_plan_unknown))
+                : plan.userBlockers();
+        List<String> warnings = plan == null
+                ? java.util.Collections.emptyList() : plan.userWarnings();
+        addPlanCard(
+                getString(canApply ? R.string.vps_setup_plan_ready_title
+                        : R.string.vps_setup_plan_blocked_title),
+                java.util.Collections.singletonList(getString(canApply
+                        ? (warnings.isEmpty() ? R.string.vps_setup_plan_ready_note
+                                : R.string.vps_setup_plan_ready_warning_note)
+                        : R.string.vps_setup_plan_blocked_note)),
+                canApply ? R.drawable.status_success_bg : R.drawable.status_error_bg,
+                canApply ? R.color.green : R.color.red);
+        if (!blockers.isEmpty()) {
+            addPlanCard(getString(R.string.vps_setup_plan_fix_title), blockers,
+                    R.drawable.status_error_bg, R.color.red);
+        }
+        if (!warnings.isEmpty()) {
+            addPlanCard(getString(R.string.vps_setup_plan_warning_title), warnings,
+                    R.drawable.status_warning_bg, R.color.warning);
+        }
+        if (plan != null) {
+            addPlanCard(getString(R.string.vps_setup_plan_actions_title), plan.userActions(),
+                    R.drawable.owner_card_bg, R.color.accent);
+            addTechnicalPlanDetails(plan.technicalSummary());
+        }
         configureFooter(true, canApply
                 ? R.string.vps_setup_apply : R.string.vps_setup_plan_blocked_action, () -> {
             planDeclined = true;
@@ -646,6 +665,49 @@ public final class VpsSetupActivity extends AppCompatActivity {
             next.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
         }
         scrollTop();
+    }
+
+    private void addPlanCard(String titleText, List<String> items,
+                             int backgroundRes, int accentColorRes) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(backgroundRes);
+        card.setPadding(dp(16), dp(15), dp(16), dp(15));
+        TextView cardTitle = heading(titleText);
+        cardTitle.setTextSize(16f);
+        cardTitle.setTextColor(ContextCompat.getColor(this, accentColorRes));
+        card.addView(cardTitle);
+        if (items != null) {
+            for (String item : items) {
+                if (item == null || item.trim().isEmpty()) continue;
+                TextView row = body("•  " + item.trim());
+                row.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+                row.setLineSpacing(0f, 1.08f);
+                card.addView(row, topMargin(9));
+            }
+        }
+        content.addView(card, topMargin(14));
+    }
+
+    private void addTechnicalPlanDetails(String details) {
+        MaterialButton toggle = outlinedButton(R.string.vps_setup_plan_technical_show);
+        toggle.setIconResource(R.drawable.ic_chevron_right);
+        content.addView(toggle, topMargin(14));
+
+        TextView technical = body(details == null ? "" : details);
+        technical.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        technical.setTextIsSelectable(true);
+        technical.setTextSize(12f);
+        technical.setBackgroundResource(R.drawable.owner_card_bg);
+        technical.setPadding(dp(14), dp(14), dp(14), dp(14));
+        technical.setVisibility(View.GONE);
+        content.addView(technical, topMargin(8));
+        toggle.setOnClickListener(view -> {
+            boolean show = technical.getVisibility() != View.VISIBLE;
+            technical.setVisibility(show ? View.VISIBLE : View.GONE);
+            toggle.setText(show ? R.string.vps_setup_plan_technical_hide
+                    : R.string.vps_setup_plan_technical_show);
+        });
     }
 
     private void renderInstall() {

@@ -58,7 +58,7 @@ public class VpsSetupPlanTest {
         VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
 
         assertFalse(plan.canApply());
-        assertTrue(plan.blockingSummary().contains("не является Linux"));
+        assertTrue(plan.blockingSummary().contains("не обнаружен Linux"));
     }
 
     @Test
@@ -86,7 +86,7 @@ public class VpsSetupPlanTest {
         assertFalse(plan.canApply());
         assertTrue(plan.summary().contains("443"));
         assertTrue(plan.summary().contains("DNS домена"));
-        assertTrue(plan.blockingSummary().contains("DNS домена"));
+        assertTrue(plan.blockingSummary().contains("Домен пока ведёт не на этот VPS"));
         assertFalse(plan.blockingSummary().startsWith("Read-only audit:"));
     }
 

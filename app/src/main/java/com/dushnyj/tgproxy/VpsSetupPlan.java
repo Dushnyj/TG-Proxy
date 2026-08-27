@@ -2,7 +2,9 @@ package com.dushnyj.tgproxy;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 
 final class VpsSetupPlan {
     enum InstallMode {
@@ -176,26 +178,150 @@ final class VpsSetupPlan {
 
     String blockingSummary() {
         if (canApply) return "";
-        StringBuilder out = new StringBuilder();
+        List<String> blockers = userBlockers();
+        return blockers.isEmpty() ? "Автонастройку пока нельзя продолжить."
+                : joinLines(blockers);
+    }
+
+    List<String> userBlockers() {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
         for (String line : lines) {
-            String lower = line == null ? "" : line.toLowerCase(java.util.Locale.ROOT);
-            boolean blocker = lower.startsWith("нужно ")
-                    || lower.contains("не найден")
-                    || lower.contains("не поддерж")
-                    || lower.contains("останов")
-                    || lower.contains(" занят")
-                    || lower.contains("невозмож")
-                    || lower.contains("не указывает")
-                    || lower.contains("не совпадает")
-                    || lower.contains("нет root")
-                    || lower.contains("не проходит validate")
-                    || (lower.contains("уже найден") && lower.contains("не будет"))
-                    || (lower.startsWith("для ") && lower.contains(" нужен "));
-            if (!blocker) continue;
-            if (out.length() > 0) out.append('\n');
-            out.append(line);
+            if (!isBlockingLine(line)) continue;
+            result.add(friendlyBlocker(line));
         }
-        return out.length() == 0 ? summary() : out.toString();
+        if (!canApply && result.isEmpty()) {
+            result.add("Автонастройку пока нельзя продолжить. Вернитесь назад и проверьте выбранный адрес сервера.");
+        }
+        return Collections.unmodifiableList(new ArrayList<>(result));
+    }
+
+    List<String> userWarnings() {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (String line : lines) {
+            String lower = lower(line);
+            if (lower.contains("существующий relay опубликован как")) {
+                result.add("На VPS уже работает Relay с другим публичным адресом. Приложение не перезапишет рабочее подключение и применит изменения только после безопасной проверки нового адреса.");
+            } else if (lower.contains("curl/wget не найден") || lower.contains("tar не найден")) {
+                result.add("Некоторые системные утилиты отсутствуют. Приложение установит их автоматически штатным пакетным менеджером сервера.");
+            } else if (lower.contains("найден существующий web stack")
+                    || lower.contains("обнаружен nginx/apache/caddy")) {
+                result.add("На VPS уже есть сайты. Автонастройка не будет их перезаписывать и добавит только отдельный маршрут TG Proxy.");
+            }
+        }
+        return Collections.unmodifiableList(new ArrayList<>(result));
+    }
+
+    List<String> userActions() {
+        ArrayList<String> result = new ArrayList<>();
+        if (installMode == InstallMode.EXISTING_RELAY_ADD_TOKEN) {
+            result.add("Сохранит установленный Relay и добавит выбранный токен без переустановки сервера.");
+        } else if (installMode == InstallMode.EXISTING_RELAY_UPDATE) {
+            result.add("Создаст резервную копию, обновит Relay и сохранит действующие токены.");
+        } else if (installMode == InstallMode.STANDALONE) {
+            result.add("Установит Relay как отдельную службу и включит автоматический запуск после перезагрузки.");
+        } else if (installMode != null) {
+            result.add("Установит Relay и добавит отдельный HTTPS-маршрут, не изменяя содержимое существующих сайтов.");
+        }
+        if (hasRouteRepair()) {
+            result.add("Восстановит отсутствующий публичный маршрут Relay в найденной конфигурации веб-сервера.");
+        }
+        result.add("Перед изменениями создаст резервную копию и автоматически откатит её при ошибке.");
+        result.add("Проверит HTTPS, токен, основные и медиамаршруты рабочих Telegram DC.");
+        return Collections.unmodifiableList(result);
+    }
+
+    String technicalSummary() {
+        return summary();
+    }
+
+    private static boolean isBlockingLine(String line) {
+        String lower = lower(line);
+        if (lower.contains("автонастройка установит")
+                || lower.contains("установит загрузчик пакетом ос")) return false;
+        return lower.startsWith("нужно ")
+                || lower.contains("не найден")
+                || lower.contains("не поддерж")
+                || lower.contains("останов")
+                || lower.contains(" занят")
+                || lower.contains("невозмож")
+                || lower.contains("не указывает")
+                || lower.contains("не совпадает")
+                || lower.contains("нет root")
+                || lower.contains("не проходит validate")
+                || (lower.contains("уже найден") && lower.contains("не будет"))
+                || (lower.startsWith("для ") && lower.contains(" нужен "));
+    }
+
+    private static String friendlyBlocker(String line) {
+        String lower = lower(line);
+        if (lower.startsWith("нужно заполнить")) {
+            return "Заполните адрес VPS, SSH-логин и параметры Relay.";
+        }
+        if (lower.contains("не является linux")) {
+            return "На сервере не обнаружен Linux. Автонастройка работает только на Linux-серверах.";
+        }
+        if (lower.contains("init-система") && lower.contains("не поддерж")) {
+            return "Система запуска служб на этом сервере не распознана. Нужен systemd, OpenRC, runit или SysV init.";
+        }
+        if (lower.contains("архитектура") && lower.contains("не поддерж")) {
+            return "Для архитектуры этого VPS пока нет готовой сборки Relay.";
+        }
+        if (lower.contains("dns домена не указывает")) {
+            return "Домен пока ведёт не на этот VPS. Исправьте A/AAAA-запись и повторите проверку после обновления DNS.";
+        }
+        if (lower.contains("выбранный ip не совпадает")) {
+            return "Выбранный IP не совпадает с публичным IP VPS. Вернитесь назад и выберите найденный адрес сервера.";
+        }
+        if (lower.contains("внутренний порт") && lower.contains("занят")) {
+            return "Внутренний порт Relay уже занят другой программой. Освободите порт или выберите другой.";
+        }
+        if (lower.contains("порт 443 занят")) {
+            return "Порт 443 занят неизвестной программой. Приложение не будет перехватывать чужой HTTPS-трафик.";
+        }
+        if (lower.contains("порт 80 занят")) {
+            return "Порт 80 занят неизвестной программой, поэтому нельзя безопасно выпустить HTTPS-сертификат.";
+        }
+        if (lower.contains("нет root/passwordless sudo")) {
+            return "У SSH-пользователя нет прав на установку пакетов. Используйте root или пользователя с sudo без дополнительного запроса пароля.";
+        }
+        if (lower.contains("пакетн") && lower.contains("не найден")) {
+            return "Не найден поддерживаемый пакетный менеджер Linux. Поддерживаются apt, dnf, yum, zypper, apk, pacman, xbps и portage.";
+        }
+        if (lower.contains("не найден безопасный web stack")) {
+            return "Приложение не нашло безопасного места для добавления маршрута Relay и не станет менять чужие сайты.";
+        }
+        if (lower.contains("существующий relay") && lower.contains("друг")
+                && lower.contains("нельзя")) {
+            return "На VPS уже работает Relay с другим адресом. Выберите его существующий адрес либо отдельный домен, который ведёт на этот VPS.";
+        }
+        if (lower.contains("python3")) {
+            return "Для безопасного изменения конфигурации нужен Python 3. Установите его на VPS и повторите проверку.";
+        }
+        if (lower.contains("validate")) {
+            return "Текущая конфигурация веб-сервера содержит ошибку. Исправьте её, затем повторите автонастройку.";
+        }
+        if (lower.contains("config.json")) {
+            return "Relay найден, но его файл настроек определить не удалось. Обновите или восстановите установку Relay.";
+        }
+        if (lower.contains("apache/caddy") || lower.contains("встраивание остановлено")) {
+            return "Существующая конфигурация сайта слишком сложная для безопасного автоматического изменения. Приложение не будет её перезаписывать.";
+        }
+        return line == null || line.trim().isEmpty()
+                ? "Исправьте отмеченное условие и повторите проверку." : line.trim();
+    }
+
+    private static String lower(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private static String joinLines(List<String> values) {
+        StringBuilder out = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.trim().isEmpty()) continue;
+            if (out.length() > 0) out.append('\n');
+            out.append(value.trim());
+        }
+        return out.toString();
     }
 
     private static Decision planExistingRelay(VpsSetupRequest request, VpsSetupAudit audit,
@@ -217,7 +343,9 @@ final class VpsSetupPlan {
             lines.add("Не найден путь к существующему config.json Relay.");
             canApply = false;
         }
-        if (!publicUrl.isEmpty() && !samePublicEndpoint(publicUrl, request.publicUrl())) {
+        boolean endpointMismatch = !publicUrl.isEmpty()
+                && !samePublicEndpoint(publicUrl, request.publicUrl());
+        if (endpointMismatch) {
             lines.add("Существующий Relay опубликован как " + publicUrl
                     + ", новый профиль будет использовать " + request.publicUrl() + ".");
         }
@@ -225,6 +353,12 @@ final class VpsSetupPlan {
         VpsSetupRequest effectiveRequest = existingRelayRouteRequest(request, audit);
         if (routeRepair != null) {
             canApply = routeRepair.canApply && canApply;
+        }
+        if (endpointMismatch && routeRepair == null
+                && effectiveRequest != null
+                && samePublicEndpoint(effectiveRequest.publicUrl(), request.publicUrl())) {
+            lines.add("Существующий Relay использует другой публичный адрес; безопасный маршрут для нового адреса не найден, поэтому применять план нельзя.");
+            canApply = false;
         }
         if (request.updateExistingRelay()) {
             if (!isYes(audit.value("curl")) && !isYes(audit.value("wget"))) {
@@ -572,11 +706,11 @@ final class VpsSetupPlan {
     }
 
     private static String normalizeEndpoint(String value) {
-        String normalized = value == null ? "" : value.trim();
-        while (normalized.endsWith("/") && normalized.length() > 1) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized;
+        ExistingEndpoint endpoint = ExistingEndpoint.parse(value);
+        if (endpoint == null) return value == null ? "" : value.trim();
+        return (endpoint.tls ? "https" : "http") + "://" + endpoint.host.toLowerCase(Locale.ROOT)
+                + ":" + endpoint.port + VpsRelayConfig.manual(true, "Relay", endpoint.host,
+                endpoint.port, endpoint.tls, endpoint.path, "token", "").path();
     }
 
     private static final class ExistingEndpoint {

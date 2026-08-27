@@ -525,6 +525,17 @@
     <string name="vps_endpoint_continue">Проверить адрес</string>
     <string name="vps_endpoint_preparing_plan">Проверяем адрес и готовим план изменений…</string>
     <string name="vps_setup_plan_blocked">План создан, но применять его пока нельзя. Ниже указано, что нужно исправить; сервер не изменялся.</string>
+    <string name="vps_setup_plan_ready_title">Сервер готов к настройке</string>
+    <string name="vps_setup_plan_ready_note">Все обязательные проверки пройдены. Настройку можно выполнить автоматически.</string>
+    <string name="vps_setup_plan_ready_warning_note">Обязательные проверки пройдены. Перед запуском прочитайте отмеченные особенности.</string>
+    <string name="vps_setup_plan_blocked_title">Сначала исправьте условия</string>
+    <string name="vps_setup_plan_blocked_note">Сервер не изменялся. После исправления вернитесь к этому шагу и повторите проверку.</string>
+    <string name="vps_setup_plan_fix_title">Что нужно исправить</string>
+    <string name="vps_setup_plan_warning_title">Что нужно учесть</string>
+    <string name="vps_setup_plan_actions_title">Что сделает приложение</string>
+    <string name="vps_setup_plan_technical_show">Показать технические подробности</string>
+    <string name="vps_setup_plan_technical_hide">Скрыть технические подробности</string>
+    <string name="vps_setup_plan_unknown">Не удалось построить план. Вернитесь назад и повторите проверку сервера.</string>
     <string name="vps_setup_plan_blocked_action">Сначала исправьте условия</string>
     <string name="vps_endpoint_updating_duckdns">Обновляем DuckDNS и ждём DNS…</string>
     <string name="vps_endpoint_checking_dns">Проверяем DNS и доступность адреса…</string>

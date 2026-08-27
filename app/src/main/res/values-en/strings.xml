@@ -524,6 +524,17 @@
     <string name="vps_endpoint_continue">Verify address</string>
     <string name="vps_endpoint_preparing_plan">Verifying the address and preparing the change plan…</string>
     <string name="vps_setup_plan_blocked">The plan is ready, but it cannot be applied yet. The required fixes are listed below; the server has not been changed.</string>
+    <string name="vps_setup_plan_ready_title">Server is ready</string>
+    <string name="vps_setup_plan_ready_note">All required checks passed. The app can configure the server automatically.</string>
+    <string name="vps_setup_plan_ready_warning_note">All required checks passed. Review the noted conditions before continuing.</string>
+    <string name="vps_setup_plan_blocked_title">Fix these conditions first</string>
+    <string name="vps_setup_plan_blocked_note">The server has not been changed. Fix the items below and run the check again.</string>
+    <string name="vps_setup_plan_fix_title">What needs attention</string>
+    <string name="vps_setup_plan_warning_title">Before you continue</string>
+    <string name="vps_setup_plan_actions_title">What the app will do</string>
+    <string name="vps_setup_plan_technical_show">Show technical details</string>
+    <string name="vps_setup_plan_technical_hide">Hide technical details</string>
+    <string name="vps_setup_plan_unknown">The plan could not be created. Go back and check the server again.</string>
     <string name="vps_setup_plan_blocked_action">Fix the listed conditions first</string>
     <string name="vps_endpoint_updating_duckdns">Updating DuckDNS and waiting for DNS…</string>
     <string name="vps_endpoint_checking_dns">Checking DNS and address availability…</string>
