@@ -242,8 +242,8 @@
     <string name="autostart_boot_note">Some Android devices also require background startup permission in system settings.</string>
     <string name="background_status_checking">Checking background execution permissions…</string>
     <string name="background_setup">Configure background operation</string>
-    <string name="background_setup_title">Continuous proxy operation</string>
-    <string name="background_setup_message">Check these conditions so Android and the %1$s software do not stop the proxy. Location and Wi-Fi permissions are required to select the exact network profile.</string>
+    <string name="background_setup_title">Background operation</string>
+    <string name="background_setup_message">Tap a red item to open the required setting. Green items are already complete.</string>
     <string name="background_conditions_title">Condition check</string>
     <string name="background_conditions_hint">Refreshes automatically after returning from settings.</string>
     <string name="background_condition_boot">Start after device reboot</string>
@@ -258,6 +258,8 @@
     <string name="background_condition_denied">Not allowed</string>
     <string name="background_condition_confirmed">Confirmed</string>
     <string name="background_condition_not_confirmed">Not confirmed</string>
+    <string name="background_condition_tap_to_confirm">Tap again to confirm</string>
+    <string name="background_condition_tap_action">Tap to fix</string>
     <string name="background_condition_system_allowed">Allowed by the system</string>
     <string name="background_condition_system_disabled">Disabled in system settings</string>
     <string name="background_condition_not_required">No additional setup is required</string>

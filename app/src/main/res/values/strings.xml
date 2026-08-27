@@ -266,8 +266,8 @@
     <string name="autostart_boot_note">На некоторых устройствах Android нужно отдельно разрешить фоновый запуск в настройках системы.</string>
     <string name="background_status_checking">Проверяем разрешения фоновой работы…</string>
     <string name="background_setup">Настроить работу в фоне</string>
-    <string name="background_setup_title">Непрерывная работа прокси</string>
-    <string name="background_setup_message">Проверьте условия, чтобы Android и оболочка %1$s не останавливали прокси. Геолокация и разрешения Wi‑Fi нужны для точного выбора сетевого профиля.</string>
+    <string name="background_setup_title">Работа в фоне</string>
+    <string name="background_setup_message">Нажмите на красный пункт, чтобы открыть нужную настройку. Зелёные пункты уже выполнены.</string>
     <string name="background_conditions_title">Проверка условий</string>
     <string name="background_conditions_hint">Обновляется автоматически после возврата из настроек.</string>
     <string name="background_condition_boot">Запуск после перезагрузки</string>
@@ -282,6 +282,8 @@
     <string name="background_condition_denied">Не разрешено</string>
     <string name="background_condition_confirmed">Подтверждено</string>
     <string name="background_condition_not_confirmed">Не подтверждено</string>
+    <string name="background_condition_tap_to_confirm">Нажмите ещё раз, чтобы подтвердить</string>
+    <string name="background_condition_tap_action">Нажмите, чтобы исправить</string>
     <string name="background_condition_system_allowed">Разрешено системой</string>
     <string name="background_condition_system_disabled">Выключено в системе</string>
     <string name="background_condition_not_required">Дополнительная настройка не требуется</string>

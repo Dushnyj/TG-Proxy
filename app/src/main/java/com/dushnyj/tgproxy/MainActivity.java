@@ -159,10 +159,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean backgroundSetupDialogShowing;
     private AlertDialog backgroundSetupDialog;
     private LinearLayout backgroundSetupStatusList;
-    private CheckBox backgroundSetupBootToggle, backgroundSetupAutostartToggle;
-    private Button backgroundSetupBatteryAction, backgroundSetupAutostartAction;
-    private Button backgroundSetupNotificationAction, backgroundSetupLocationAction;
-    private Button backgroundSetupNetworkIdentityAction;
+    private boolean backgroundAutostartSettingsOpened;
     private final AtomicBoolean vpsRelayTestRunning = new AtomicBoolean(false);
     private final AtomicBoolean vpsRelayVersionCheckRunning = new AtomicBoolean(false);
     private String vpsRelayUpdateDialogKey = "";
@@ -4314,111 +4311,27 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18), dp(4), dp(18), dp(8));
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(layout, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        layout.setPadding(dp(14), 0, dp(14), dp(4));
 
         TextView text = new TextView(this);
-        text.setText(getString(R.string.background_setup_message,
-                BackgroundExecutionAssistant.manufacturer()));
+        text.setText(R.string.background_setup_message);
         text.setTextColor(getColorValue(R.color.text_secondary));
-        text.setTextSize(13f);
+        text.setTextSize(12.5f);
+        text.setLineSpacing(0f, 1.04f);
         layout.addView(text);
-
-        TextView conditionsTitle = new TextView(this);
-        conditionsTitle.setText(R.string.background_conditions_title);
-        conditionsTitle.setTextColor(getColorValue(R.color.text_primary));
-        conditionsTitle.setTextSize(15f);
-        conditionsTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.topMargin = dp(14);
-        layout.addView(conditionsTitle, titleParams);
-
-        TextView conditionsHint = new TextView(this);
-        conditionsHint.setText(R.string.background_conditions_hint);
-        conditionsHint.setTextColor(getColorValue(R.color.text_secondary));
-        conditionsHint.setTextSize(11.5f);
-        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hintParams.topMargin = dp(2);
-        hintParams.bottomMargin = dp(5);
-        layout.addView(conditionsHint, hintParams);
 
         backgroundSetupStatusList = new LinearLayout(this);
         backgroundSetupStatusList.setOrientation(LinearLayout.VERTICAL);
-        layout.addView(backgroundSetupStatusList, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        backgroundSetupBootToggle = new CheckBox(this);
-        backgroundSetupBootToggle.setText(R.string.background_enable_boot);
-        backgroundSetupBootToggle.setTextColor(getColorValue(R.color.text_primary));
-        backgroundSetupBootToggle.setTextSize(13f);
-        backgroundSetupBootToggle.setChecked(prefs.getBoolean("autostart_boot", true));
-        backgroundSetupBootToggle.setOnCheckedChangeListener((button, checked) ->
-                refreshBackgroundSetupDialog());
-        LinearLayout.LayoutParams checkboxParams = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        checkboxParams.topMargin = dp(6);
-        layout.addView(backgroundSetupBootToggle, checkboxParams);
+        listParams.topMargin = dp(7);
+        layout.addView(backgroundSetupStatusList, listParams);
 
-        backgroundSetupBatteryAction = exportActionButton(
-                R.string.background_disable_battery_optimization);
-        backgroundSetupBatteryAction.setOnClickListener(v ->
-                BackgroundExecutionAssistant.requestBatteryOptimizationExemption(this));
-        layout.addView(backgroundSetupBatteryAction, backgroundActionParams());
-
-        backgroundSetupAutostartAction = exportActionButton(R.string.background_open_autostart);
-        backgroundSetupAutostartAction.setOnClickListener(v -> {
-            if (!BackgroundExecutionAssistant.openManufacturerAutostart(this)) {
-                Toast.makeText(this, R.string.background_settings_unavailable,
-                        Toast.LENGTH_LONG).show();
-            }
-        });
-        layout.addView(backgroundSetupAutostartAction, backgroundActionParams());
-
-        backgroundSetupAutostartToggle = new CheckBox(this);
-        backgroundSetupAutostartToggle.setText(R.string.background_autostart_confirmed);
-        backgroundSetupAutostartToggle.setTextColor(getColorValue(R.color.text_primary));
-        backgroundSetupAutostartToggle.setTextSize(13f);
         BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
-        BackgroundReliabilityStore.Status initialStatus = reliability.status();
-        backgroundSetupAutostartToggle.setChecked(initialStatus.autostartConfirmed);
-        backgroundSetupAutostartToggle.setVisibility(initialStatus.autostartState
-                == BackgroundExecutionAssistant.AutostartState.UNKNOWN
-                && BackgroundExecutionAssistant.requiresManualAutostartConfirmation()
-                ? View.VISIBLE : View.GONE);
-        backgroundSetupAutostartToggle.setOnCheckedChangeListener((button, checked) ->
-                refreshBackgroundSetupDialog());
-        layout.addView(backgroundSetupAutostartToggle);
-
-        backgroundSetupNotificationAction = exportActionButton(
-                R.string.background_allow_notifications);
-        backgroundSetupNotificationAction.setOnClickListener(v -> requestNotificationPermission());
-        layout.addView(backgroundSetupNotificationAction, backgroundActionParams());
-
-        backgroundSetupNetworkIdentityAction = exportActionButton(
-                R.string.background_allow_network_identity);
-        backgroundSetupNetworkIdentityAction.setOnClickListener(v ->
-                requestNetworkIdentityPermissions(true));
-        layout.addView(backgroundSetupNetworkIdentityAction, backgroundActionParams());
-
-        backgroundSetupLocationAction = exportActionButton(
-                R.string.background_enable_location_for_wifi);
-        backgroundSetupLocationAction.setOnClickListener(v ->
-                BackgroundExecutionAssistant.openLocationSettings(this));
-        layout.addView(backgroundSetupLocationAction, backgroundActionParams());
-
-        Button appSettings = exportActionButton(R.string.background_open_app_settings);
-        appSettings.setOnClickListener(v -> BackgroundExecutionAssistant.openAppSettings(this));
-        layout.addView(appSettings, backgroundActionParams());
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.background_setup_title)
-                .setView(scroll)
+                .setView(layout)
                 .setPositiveButton(R.string.background_check_ready, null)
                 .setNegativeButton(R.string.background_not_now, null)
                 .create();
@@ -4429,29 +4342,12 @@ public class MainActivity extends AppCompatActivity {
             if (backgroundSetupDialog == dialog) {
                 backgroundSetupDialog = null;
                 backgroundSetupStatusList = null;
-                backgroundSetupBootToggle = null;
-                backgroundSetupAutostartToggle = null;
-                backgroundSetupBatteryAction = null;
-                backgroundSetupAutostartAction = null;
-                backgroundSetupNotificationAction = null;
-                backgroundSetupLocationAction = null;
-                backgroundSetupNetworkIdentityAction = null;
+                backgroundAutostartSettingsOpened = false;
             }
         });
         dialog.setOnShowListener(ignored -> {
             refreshBackgroundSetupDialog();
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                boolean bootEnabled = backgroundSetupBootToggle != null
-                        && backgroundSetupBootToggle.isChecked();
-                boolean autostartConfirmationVisible = backgroundSetupAutostartToggle != null
-                        && backgroundSetupAutostartToggle.getVisibility() == View.VISIBLE;
-                boolean autostartConfirmed = autostartConfirmationVisible
-                        && backgroundSetupAutostartToggle.isChecked();
-                prefs.edit().putBoolean("autostart_boot", bootEnabled).commit();
-                cbAutostartBoot.setChecked(bootEnabled);
-                if (autostartConfirmationVisible) {
-                    reliability.setAutostartConfirmed(autostartConfirmed);
-                }
                 reliability.markPrompted(BuildConfig.VERSION_CODE);
                 refreshBackgroundExecutionStatus();
                 refreshBackgroundSetupDialog();
@@ -4466,44 +4362,40 @@ public class MainActivity extends AppCompatActivity {
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
                 reliability.markPrompted(BuildConfig.VERSION_CODE);
                 refreshBackgroundExecutionStatus();
-                Toast.makeText(this, R.string.background_missing_warning,
-                        Toast.LENGTH_LONG).show();
+                if (!reliability.status().ready()) {
+                    Toast.makeText(this, R.string.background_missing_warning,
+                            Toast.LENGTH_LONG).show();
+                }
                 dialog.dismiss();
             });
         });
         dialog.show();
     }
 
-    private LinearLayout.LayoutParams backgroundActionParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(6);
-        return params;
-    }
-
     private void refreshBackgroundSetupDialog() {
         if (backgroundSetupStatusList == null) return;
-        BackgroundReliabilityStore.Status status = new BackgroundReliabilityStore(this).status();
-        boolean bootEnabled = backgroundSetupBootToggle == null
-                ? status.bootEnabled : backgroundSetupBootToggle.isChecked();
+        BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
+        BackgroundReliabilityStore.Status status = reliability.status();
+        boolean bootEnabled = status.bootEnabled;
         boolean manualAutostart = status.autostartState
                 == BackgroundExecutionAssistant.AutostartState.UNKNOWN
                 && BackgroundExecutionAssistant.requiresManualAutostartConfirmation();
-        boolean autostartConfirmed = manualAutostart
-                ? (backgroundSetupAutostartToggle == null
-                ? status.autostartConfirmed : backgroundSetupAutostartToggle.isChecked())
-                : status.autostartConfirmed;
-        if (backgroundSetupAutostartToggle != null) {
-            backgroundSetupAutostartToggle.setVisibility(manualAutostart
-                    ? View.VISIBLE : View.GONE);
-        }
+        boolean autostartConfirmed = status.autostartConfirmed;
 
         backgroundSetupStatusList.removeAllViews();
         addBackgroundStatusRow(R.string.background_condition_boot, bootEnabled,
-                R.string.background_condition_enabled, R.string.background_condition_disabled);
+                R.string.background_condition_enabled, R.string.background_condition_disabled,
+                bootEnabled ? null : () -> {
+                    prefs.edit().putBoolean("autostart_boot", true).commit();
+                    if (cbAutostartBoot != null) cbAutostartBoot.setChecked(true);
+                    refreshBackgroundExecutionStatus();
+                    refreshBackgroundSetupDialog();
+                });
         addBackgroundStatusRow(R.string.background_condition_battery,
                 status.batteryUnrestricted, R.string.background_battery_ready_short,
-                R.string.background_battery_restricted_short);
+                R.string.background_battery_restricted_short,
+                status.batteryUnrestricted ? null : () ->
+                        BackgroundExecutionAssistant.requestBatteryOptimizationExemption(this));
         int autostartReadyDetail = status.autostartState
                 == BackgroundExecutionAssistant.AutostartState.ALLOWED
                 ? R.string.background_condition_system_allowed
@@ -4512,35 +4404,53 @@ public class MainActivity extends AppCompatActivity {
         int autostartMissingDetail = status.autostartState
                 == BackgroundExecutionAssistant.AutostartState.DENIED
                 ? R.string.background_condition_system_disabled
-                : R.string.background_condition_not_confirmed;
+                : (manualAutostart && backgroundAutostartSettingsOpened
+                ? R.string.background_condition_tap_to_confirm
+                : R.string.background_condition_not_confirmed);
         addBackgroundStatusRow(R.string.background_condition_autostart, autostartConfirmed,
-                autostartReadyDetail, autostartMissingDetail);
+                autostartReadyDetail, autostartMissingDetail,
+                autostartConfirmed ? null : () -> {
+                    BackgroundReliabilityStore.Status current = reliability.status();
+                    boolean unknown = current.autostartState
+                            == BackgroundExecutionAssistant.AutostartState.UNKNOWN;
+                    if (unknown && backgroundAutostartSettingsOpened) {
+                        reliability.setAutostartConfirmed(true);
+                        backgroundAutostartSettingsOpened = false;
+                        refreshBackgroundExecutionStatus();
+                        refreshBackgroundSetupDialog();
+                        return;
+                    }
+                    backgroundAutostartSettingsOpened =
+                            BackgroundExecutionAssistant.openManufacturerAutostart(this);
+                    if (!backgroundAutostartSettingsOpened) {
+                        Toast.makeText(this, R.string.background_settings_unavailable,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
         addBackgroundStatusRow(R.string.background_condition_notifications,
                 status.notificationsAllowed, R.string.background_condition_allowed,
-                R.string.background_condition_denied);
+                R.string.background_condition_denied,
+                status.notificationsAllowed ? null : this::requestNotificationPermission);
         addBackgroundStatusRow(R.string.background_condition_network_identity,
                 status.networkIdentityAllowed, R.string.background_condition_allowed,
-                R.string.background_condition_denied);
+                R.string.background_condition_denied,
+                status.networkIdentityAllowed ? null : () ->
+                        requestNetworkIdentityPermissions(true));
         addBackgroundStatusRow(R.string.background_condition_location,
                 status.locationEnabled, R.string.background_condition_enabled,
-                R.string.background_condition_disabled);
-
-        setVisible(backgroundSetupBatteryAction, !status.batteryUnrestricted);
-        setVisible(backgroundSetupAutostartAction,
-                BackgroundExecutionAssistant.requiresManualAutostartConfirmation()
-                        && !autostartConfirmed);
-        setVisible(backgroundSetupNotificationAction, !status.notificationsAllowed);
-        setVisible(backgroundSetupNetworkIdentityAction, !status.networkIdentityAllowed);
-        setVisible(backgroundSetupLocationAction, !status.locationEnabled);
+                R.string.background_condition_disabled,
+                status.locationEnabled ? null : () ->
+                        BackgroundExecutionAssistant.openLocationSettings(this));
     }
 
     private void addBackgroundStatusRow(int titleRes, boolean ready,
-                                        int readyDetailRes, int missingDetailRes) {
+                                        int readyDetailRes, int missingDetailRes,
+                                        Runnable missingAction) {
         if (backgroundSetupStatusList == null) return;
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        row.setPadding(dp(11), dp(6), dp(9), dp(6));
         row.setBackgroundResource(ready ? R.drawable.background_status_ready_row
                 : R.drawable.background_status_missing_row);
 
@@ -4549,8 +4459,8 @@ public class MainActivity extends AppCompatActivity {
         icon.setImageTintList(ColorStateList.valueOf(getColorValue(
                 ready ? R.color.green : R.color.red)));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(24), dp(24));
-        iconParams.rightMargin = dp(10);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        iconParams.rightMargin = dp(9);
         row.addView(icon, iconParams);
 
         LinearLayout copy = new LinearLayout(this);
@@ -4558,7 +4468,7 @@ public class MainActivity extends AppCompatActivity {
         TextView title = new TextView(this);
         title.setText(titleRes);
         title.setTextColor(getColorValue(R.color.text_primary));
-        title.setTextSize(13f);
+        title.setTextSize(12.5f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         copy.addView(title);
 
@@ -4566,15 +4476,27 @@ public class MainActivity extends AppCompatActivity {
         TextView detail = new TextView(this);
         detail.setText(detailRes);
         detail.setTextColor(getColorValue(ready ? R.color.green : R.color.red));
-        detail.setTextSize(11.5f);
+        detail.setTextSize(10.5f);
         copy.addView(detail);
         row.addView(copy, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.setContentDescription(getString(titleRes) + ". " + getString(detailRes));
+        if (!ready && missingAction != null) {
+            ImageView chevron = new ImageView(this);
+            chevron.setImageResource(R.drawable.ic_chevron_right);
+            chevron.setImageTintList(ColorStateList.valueOf(getColorValue(R.color.red)));
+            chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(chevron, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setOnClickListener(view -> missingAction.run());
+        }
+        row.setContentDescription(getString(titleRes) + ". " + getString(detailRes)
+                + (!ready && missingAction != null
+                ? ". " + getString(R.string.background_condition_tap_action) : ""));
 
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rowParams.topMargin = dp(4);
+        rowParams.topMargin = dp(3);
         backgroundSetupStatusList.addView(row, rowParams);
     }
 
