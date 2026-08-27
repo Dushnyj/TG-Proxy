@@ -22,7 +22,7 @@ public class MtProtoConfigTest {
                 "0123456789abcdef0123456789abcdef");
 
         assertEquals(
-                "tg://proxy?server=127.0.0.1&port=1443&secret=dd0123456789abcdef0123456789abcdef",
+                "tg://proxy?server=127.0.0.1&port=1443&secret=dd0123456789abcdef0123456789abcdef", // gitleaks:allow
                 link);
     }
 

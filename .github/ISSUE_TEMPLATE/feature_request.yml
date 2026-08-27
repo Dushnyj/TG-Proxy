@@ -1,0 +1,45 @@
+name: Предложение функции
+description: Улучшение интерфейса, маршрутизации, диагностики или VPS Relay
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему пользователя нужно решить
+      description: Опишите сценарий, а не только желаемую кнопку.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое решение
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы и ограничения
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Android UI/UX
+        - Фоновая работа
+        - Маршрутизация и Telegram DC
+        - VPS Relay
+        - Cloudflare
+        - Диагностика
+        - Импорт / экспорт / QR
+        - Документация
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Проверка
+      options:
+        - label: В описании нет реальных токенов, паролей, приватных доменов/IP и персональных данных.
+          required: true

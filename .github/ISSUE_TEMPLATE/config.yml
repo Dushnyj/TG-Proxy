@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Инструкция поддержки
+    url: https://github.com/Dushnyj/TG-Proxy/blob/main/SUPPORT.md
+    about: Как собрать полный диагностический ZIP и выбрать форму обращения
+  - name: Сообщить об уязвимости закрыто
+    url: https://github.com/Dushnyj/TG-Proxy/security/advisories/new
+    about: Не публикуйте секреты и уязвимости в обычных issues

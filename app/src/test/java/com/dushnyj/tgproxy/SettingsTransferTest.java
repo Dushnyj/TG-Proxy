@@ -241,7 +241,7 @@ public class SettingsTransferTest {
     public void plaintextFullProfileAndInvalidRelayAreRejected() throws Exception {
         String plainFull = SettingsTransfer.exportSafeProfile(sampleData())
                 .replace("kind=safe_profile", "kind=full_profile")
-                + "\nmtprotoSecret=00112233445566778899aabbccddeeff";
+                + "\nmtprotoSecret=00112233445566778899aabbccddeeff"; // gitleaks:allow
         assertRejected(() -> SettingsTransfer.parse(plainFull, ""), "encrypted");
 
         String invalidRelay = "TGPROXY-SETTINGS-v1\nkind=vps_relay"

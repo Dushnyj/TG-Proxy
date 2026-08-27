@@ -16,3 +16,29 @@ app/.cxx/
 local.properties
 .DS_Store
 capture.png
+
+# Local ADB / device QA artifacts. Sanitized documentation screenshots belong
+# under docs/assets/ and are reviewed before commit.
+/adb-*
+/qa-*
+/logs-*
+
+# Local secret-scan output.
+/gitleaks-report.*
+/gitleaks-*.json
+/gitleaks-*.sarif
+
+# Signing material and local environment files.
+*.jks
+*.keystore
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+/signing/
+
+# User-generated diagnostics must be reviewed manually before sharing and are
+# never documentation assets by default.
+/diagnostics-*
+/tgproxy-diagnostics-*

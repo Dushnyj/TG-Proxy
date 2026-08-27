@@ -1,0 +1,91 @@
+name: Ошибка Android-приложения
+description: Сбой, остановка прокси, сеть, Telegram, голосовые сообщения или медиа
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Сначала установите последнюю версию и соберите полный ZIP через **Диагностика → Сбросить → воспроизвести → Сохранить ZIP**.
+  - type: input
+    id: app_version
+    attributes:
+      label: Версия TG Proxy
+      placeholder: "1.2.0 (10200)"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Устройство и Android
+      placeholder: "Samsung SM-S926B, Android 16"
+    validations:
+      required: true
+  - type: input
+    id: telegram
+    attributes:
+      label: Клиент и версия Telegram
+      placeholder: "Telegram 12.x из Google Play"
+    validations:
+      required: true
+  - type: input
+    id: network
+    attributes:
+      label: Сеть, оператор и регион
+      description: Не указывайте точный адрес. Достаточно типа сети, оператора и города/региона.
+      placeholder: "Мобильная сеть, оператор, Россия — Москва"
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Маршрут
+      options:
+        - Автовыбор / неизвестно
+        - Direct WS
+        - VPS Relay
+        - Cloudflare Worker
+        - Собственный Cloudflare-домен
+        - Публичный Cloudflare
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Запустил TG Proxy...
+        2. Открыл Telegram...
+        3. Отправил/скачал...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Полная диагностика
+      description: Перетащите сюда ZIP из приложения. Краткий текст и скриншот не заменяют архив.
+      placeholder: Перетащите файл .zip в это поле
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Проверка приватности
+      options:
+        - label: Я проверил вложения и не публикую SSH-пароли, приватные ключи, raw client/owner/DuckDNS tokens или полный MTProto secret.
+          required: true
+        - label: Я проверил существующие issues и использую последнюю опубликованную версию.
+          required: true

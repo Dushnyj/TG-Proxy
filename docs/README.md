@@ -1,14 +1,40 @@
 # Документация TG Proxy
 
-- [VPS Relay в приложении](VPS_RELAY.md) - ручной ввод, импорт, экспорт, QR и автонастройка VPS через отдельный Relay-репозиторий.
-- [Cloudflare Worker](CLOUDFLARE_WORKER.md) - бесплатный Worker endpoint для маршрута `Cloudflare Worker`.
-- [Cloudflare-домен](CLOUDFLARE_DOMAIN.md) - собственный домен с `kws<dc>` DNS-записями.
-- [Диагностика](DIAGNOSTICS.md) - отчеты, логи, route matrix и безопасная передача данных.
-- [Маршрутизация](ROUTING.md) - порядок кандидатов, сетевые профили и fallback.
-- [Telegram topology](TELEGRAM_TOPOLOGY.md) - DC options, границы route types, signed LKG и synthetic DC204.
-- [Failure injection](FAILURE_INJECTION.md) - автоматические и полевые сценарии отказов.
-- [Whitelist-only сети РФ](RUSSIAN_WHITELIST_RESEARCH.md) - доказательная база и test plan без production-реализации транспорта.
-- [Надежность Android-сервиса](RELIABILITY.md) - foreground service, уведомление, батарея и автозапуск.
-- [Архитектура](ARCHITECTURE.md) - основные компоненты Android-приложения.
+## Начать пользоваться
 
-Серверная часть VPS Relay находится в отдельном репозитории: [Dushnyj/TG-Proxy-Relay](https://github.com/Dushnyj/TG-Proxy-Relay).
+1. [Установка, разрешения и подключение Telegram](GETTING_STARTED.md)
+2. [Маршруты и автоматический failover](ROUTING.md)
+3. [Диагностика и полный ZIP](DIAGNOSTICS.md)
+4. [Поддержка и создание issue](../SUPPORT.md)
+
+## Личный VPS Relay
+
+- [Автонастройка, ручное подключение и owner-панель](VPS_RELAY.md)
+- [Бесплатный адрес DuckDNS](DUCKDNS.md)
+- [Ссылка, QR-код, файл и импорт](SHARING_AND_IMPORT.md)
+- [Требования к VPS](https://github.com/Dushnyj/TG-Proxy-Relay/blob/main/docs/VPS_REQUIREMENTS.md)
+- [Серверная документация Relay](https://github.com/Dushnyj/TG-Proxy-Relay/blob/main/docs/README.md)
+
+## Cloudflare
+
+- [Cloudflare Worker](CLOUDFLARE_WORKER.md)
+- [Собственный Cloudflare-домен](CLOUDFLARE_DOMAIN.md)
+
+## Устройство проекта
+
+- [Архитектура Android](ARCHITECTURE.md)
+- [Надёжность foreground service](RELIABILITY.md)
+- [Telegram DC, media и signed topology](TELEGRAM_TOPOLOGY.md)
+- [Failure injection и field validation](FAILURE_INJECTION.md)
+- [Whitelist-only сети РФ: исследование](RUSSIAN_WHITELIST_RESEARCH.md)
+
+## Разработка и сопровождение
+
+- [Окружение, сборка и тесты](DEVELOPMENT.md)
+- [Процесс GitHub Actions release](RELEASES.md)
+- [Приватность, локальные данные и секреты](PRIVACY_AND_SECRETS.md)
+- [Правила contribution](../CONTRIBUTING.md)
+- [Политика безопасности](../SECURITY.md)
+
+Документы описывают версию `1.2.0`. При несовпадении пользовательского экрана сначала
+проверьте установленную версию в **Настройки → О приложении**.

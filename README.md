@@ -1,161 +1,171 @@
 # TG Proxy
 
 <p align="center">
-  <img src="docs/assets/tg-proxy-icon.png" width="128" alt="TG Proxy icon">
+  <img src="docs/assets/tg-proxy-icon.png" width="132" alt="TG Proxy">
 </p>
 
 <p align="center">
-  <strong>TG Proxy by Dushnyj</strong><br>
-  Android-приложение с локальным MTProto-прокси для Telegram
+  <strong>Локальный MTProto-прокси и устойчивые маршруты Telegram для Android</strong><br>
+  Direct WS · Cloudflare · личный VPS Relay · автоматический failover
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-3390EC?style=for-the-badge">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
-  <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge">
+  <a href="https://github.com/Dushnyj/TG-Proxy/releases"><img alt="release" src="https://img.shields.io/badge/release-1.2.0-3390EC?style=for-the-badge"></a>
+  <img alt="Android 5.0+" src="https://img.shields.io/badge/Android-5.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white">
+  <a href="https://github.com/Dushnyj/TG-Proxy/actions/workflows/ci.yml"><img alt="Android CI" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/TG-Proxy/ci.yml?branch=main&style=for-the-badge&label=CI"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge"></a>
 </p>
 
-![TG Proxy route overview](docs/assets/tg-proxy-hero-v2.png)
+![Схема маршрутов TG Proxy](docs/assets/tg-proxy-hero-v2.png)
 
-TG Proxy запускает на телефоне локальный MTProto-прокси, обычно `127.0.0.1:1443`.
-Telegram подключается к локальному адресу, а приложение выбирает рабочий upstream-маршрут для конкретной сети.
+TG Proxy поднимает локальный MTProto endpoint, обычно `127.0.0.1:1443`. Telegram подключается
+к нему на том же телефоне, а приложение выбирает рабочий upstream для текущей Wi-Fi или
+мобильной сети. Это не системный VPN: другой трафик Android через TG Proxy не проходит.
 
-## Навигация
+## Интерфейс
 
-- [Как это работает](#как-это-работает)
-- [Возможности](#возможности)
-- [Установка APK](#установка-apk)
-- [Маршруты](#маршруты)
-- [VPS Relay](#vps-relay)
-- [Диагностика](#диагностика)
-- [Документация](#документация)
-- [Сборка](#сборка)
-- [Безопасность](#безопасность)
+<table>
+  <tr>
+    <td align="center"><a href="docs/assets/app/01-main-screen.png"><img src="docs/assets/app/01-main-screen.png" width="225" alt="Главный экран"></a><br><sub>Главный экран</sub></td>
+    <td align="center"><a href="docs/assets/app/02-background-check.png"><img src="docs/assets/app/02-background-check.png" width="225" alt="Проверка фоновой работы"></a><br><sub>Непрерывная работа</sub></td>
+    <td align="center"><a href="docs/assets/app/04-vps-relay-empty.png"><img src="docs/assets/app/04-vps-relay-empty.png" width="225" alt="Настройки VPS Relay"></a><br><sub>VPS Relay</sub></td>
+  </tr>
+</table>
 
-## Как это работает
+Скриншоты сняты на чистой debug-установке и не содержат production endpoint или credentials.
+
+## Быстрый старт
+
+1. Скачайте universal APK из [последнего релиза](https://github.com/Dushnyj/TG-Proxy/releases).
+2. Установите APK и разрешите уведомления foreground service.
+3. Откройте проверку непрерывной работы и устраните красные пункты батареи/автозапуска.
+4. Запустите TG Proxy большой кнопкой.
+5. Нажмите ссылку `tg://proxy?...`, затем включите предложенный MTProto-прокси в Telegram.
+
+Полная инструкция с объяснением состояний: **[Быстрый старт](docs/GETTING_STARTED.md)**.
+
+## Как проходит соединение
 
 ```text
 Telegram Android
-  -> MTProto Proxy (127.0.0.1:1443)
+  -> MTProto 127.0.0.1:1443
   -> TG Proxy route engine
-  -> selected upstream:
-     Direct WS:        WebSocket/TLS -> Telegram DC
-     Cloudflare CDN:   WebSocket/TLS -> Cloudflare -> Telegram DC
-     Cloudflare Worker: WebSocket/TLS -> Worker -> TCP Telegram DC:443
-     VPS Relay:        WebSocket/TLS -> tgproxy-relay -> TCP Telegram DC:443
+  -> Direct WS | VPS Relay | Cloudflare Worker | Cloudflare CDN
+  -> Telegram DC (regular / media)
 ```
 
-`WebSocket` здесь не отдельная настройка, а транспорт между Android-приложением и выбранным upstream.
-Direct WS идет напрямую к Telegram WebSocket endpoint, Cloudflare CDN проходит через проксируемые `kws<dc>` записи, Worker и VPS Relay принимают WebSocket от приложения и сами открывают TCP-соединение к Telegram DC.
+| Маршрут | Для чего |
+| --- | --- |
+| **Direct WS** | быстрый прямой WebSocket/TLS к Telegram DC |
+| **VPS Relay** | личный управляемый сервер и основной контролируемый fallback |
+| **Cloudflare Worker** | ваш Worker принимает WebSocket и открывает TCP к Telegram DC |
+| **Cloudflare CDN** | ваш домен и `kws<dc>` DNS-записи |
+| **Public Cloudflare** | встроенный публичный резервный пул, когда он доступен |
+
+Каждый тип можно независимо включить для конкретного сетевого профиля. Выбранный здоровый
+маршрут имеет приоритет, ошибки получают cooldown, новое MTProto-соединение автоматически
+переходит к следующему кандидату. Regular и media endpoint проверяются отдельно.
+
+Подробности: [Маршрутизация](docs/ROUTING.md) и
+[Telegram topology](docs/TELEGRAM_TOPOLOGY.md).
 
 ## Возможности
 
-- локальный MTProto-прокси для Telegram на Android;
-- автоссылка `tg://proxy` для добавления прокси в Telegram;
-- настоящий MTProto `req_pq/resPQ`-отклик активного маршрута без наложения проверок;
-- аптайм, трафик и состояние в приложении и foreground-уведомлении;
-- восстановление foreground service после завершения процесса, перезагрузки и обновления;
-- помощник фоновой работы: уведомления, boot-start, батарея и OEM-автозапуск с постоянным предупреждением о неполной настройке;
-- сетевые профили для Wi-Fi, операторов, dual SIM и eSIM;
-- независимые выключатели Direct, VPS Relay, Worker, своего и публичного Cloudflare для каждого
-  сетевого профиля, включая режим `Только Direct`;
-- безопасно сохранённые данные владельца VPS и автонастройка с транзакционным rollback;
-- owner-управление Relay: токены, известные устройства, отключение, блокировка и разблокировка;
-- одна команда «Поделиться Relay»: кликабельная HTTPS-ссылка, QR, системный Share или файл;
-- capability negotiation и подписанная dynamic topology Relay с atomic last-known-good fallback;
-- Cloudflare Worker и пользовательские Cloudflare-домены;
-- диагностика с TXT/ZIP-отчетом, копированием и сбросом результата;
-- обновления Android-приложения через GitHub Releases.
+- локальный MTProto listener и кликабельная Telegram-ссылка;
+- отдельные профили Wi-Fi, операторов, dual SIM/eSIM;
+- настоящий `req_pq/resPQ` probe, не зависящий от открытого окна Telegram;
+- route health, MTProto RTT, аптайм, трафик и история переключений;
+- foreground service, boot restore, watchdog и помощник батареи/OEM-автозапуска;
+- несколько VPS Relay с автоматическим failover;
+- автонастройка Linux VPS по SSH с read-only планом, backup, проверкой и rollback;
+- публичный IP, бесплатный DuckDNS или любой принадлежащий пользователю домен/поддомен;
+- owner-панель: client tokens, устройства, sessions, block/unblock и примерный GeoIP;
+- одна кнопка передачи Relay: HTTPS-ссылка, QR, системный Share или файл;
+- импорт с preview и выбором сетевых профилей;
+- signed dynamic Relay topology с atomic last-known-good;
+- полный TXT/ZIP диагностический отчёт для issue;
+- обновления через GitHub Releases.
 
-## Установка APK
+## VPS Relay без ручной настройки сервера
 
-1. Откройте [Releases](https://github.com/Dushnyj/TG-Proxy/releases).
-2. Скачайте `TG-Proxy-v<version>-android-universal-release.apk`.
-3. Установите APK на телефон.
-4. Откройте TG Proxy и нажмите запуск.
-5. В блоке информации нажмите ссылку Telegram или добавьте прокси вручную:
+Серверная часть находится в
+[Dushnyj/TG-Proxy-Relay](https://github.com/Dushnyj/TG-Proxy-Relay). В Android откройте
+**Настройки → Relay → Автонастройка VPS**, введите данные, выданные хостингом, и подтвердите SSH
+fingerprint. Приложение само:
 
-```text
-Тип: MTProto
-Сервер: 127.0.0.1
-Порт: 1443
-Secret: значение из приложения
-```
+- определит Linux, архитектуру, package manager и init;
+- обнаружит существующий Relay и безопасные web-конфигурации;
+- предложит использовать сохранённый token или создать отдельный;
+- скачает подходящий release asset и проверит SHA-256;
+- установит service, nginx/Certbot, HTTPS и автопродление;
+- создаст backup и откатит свою транзакцию при неудаче;
+- проверит health/version/capabilities, regular/media TCP и реальный MTProto.
 
-При первом запуске и после обновления откройте помощник фоновой работы: разрешите уведомления,
-запуск после перезагрузки, режим батареи «Без ограничений» и OEM-автозапуск. Если часть условий
-не выполнена, приложение оставляет видимое предупреждение. Постоянно включённый экран сам по
-себе не запрещает Android/MIUI завершить фоновый процесс.
+Домен покупать не требуется: можно использовать публичный IP или бесплатный DuckDNS.
 
-## Маршруты
+- [Какой VPS нужен](https://github.com/Dushnyj/TG-Proxy-Relay/blob/main/docs/VPS_REQUIREMENTS.md)
+- [Автонастройка и owner-доступ](docs/VPS_RELAY.md)
+- [Создать DuckDNS](docs/DUCKDNS.md)
+- [Поделиться ссылкой/QR и импортировать](docs/SHARING_AND_IMPORT.md)
 
-- `Direct WS` - быстрый прямой WebSocket/TLS к Telegram DC, если сеть его пропускает.
-- `VPS Relay` - личный контролируемый fallback через ваш VPS.
-- `Cloudflare Worker` - пользовательский Worker endpoint, который прокидывает WebSocket в TCP до Telegram DC.
-- `Cloudflare CDN` - собственный Cloudflare-домен с `kws<dc>` DNS-записями.
-- `Public Cloudflare` - встроенный публичный fallback-пул, если он доступен.
+## Диагностика и поддержка
 
-Практический порядок настройки:
+Если приложение остановилось, Telegram отключил прокси, не грузится media или маршруты
+переключаются неверно:
 
-1. Сначала проверьте автоматический маршрут.
-2. Если сеть режет Telegram, настройте Cloudflare Worker или свой Cloudflare-домен.
-3. Если нужен личный стабильный маршрут, настройте VPS Relay.
-4. В `Настройки -> Маршруты` отключите заведомо неработающие на этой сети типы; не оставляйте
-   включённым route только потому, что он существует в списке.
+1. откройте **Диагностика**;
+2. сбросьте старый результат;
+3. воспроизведите проблему;
+4. сохраните полный ZIP;
+5. создайте подходящий issue и приложите архив.
 
-## VPS Relay
-
-Серверная часть живет отдельно: [Dushnyj/TG-Proxy-Relay](https://github.com/Dushnyj/TG-Proxy-Relay).
-Android-приложение умеет сохранить Relay, выполнить автонастройку VPS по SSH, управлять
-клиентскими токенами владельца и передавать отдельное клиентское подключение одной кнопкой.
-SSH-пароль, SSH host key и owner/admin token не входят ни в ссылку, ни в QR-код.
-
-Автонастройка Android скачивает release asset из `TG-Proxy-Relay`, а не из Android-репозитория.
-Текущий контракт: `TG Proxy Android 1.2.0` и `TG Proxy VPS Relay 1.2.0`.
-Мастер определяет Linux-дистрибутив, пакетный менеджер, init-систему и архитектуру сам: он не
-ограничен Ubuntu или systemd. Собственный домен вводится вручную и может вообще отсутствовать
-в текущих конфигурациях VPS — достаточно направить его A/AAAA-запись на публичный IP сервера.
-
-## Диагностика
-
-Диагностика показывает сеть, активный профиль, текущий маршрут, настройки, последние ошибки, логи приложения и route matrix.
-Отчет можно сохранить в TXT/ZIP, скопировать текст или сбросить результат и собрать заново.
+Краткий текст и скриншот не заменяют полный route/event report. Инструкции:
+[Диагностика](docs/DIAGNOSTICS.md) · [Поддержка](SUPPORT.md).
 
 ## Документация
 
-- [VPS Relay в приложении](docs/VPS_RELAY.md)
+### Пользователю
+
+- [Быстрый старт](docs/GETTING_STARTED.md)
+- [VPS Relay](docs/VPS_RELAY.md)
+- [DuckDNS](docs/DUCKDNS.md)
+- [Ссылка, QR и импорт](docs/SHARING_AND_IMPORT.md)
 - [Cloudflare Worker](docs/CLOUDFLARE_WORKER.md)
 - [Cloudflare-домен](docs/CLOUDFLARE_DOMAIN.md)
 - [Диагностика](docs/DIAGNOSTICS.md)
-- [Маршрутизация](docs/ROUTING.md)
-- [Telegram topology и границы маршрутов](docs/TELEGRAM_TOPOLOGY.md)
-- [Failure injection и полевая проверка](docs/FAILURE_INJECTION.md)
-- [Исследование whitelist-only сетей РФ](docs/RUSSIAN_WHITELIST_RESEARCH.md)
-- [Надежность Android-сервиса](docs/RELIABILITY.md)
+- [Приватность и секреты](docs/PRIVACY_AND_SECRETS.md)
+
+### Разработчику
+
+- [Вся документация](docs/README.md)
 - [Архитектура](docs/ARCHITECTURE.md)
+- [Надёжность Android-сервиса](docs/RELIABILITY.md)
+- [Failure injection](docs/FAILURE_INJECTION.md)
+- [Окружение и тесты](docs/DEVELOPMENT.md)
+- [Процесс релиза](docs/RELEASES.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Сборка
 
+Требуются JDK 17 и Android SDK 34:
+
 ```bash
-./gradlew testDebugUnitTest assembleDebug --no-daemon
+./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
 ```
 
-Release APK собирается GitHub Actions при публикации тега `v*`:
+Официальный tag `v*` запускает GitHub Actions и публикует signed APK:
 
 ```text
 TG-Proxy-v<version>-android-arm64-v8a-release.apk
 TG-Proxy-v<version>-android-armeabi-v7a-release.apk
-TG-Proxy-v<version>-android-universal-release.apk
 TG-Proxy-v<version>-android-x86_64-release.apk
+TG-Proxy-v<version>-android-universal-release.apk
 SHA256SUMS.txt
 ```
 
 ## Безопасность
 
-Диагностические отчеты не должны содержать SSH-пароль, приватные ключи, raw Relay token или полный MTProto secret.
-Правила сообщения об уязвимостях описаны в [SECURITY.md](SECURITY.md).
+Не публикуйте SSH, raw client/owner/DuckDNS tokens, keystore, приватные keys, production config
+или полный MTProto secret. Обычная ссылка Relay содержит только один выбранный client token.
 
-## Лицензия
-
-MIT. См. [LICENSE](LICENSE).
+Уязвимости: [SECURITY.md](SECURITY.md). Лицензия: [MIT](LICENSE).

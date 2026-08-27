@@ -13,6 +13,13 @@ TG Proxy Android -> wss://relay.example.com/apiws -> tgproxy-relay -> TCP Telegr
 - нужен свой контролируемый маршрут без передачи SSH-доступа другим пользователям;
 - нужно привязать разные Relay к разным сетевым профилям.
 
+Перед созданием сервера проверьте
+[требования к VPS](https://github.com/Dushnyj/TG-Proxy-Relay/blob/main/docs/VPS_REQUIREMENTS.md).
+
+<p align="center">
+  <img src="assets/app/04-vps-relay-empty.png" width="280" alt="Раздел VPS Relay">
+</p>
+
 ## Ручное подключение
 
 В настройках откройте вкладку `Relay`.
@@ -43,6 +50,10 @@ Token           token, выданный владельцем Relay
 Автонастройка выполняется по SSH и работает с Relay release assets из `Dushnyj/TG-Proxy-Relay`.
 TG Proxy Android `1.2.0` устанавливает совместимую серверную версию `TG Proxy VPS Relay 1.2.0`.
 При первом SSH-подключении приложение показывает тип ключа и `SHA256:` fingerprint. Сверьте fingerprint с консолью/панелью VPS и явно подтвердите его — молчаливого принятия первого ключа нет. После этого приложение сохраняет host key VPS в своём приватном хранилище. Последующие подключения принимаются только с тем же ключом. После подтверждённой переустановки VPS старый ключ можно удалить кнопкой `Сбросить SSH-ключ` в диалоге автонастройки.
+
+<p align="center">
+  <img src="assets/app/05-vps-auto-setup-access.png" width="280" alt="Данные доступа к VPS">
+</p>
 
 Полноэкранный мастер просит только SSH IP/логин/пароль, проверяет ключ сервера и затем предлагает
 три понятных варианта публичного адреса:
@@ -135,6 +146,9 @@ token либо создать отдельный новый token. SSH identity 
 `tgproxy://import`. Внешняя ссылка и QR никогда не применяются сразу: приложение показывает
 окно `Добавить новое подключение VPS Relay`, endpoint и область применения, затем просит
 подтверждение. Несколько профилей одного endpoint могут хранить независимые client tokens.
+
+Пошаговые сценарии с обезличенными экранами вынесены в
+[SHARING_AND_IMPORT.md](SHARING_AND_IMPORT.md).
 
 `Path` является частью серверной конфигурации (`websocket.path`) и должен совпадать на Android,
 Relay и reverse proxy. Допустим абсолютный путь без query/fragment; `/healthz`, `/version`,

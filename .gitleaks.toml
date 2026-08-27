@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic MTProto fixtures used by parser tests"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''tg://proxy\?server=127\.0\.0\.1&port=1443&secret=dd0123456789abcdef0123456789abcdef''',
+  '''mtprotoSecret=00112233445566778899aabbccddeeff'''
+]

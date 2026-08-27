@@ -1,0 +1,79 @@
+name: VPS Relay или автонастройка
+description: Ошибка SSH-аудита, установки, HTTPS, токенов, импорта или owner-панели
+title: "[VPS Relay] "
+labels:
+  - bug
+  - vps-relay
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не прикладывайте полный server config, SSH-пароль, raw client/owner/DuckDNS token или приватный домен. Замените адреса на `relay.example.com` и RFC 5737 IP.
+  - type: input
+    id: versions
+    attributes:
+      label: Версии Android и Relay
+      placeholder: "TG Proxy 1.2.0; TG Proxy VPS Relay 1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Linux, архитектура и init
+      placeholder: "Debian 13, amd64, systemd"
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Способ настройки
+      options:
+        - Автонастройка по публичному IP
+        - Автонастройка с DuckDNS
+        - Автонастройка со своим доменом
+        - Ручная установка Relay
+        - Импорт ссылки / QR / файла
+        - Управление владельца
+    validations:
+      required: true
+  - type: dropdown
+    id: reverse_proxy
+    attributes:
+      label: Reverse proxy
+      options:
+        - Приложение ставило nginx на чистый VPS
+        - nginx уже был установлен
+        - Caddy
+        - Apache
+        - Docker Caddy
+        - Нет / неизвестно
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги и точный этап ошибки
+    validations:
+      required: true
+  - type: textarea
+    id: message
+    attributes:
+      label: Сообщение пользователю
+      description: Перепишите текст или приложите обезличенный скриншот. Не вставляйте технический отчёт с секретами.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Полная диагностика Android
+      description: Перетащите ZIP из раздела «Диагностика» после воспроизведения.
+      placeholder: Перетащите файл .zip в это поле
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Проверка приватности
+      options:
+        - label: Я удалил/заменил реальные IP, домены, логины, token hashes, raw tokens, SSH/TLS keys и пароли.
+          required: true
