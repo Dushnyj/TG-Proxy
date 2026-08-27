@@ -72,11 +72,15 @@ final class ServiceState {
             status = Status.SLEEP;
         } else if (!engineRunning) {
             status = retrying ? Status.RETRYING : (starting ? Status.STARTING : Status.DEAD);
-        } else if (!localPortListening || (recentRouteFailure && activeConnections > 0L)) {
+        } else if (!localPortListening) {
             status = Status.DEGRADED;
         } else if (routeState != null && routeState.active()
                 && routeState.isFresh(nowMs, ROUTE_EVIDENCE_MAX_AGE_MS)) {
+            // A failed fallback candidate must not overwrite fresh evidence from the route
+            // that is actually carrying Telegram traffic.
             status = Status.ACTIVE;
+        } else if (recentRouteFailure && activeConnections > 0L) {
+            status = Status.DEGRADED;
         } else if (activeConnections > 0L && (routeState == null || !routeState.active())) {
             status = Status.CONNECTING_TELEGRAM;
         } else {

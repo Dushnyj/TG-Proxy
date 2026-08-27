@@ -76,6 +76,16 @@ public class ServiceStateTest {
     }
 
     @Test
+    public void activeRouteWinsOverFailureOfAnotherCandidate() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.active(RouteCandidate.directWs(2, false, "149.154.167.220"),
+                        "", 95, "stable", 9_900L),
+                false, false, 6L, true, 10_000L);
+
+        assertEquals(ServiceState.Status.ACTIVE, state.status());
+    }
+
+    @Test
     public void oldFailureWithoutTelegramClientDoesNotMakeHealthyListenerBroken() {
         ServiceState state = ServiceState.from(true, true, true, false,
                 RouteState.inactive("previous route failed"), false, false,
