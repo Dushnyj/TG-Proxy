@@ -514,16 +514,22 @@ public final class VpsSetupActivity extends AppCompatActivity {
                     config.withProfileKey(profileKey));
         }
         VpsOwnerStore ownerStore = new VpsOwnerStore(this);
+        VpsOwnerRecord reusableEndpointOwner = null;
         for (VpsRelayConfig candidateEndpoint : endpoints) {
             VpsOwnerRecord endpointOwner = ownerStore.forRelay(candidateEndpoint);
             if (endpointOwner == null) continue;
+            if (reusableEndpointOwner == null && endpointOwner.canManage()) {
+                reusableEndpointOwner = endpointOwner;
+            }
             for (VpsOwnerRecord.ManagedToken token : endpointOwner.managedTokens()) {
                 if (token.secret().isEmpty()) continue;
                 choices.put(token.id(), candidateEndpoint.withTokenAndName(token.secret(),
                         token.name().isEmpty() ? "VPS Relay" : token.name()));
             }
         }
+        final VpsOwnerRecord endpointOwnerForChoice = reusableEndpointOwner;
         if (choices.isEmpty()) {
+            reuseEndpointOwner(endpointOwnerForChoice);
             tokenChoiceEndpoint = endpointKey;
             return false;
         }
@@ -559,6 +565,7 @@ public final class VpsSetupActivity extends AppCompatActivity {
                         }
                     } else {
                         relayToken = generateToken("tgpc_");
+                        reuseEndpointOwner(endpointOwnerForChoice);
                     }
                     tokenChoiceEndpoint = endpointKey;
                     startEndpointPreparation(endpointHost);
@@ -566,6 +573,13 @@ public final class VpsSetupActivity extends AppCompatActivity {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
         return true;
+    }
+
+    private void reuseEndpointOwner(VpsOwnerRecord owner) {
+        if (owner == null || !owner.canManage()) return;
+        savedOwner = owner;
+        ownerExisted = true;
+        adminToken = owner.adminToken();
     }
 
     private VpsRelayConfig existingRelayEndpoint() {
@@ -664,6 +678,7 @@ public final class VpsSetupActivity extends AppCompatActivity {
         if (request == null || !request.isValid()) throw new VpsSetupException("invalid VPS setup request");
         VpsOwnerStore ownerStore = new VpsOwnerStore(this);
         AtomicBoolean ownerPreSaveFailed = new AtomicBoolean(false);
+        AtomicBoolean ownerRecordCreatedForAttempt = new AtomicBoolean(false);
         VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
                 createSshClient(),
                 (config, rules) -> new VpsRelayClient().check(config, rules),
@@ -676,10 +691,14 @@ public final class VpsSetupActivity extends AppCompatActivity {
 
                 @Override public boolean onPlan(VpsSetupPlan plan) {
                     boolean approved = awaitPlanApproval(plan);
-                    if (approved && !ownerExisted
-                            && !ownerStore.saveSetup(request, request.relayConfig())) {
-                        ownerPreSaveFailed.set(true);
-                        return false;
+                    if (approved && !ownerExisted) {
+                        boolean exactOwnerAlreadyExisted =
+                                ownerStore.forRelay(request.relayConfig()) != null;
+                        if (!ownerStore.saveSetup(request, request.relayConfig())) {
+                            ownerPreSaveFailed.set(true);
+                            return false;
+                        }
+                        ownerRecordCreatedForAttempt.set(!exactOwnerAlreadyExisted);
                     }
                     return approved;
                 }
@@ -695,7 +714,9 @@ public final class VpsSetupActivity extends AppCompatActivity {
                 renderComplete(ownerSaved);
             });
         } catch (Exception error) {
-            if (!ownerExisted) ownerStore.forget(request.relayConfig());
+            // Roll back only the alias created by this attempt. Never erase an owner record that
+            // existed before setup merely because a second token or SSH account failed later.
+            if (ownerRecordCreatedForAttempt.get()) ownerStore.forget(request.relayConfig());
             if (ownerPreSaveFailed.get()) {
                 throw new VpsSetupException(getString(R.string.vps_owner_pre_save_failed), error);
             }
