@@ -113,6 +113,7 @@ public class ProxyService extends Service {
         }
 
         profileStore = NetworkProfileStore.fromPreferences(prefs);
+        initializeDefaultNetworkBaseline();
         activateNetworkProfile(false);
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener);
         ProxyServiceLauncher.scheduleRegularRecovery(this);
@@ -194,6 +195,17 @@ public class ProxyService extends Service {
         } catch (Exception ignored) {}
     }
 
+    private void initializeDefaultNetworkBaseline() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            ConnectivityManager cm =
+                    (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            activeDefaultNetwork = cm == null ? null : cm.getActiveNetwork();
+        } catch (Exception ignored) {
+            activeDefaultNetwork = null;
+        }
+    }
+
     private void scheduleDefaultNetworkRefresh(ConnectivityManager cm, String reason) {
         if (handler == null) return;
         if (pendingNetworkRefresh != null) handler.removeCallbacks(pendingNetworkRefresh);
@@ -216,11 +228,17 @@ public class ProxyService extends Service {
     private void handleDefaultNetworkChanged(String reason, boolean attachmentChanged) {
         String previous = activeProfileKey();
         NetworkProfile detected = NetworkProfileIdentifier.current(this);
-        boolean profileChanged = detected != null && !previous.equals(detected.key());
+        NetworkProfile selected = NetworkProfileIdentifier.stableProfile(
+                activeNetworkProfile, detected, attachmentChanged);
+        if (detected != null && !detected.key().equals(selected.key())) {
+            DiagnosticsLog.record("temporary network identity redaction ignored "
+                    + detected.key() + " keeping " + selected.key());
+        }
+        boolean profileChanged = !previous.equals(selected.key());
         // Android can emit repeated onCapabilitiesChanged callbacks for the same attachment.
         // Do not turn those no-op callbacks into profile writes and configuration reloads.
         if (!profileChanged && !attachmentChanged) return;
-        NetworkProfileRecord record = activateNetworkProfile(true);
+        NetworkProfileRecord record = activateNetworkProfile(selected, true);
         if (record == null) return;
         profileChanged = !previous.equals(record.key());
         DiagnosticsLog.record("default network " + reason + " profile "
@@ -702,11 +720,15 @@ public class ProxyService extends Service {
     }
 
     private synchronized NetworkProfileRecord activateNetworkProfile(boolean savePreviousStats) {
+        return activateNetworkProfile(NetworkProfileIdentifier.current(this), savePreviousStats);
+    }
+
+    private synchronized NetworkProfileRecord activateNetworkProfile(
+            NetworkProfile profile, boolean savePreviousStats) {
         if (profileStore == null) {
             profileStore = NetworkProfileStore.fromPreferences(prefs);
         }
         if (savePreviousStats) persistCurrentRouteStats();
-        NetworkProfile profile = NetworkProfileIdentifier.current(this);
         NetworkProfileRecord record = profileStore.ensureProfile(profile, System.currentTimeMillis());
         activeNetworkProfile = record.profile();
         activeProfileRecord = record;

@@ -52,6 +52,34 @@ final class NetworkProfileIdentifier {
         return NetworkProfile.defaultProfile();
     }
 
+    /**
+     * Keeps a high-confidence network identity when Android briefly redacts the same
+     * attachment's Wi-Fi details while the app is running in the background.
+     *
+     * A real attachment handover must never inherit the old SSID. Conversely, an
+     * opaque profile is always allowed to upgrade to an SSID as soon as Android makes
+     * it available again.
+     */
+    static NetworkProfile stableProfile(NetworkProfile previous, NetworkProfile detected,
+                                        boolean attachmentChanged) {
+        NetworkProfile fallback = detected == null
+                ? NetworkProfile.defaultProfile() : detected;
+        if (attachmentChanged || previous == null) return fallback;
+
+        // NetworkCapabilities may be temporarily absent during a callback burst. Do not
+        // replace an already resolved identity with the global default on the same handle.
+        if (fallback.kind() == NetworkProfile.Kind.DEFAULT) return previous;
+
+        boolean previousHasSsid = previous.isWifi()
+                && !previous.isHiddenWifi()
+                && !previous.isOpaqueWifi();
+        boolean detectedIsRedactedWifi = fallback.isWifi()
+                && (fallback.isHiddenWifi() || fallback.isOpaqueWifi());
+        if (previousHasSsid && detectedIsRedactedWifi) return previous;
+
+        return fallback;
+    }
+
     static NetworkProfile wifiProfile(Context context) {
         NetworkCapabilities capabilities = null;
         Network activeNetwork = null;
