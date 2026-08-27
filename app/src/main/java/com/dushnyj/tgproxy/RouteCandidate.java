@@ -11,6 +11,8 @@ final class RouteCandidate {
     private final int port;
     private final boolean enabled;
     private final String disabledReason;
+    private final String relayId;
+    private final VpsRelayConfig relayConfig;
 
     private RouteCandidate(RouteType type, int dc, boolean media, String endpoint,
                            int port, boolean enabled, String disabledReason) {
@@ -19,6 +21,12 @@ final class RouteCandidate {
 
     private RouteCandidate(RouteType type, int dc, boolean media, boolean test,
                            String endpoint, int port, boolean enabled, String disabledReason) {
+        this(type, dc, media, test, endpoint, port, enabled, disabledReason, "", null);
+    }
+
+    private RouteCandidate(RouteType type, int dc, boolean media, boolean test,
+                           String endpoint, int port, boolean enabled, String disabledReason,
+                           String relayId, VpsRelayConfig relayConfig) {
         this.type = type;
         this.dc = dc;
         this.media = media;
@@ -27,6 +35,8 @@ final class RouteCandidate {
         this.port = port;
         this.enabled = enabled;
         this.disabledReason = disabledReason == null ? "" : disabledReason;
+        this.relayId = normalize(relayId);
+        this.relayConfig = relayConfig;
     }
 
     static RouteCandidate directWs(int dc, boolean media, String targetIp) {
@@ -80,9 +90,22 @@ final class RouteCandidate {
     static RouteCandidate vpsRelay(String name, String host, int port, int dc, boolean media,
                                    boolean test) {
         boolean configured = !normalize(host).isEmpty() && port > 0 && port <= 65535;
+        String legacyId = configured ? "legacy"
+                + Integer.toHexString((normalize(host) + ":" + port).hashCode()) : "";
         return new RouteCandidate(RouteType.VPS_RELAY, dc, media, test,
                 configured ? host : name, port, configured,
-                configured ? "" : "vps relay is not configured");
+                configured ? "" : "vps relay is not configured",
+                legacyId, null);
+    }
+
+    static RouteCandidate vpsRelay(VpsRelayConfig config, int dc, boolean media,
+                                   boolean test) {
+        VpsRelayConfig relay = config == null ? VpsRelayConfig.disabled() : config;
+        boolean configured = relay.isUsable();
+        return new RouteCandidate(RouteType.VPS_RELAY, dc, media, test,
+                configured ? relay.host() : relay.name(), relay.port(), configured,
+                configured ? "" : "vps relay is not configured",
+                configured ? relay.routingId() : "", relay);
     }
 
     static RouteCandidate disabled(RouteType type, String reason) {
@@ -121,6 +144,10 @@ final class RouteCandidate {
         return disabledReason;
     }
 
+    VpsRelayConfig relayConfig() {
+        return relayConfig == null ? VpsRelayConfig.disabled() : relayConfig;
+    }
+
     boolean requiresWarmup() {
         return type == RouteType.VPS_RELAY
                 || type == RouteType.WORKER
@@ -132,11 +159,14 @@ final class RouteCandidate {
         String scope = dc > 0 ? ":dc" + dc : "";
         String testScope = test ? ":test" : "";
         String mediaScope = media ? ":media" : "";
-        return type.id() + scope + testScope + mediaScope;
+        String relayScope = type == RouteType.VPS_RELAY && !relayId.isEmpty()
+                ? ":" + relayId : "";
+        return type.id() + relayScope + scope + testScope + mediaScope;
     }
 
     String displayName() {
-        return type.displayName();
+        return type == RouteType.VPS_RELAY && relayConfig != null
+                ? relayConfig.name() : type.displayName();
     }
 
     private static String normalize(String value) {

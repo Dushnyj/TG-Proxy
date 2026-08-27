@@ -39,7 +39,7 @@ public class ProxyServiceSourcePolicyTest {
     public void runtimeVpsRelayConfigComesOnlyFromRelayStore() throws Exception {
         String source = new String(Files.readAllBytes(sourcePath()), "UTF-8");
 
-        assertTrue(source.contains("VpsRelayStore.fromContext(ProxyService.this).selectedRelay(profileKey)"));
+        assertTrue(source.contains("VpsRelayStore.fromContext(ProxyService.this).relayPool(profileKey)"));
         assertFalse(source.contains("prefs.getBoolean(\"vps_relay_enabled\""));
         assertFalse(source.contains("prefs.getString(\"vps_relay_host\""));
         assertFalse(source.contains("prefs.getString(\"vps_relay_token\""));

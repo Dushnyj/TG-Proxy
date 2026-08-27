@@ -175,6 +175,51 @@ public class VpsRelayStoreTest {
         assertTrue(restored.supportsRoute(999, false));
     }
 
+    @Test
+    public void duplicateDefaultNamesReceiveReadableNumbers() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record first = store.saveRelay(VpsRelayConfig.manual(true, "VPS Relay",
+                "one.example.com", 443, true, "/apiws", "one", ""), "wifi:home");
+        VpsRelayStore.Record second = store.saveRelay(VpsRelayConfig.manual(true, "VPS Relay",
+                "two.example.com", 443, true, "/apiws", "two", ""), "wifi:home");
+
+        assertEquals("VPS Relay", first.config().name());
+        assertEquals("VPS Relay 2", second.config().name());
+    }
+
+    @Test
+    public void relayPoolKeepsSelectedRelayFirstAndOtherSavedRelaysAsFallbacks() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record first = store.saveRelay(VpsRelayConfig.manual(true, "Primary",
+                "one.example.com", 443, true, "/apiws", "one", ""), "wifi:home");
+        VpsRelayStore.Record second = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
+                "two.example.com", 443, true, "/apiws", "two", ""), "wifi:work");
+        store.bindProfile("wifi:home", first.id());
+
+        List<VpsRelayConfig> pool = store.relayPool("wifi:home");
+
+        assertEquals(2, pool.size());
+        assertEquals("Primary", pool.get(0).name());
+        assertEquals("Backup", pool.get(1).name());
+        assertEquals("wifi:home", pool.get(0).profileKey());
+        assertEquals("", pool.get(1).profileKey());
+    }
+
+    @Test
+    public void editingSelectedRelayUpdatesItWithoutLeavingOrphan() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record original = store.saveRelay(VpsRelayConfig.manual(true, "Relay",
+                "old.example.com", 443, true, "/apiws", "old", ""), "wifi:home");
+        VpsRelayStore.Record updated = store.updateRelayInto(original.id(),
+                VpsRelayConfig.manual(true, "Relay", "new.example.com", 443,
+                        true, "/apiws", "new", ""), "wifi:home", null);
+
+        assertEquals(original.id(), updated.id());
+        assertEquals(1, store.relays().size());
+        assertEquals("new.example.com", store.selectedRelay("wifi:home").host());
+        assertEquals("new", store.selectedRelay("wifi:home").token());
+    }
+
     private static final class RecordingStore implements VpsRelayStore.KeyValueStore {
         final LinkedHashMap<String, String> values = new LinkedHashMap<>();
         int singleWrites;

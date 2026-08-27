@@ -64,7 +64,7 @@
     <string name="route_direct_only">Keep Direct only</string>
     <string name="route_none_warning">Enable at least one route.</string>
     <string name="vps_relay">VPS Relay</string>
-    <string name="vps_relay_note">Personal relay participates in routing only for selected network profiles.</string>
+    <string name="vps_relay_note">The selected Relay is tried first. If it is unavailable, the app automatically tries the other enabled Relays.</string>
     <string name="vps_relay_enabled">Enable VPS Relay</string>
     <string name="vps_relay_name">Name</string>
     <string name="vps_relay_host">Host / domain</string>
@@ -535,6 +535,10 @@
     <string name="vps_setup_plan_technical_show">Show technical details</string>
     <string name="vps_setup_plan_technical_hide">Hide technical details</string>
     <string name="vps_setup_plan_unknown">The plan could not be created. Go back and check the server again.</string>
+    <string name="vps_setup_token_choice_title">This Relay already has tokens</string>
+    <string name="vps_setup_token_choice_note">Reuse a saved token without creating a duplicate connection, or create a separate token for a new device.</string>
+    <string name="vps_setup_token_existing_item">Use “%1$s” · %2$s</string>
+    <string name="vps_setup_token_create_new">Create a separate new token</string>
     <string name="vps_setup_plan_blocked_action">Fix the listed conditions first</string>
     <string name="vps_endpoint_updating_duckdns">Updating DuckDNS and waiting for DNS…</string>
     <string name="vps_endpoint_checking_dns">Checking DNS and address availability…</string>

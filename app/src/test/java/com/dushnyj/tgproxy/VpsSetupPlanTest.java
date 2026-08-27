@@ -471,6 +471,33 @@ public class VpsSetupPlanTest {
     }
 
     @Test
+    public void existingRelayDoesNotPretendDifferentUnpublishedDomainIsReady() {
+        VpsSetupAudit audit = VpsSetupAudit.parse(
+                "systemd=yes\n"
+                        + "arch=x86_64\n"
+                        + "python3=yes\n"
+                        + "existing_relay=yes\n"
+                        + "existing_relay_config=/etc/tgproxy-relay/config.json\n"
+                        + "existing_relay_public_url=https://old.example.com/apiws\n"
+                        + "existing_relay_listen=127.0.0.1:18080\n");
+        VpsSetupRequest request = VpsSetupRequest.builder()
+                .sshHost("203.0.113.10")
+                .sshUser("root")
+                .relayHost("new.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("new-device-token")
+                .releaseVersion("1.0.0")
+                .build();
+
+        VpsSetupPlan plan = VpsSetupPlan.from(request, audit);
+
+        assertFalse(plan.canApply());
+        assertTrue(plan.blockingSummary().contains("уже работает Relay с другим адресом"));
+    }
+
+    @Test
     public void existingRelayWithActiveNginxRouteAcceptsIpSetupFallback() {
         VpsSetupAudit audit = VpsSetupAudit.parse(
                 "systemd=yes\n"

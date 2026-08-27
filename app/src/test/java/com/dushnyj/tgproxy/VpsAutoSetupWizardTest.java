@@ -297,7 +297,7 @@ public class VpsAutoSetupWizardTest {
             });
             throw new AssertionError("blocked plan was applied");
         } catch (VpsSetupException expected) {
-            assertTrue(expected.getMessage().contains("DNS домена"));
+            assertTrue(expected.getMessage().contains("Домен пока ведёт не на этот VPS"));
         }
 
         assertTrue(planShown[0]);

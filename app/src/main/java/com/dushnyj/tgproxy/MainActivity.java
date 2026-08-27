@@ -173,6 +173,8 @@ public class MainActivity extends AppCompatActivity {
     private int lastMeasuredPingMs = -1;
     private long lastMeasuredPingAt;
     private String lastMeasuredPingIdentity = "";
+    private BootstrapPingPlanner.Plan bootstrapPingPlan = BootstrapPingPlanner.Plan.empty();
+    private long bootstrapPingPlanBuiltAt;
     private MainUiState.SettingsSection currentSettingsSection = MainUiState.SettingsSection.CONNECTION;
     private final ArrayList<String> profileSelectorKeys = new ArrayList<>();
     private final ArrayList<String> vpsRelaySelectorIds = new ArrayList<>();
@@ -1269,6 +1271,8 @@ public class MainActivity extends AppCompatActivity {
             lastMeasuredPingIdentity = "";
             lastMeasuredPingMs = -1;
             lastMeasuredPingAt = 0L;
+            bootstrapPingPlan = BootstrapPingPlanner.Plan.empty();
+            bootstrapPingPlanBuiltAt = 0L;
         }
         if (refreshConnectionState) refreshConnectionFields();
         refreshBackgroundExecutionStatus();
@@ -1298,7 +1302,7 @@ public class MainActivity extends AppCompatActivity {
             return getString(R.string.route_cloudflare_cdn);
         }
         if (route.type() == RouteType.DIRECT_WS) return getString(R.string.route_direct);
-        if (route.type() == RouteType.VPS_RELAY) return "VPS Relay";
+        if (route.type() == RouteType.VPS_RELAY) return route.displayName();
         return route.displayName();
     }
 
@@ -1326,22 +1330,41 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateDisplayedPing(RouteState routeState) {
-        int ping = MainUiState.displayedPing(
-                routeState,
-                lastMeasuredPingIdentity,
-                lastMeasuredPingMs,
-                lastMeasuredPingAt,
-                System.currentTimeMillis());
+        long nowMs = System.currentTimeMillis();
+        int ping;
+        if (routeState != null && routeState.active()) {
+            ping = MainUiState.displayedPing(routeState, lastMeasuredPingIdentity,
+                    lastMeasuredPingMs, lastMeasuredPingAt, nowMs);
+        } else if (!bootstrapPingPlan.isEmpty()
+                && bootstrapPingPlan.identity().equals(lastMeasuredPingIdentity)
+                && (lastMeasuredPingMs >= 0 || lastMeasuredPingMs == MainUiState.PING_ERROR_MS)
+                && nowMs - lastMeasuredPingAt <= MainUiState.PING_MEASUREMENT_TTL_MS) {
+            ping = lastMeasuredPingMs;
+        } else {
+            ping = -1;
+        }
         tvPing.setText(MainUiState.pingSummary(ping));
         tvPing.setTextColor(pingColor(ping));
     }
 
     private void scheduleAutoPing(RouteState routeState) {
-        if (routeState == null || !routeState.active()) return;
-        List<RoutePingTarget> targets = ActiveRoutePingPlanner.targetsFor(
-                routeState, activeVpsRelayConfig(), currentDcRulesOrDefault());
+        List<RoutePingTarget> targets;
+        String routeIdentity;
+        if (routeState != null && routeState.active()) {
+            targets = ActiveRoutePingPlanner.targetsFor(
+                    routeState, activeVpsRelayConfig(), currentDcRulesOrDefault());
+            routeIdentity = MainUiState.routeIdentity(routeState);
+        } else {
+            ProxyService service = ProxyService.getInstance();
+            ServiceState serviceState = service == null
+                    ? ServiceState.stopped() : service.diagnosticsSnapshot().serviceState();
+            if (!serviceState.serviceStarted() || !serviceState.localPortListening()) return;
+            BootstrapPingPlanner.Plan plan = currentBootstrapPingPlan();
+            if (plan.isEmpty()) return;
+            targets = plan.targets();
+            routeIdentity = plan.identity();
+        }
         if (targets.isEmpty()) return;
-        String routeIdentity = MainUiState.routeIdentity(routeState);
         long attemptToken = autoPingGate.tryStart(routeIdentity, System.currentTimeMillis());
         if (attemptToken == 0L) return;
         new Thread(() -> {
@@ -1358,7 +1381,8 @@ public class MainActivity extends AppCompatActivity {
         handler.post(() -> {
             if (!autoPingGate.finish(attemptToken)) return;
             RouteState currentRoute = currentRouteForPingIdentity(routeIdentity);
-            if (currentRoute == null) {
+            boolean bootstrap = isCurrentBootstrapPingIdentity(routeIdentity);
+            if (currentRoute == null && !bootstrap) {
                 DiagnosticsLog.record("stale auto ping result discarded " + routeIdentity);
                 return;
             }
@@ -1366,14 +1390,16 @@ public class MainActivity extends AppCompatActivity {
             lastMeasuredPingMs = ms;
             lastMeasuredPingAt = System.currentTimeMillis();
             DiagnosticsLog.record("auto ping " + lastMeasuredPingIdentity + " " + ms + "ms");
-            updateDisplayedPing(currentRoute);
+            updateDisplayedPing(currentRoute == null
+                    ? currentServiceRouteState() : currentRoute);
         });
     }
 
     private void finishPingFailure(String routeIdentity, long attemptToken) {
         if (!autoPingGate.finish(attemptToken)) return;
         RouteState currentRoute = currentRouteForPingIdentity(routeIdentity);
-        if (currentRoute == null) {
+        boolean bootstrap = isCurrentBootstrapPingIdentity(routeIdentity);
+        if (currentRoute == null && !bootstrap) {
             DiagnosticsLog.record("stale auto ping failure discarded " + routeIdentity);
             return;
         }
@@ -1381,7 +1407,34 @@ public class MainActivity extends AppCompatActivity {
         lastMeasuredPingMs = MainUiState.PING_ERROR_MS;
         lastMeasuredPingAt = System.currentTimeMillis();
         DiagnosticsLog.record("supplementary MTProto probe failed " + routeIdentity);
-        updateDisplayedPing(currentRoute);
+        updateDisplayedPing(currentRoute == null
+                ? currentServiceRouteState() : currentRoute);
+    }
+
+    private BootstrapPingPlanner.Plan currentBootstrapPingPlan() {
+        long nowMs = System.currentTimeMillis();
+        if (bootstrapPingPlan.isEmpty() || nowMs - bootstrapPingPlanBuiltAt >= 5_000L) {
+            bootstrapPingPlan = BootstrapPingPlanner.plan(
+                    routeSettingsFromControls(), firstDcId(), currentDcRulesOrDefault());
+            bootstrapPingPlanBuiltAt = nowMs;
+        }
+        return bootstrapPingPlan;
+    }
+
+    private boolean isCurrentBootstrapPingIdentity(String expectedIdentity) {
+        if (expectedIdentity == null || !expectedIdentity.startsWith("bootstrap|")) return false;
+        ProxyService service = ProxyService.getInstance();
+        if (service == null) return false;
+        ServiceState state = service.diagnosticsSnapshot().serviceState();
+        if (!state.serviceStarted() || !state.localPortListening()
+                || (state.routeState() != null && state.routeState().active())) return false;
+        return expectedIdentity.equals(currentBootstrapPingPlan().identity());
+    }
+
+    private RouteState currentServiceRouteState() {
+        ProxyService service = ProxyService.getInstance();
+        return service == null ? RouteState.inactive("service stopped")
+                : service.diagnosticsSnapshot().serviceState().routeState();
     }
 
     private RouteState currentRouteForPingIdentity(String expectedIdentity) {
@@ -1889,9 +1942,6 @@ public class MainActivity extends AppCompatActivity {
         }
         String profileKey = vpsRelayProfileKeyForUi();
         String relayId = selectedVpsRelayId();
-        if (relayId.isEmpty()) {
-            relayId = VpsRelayStore.fromContext(this).selectedRelayId(profileKey);
-        }
         startActivityForResult(VpsSetupActivity.intent(
                 this, profileKey, relayId, updateExistingRelay), REQUEST_VPS_SETUP);
     }
@@ -2898,6 +2948,8 @@ public class MainActivity extends AppCompatActivity {
         lastMeasuredPingMs = -1;
         lastMeasuredPingAt = 0L;
         lastMeasuredPingIdentity = "";
+        bootstrapPingPlan = BootstrapPingPlanner.Plan.empty();
+        bootstrapPingPlanBuiltAt = 0L;
         refreshDiagnosticsScreen();
         Toast.makeText(this, R.string.diagnostics_reset_done, Toast.LENGTH_SHORT).show();
     }
@@ -3440,7 +3492,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
             return false;
         }
-        if (!saveVpsRelaySettings(relay)) return false;
+        if (!saveVpsRelaySettings(relay, selectedVpsRelayId())) return false;
         refreshVpsRelaySelector();
         refreshConnectionFields();
         return true;
@@ -3884,8 +3936,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean saveVpsRelaySettings(VpsRelayConfig relay) {
+        return saveVpsRelaySettings(relay, "");
+    }
+
+    private boolean saveVpsRelaySettings(VpsRelayConfig relay, String preferredRelayId) {
         SharedPreferences.Editor editor = prefs.edit();
-        if (!updateStoredVpsRelaySelection(editor, relay)) {
+        if (!updateStoredVpsRelaySelection(editor, relay, preferredRelayId)) {
             DiagnosticsLog.record("secure VPS Relay staging failed");
             Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
             return false;
@@ -3901,10 +3957,21 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean updateStoredVpsRelaySelection(SharedPreferences.Editor editor,
                                                   VpsRelayConfig relay) {
+        return updateStoredVpsRelaySelection(editor, relay, "");
+    }
+
+    private boolean updateStoredVpsRelaySelection(SharedPreferences.Editor editor,
+                                                  VpsRelayConfig relay,
+                                                  String preferredRelayId) {
         if (relay == null || editor == null) return false;
         VpsRelayStore store = VpsRelayStore.fromContext(this);
         String profileKey = relay.profileKey().isEmpty() ? "" : relay.profileKey();
-        if (relay.isUsable()) return store.saveRelayInto(relay, profileKey, editor) != null;
+        if (relay.isUsable()) {
+            String id = preferredRelayId == null ? "" : preferredRelayId.trim();
+            return id.isEmpty()
+                    ? store.saveRelayInto(relay, profileKey, editor) != null
+                    : store.updateRelayInto(id, relay, profileKey, editor) != null;
+        }
         return store.bindProfileInto(profileKey, "", editor);
     }
 
@@ -3959,10 +4026,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             builder.publicCfDomains(cfDomains);
         }
-        VpsRelayConfig relay = activeVpsRelayConfig();
-        if (relay.isAllowedForProfile(profileRecord.key())) {
-            builder.vpsRelay(relay);
-        }
+        builder.vpsRelays(VpsRelayStore.fromContext(this).relayPool(profileRecord.key()));
         return builder.build();
     }
 

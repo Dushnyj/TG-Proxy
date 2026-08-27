@@ -55,7 +55,7 @@ final class RouteEngine {
         boolean knownRawTelegramDc = (s.testDc
                 ? MtProtoConfig.testDcRules() : MtProtoConfig.relayDcRules()).containsKey(dc);
         boolean hasDirectMapping = s.dcRedirects.containsKey(dc);
-        if (!knownRawTelegramDc && !hasDirectMapping && !s.vpsRelayEnabled) {
+        if (!knownRawTelegramDc && !hasDirectMapping && s.vpsRelays.isEmpty()) {
             return Collections.emptyList();
         }
 
@@ -68,10 +68,13 @@ final class RouteEngine {
         }
 
         ArrayList<RouteCandidate> vps = new ArrayList<>();
-        if (s.routeAvailability.isEnabled(RouteType.VPS_RELAY) && s.vpsRelayEnabled
-                && s.vpsRelayCapabilities.supports(dc, s.testDc)) {
-            vps.add(RouteCandidate.vpsRelay(s.vpsRelayName, s.vpsRelayHost, s.vpsRelayPort,
-                    dc, media, s.testDc));
+        if (s.routeAvailability.isEnabled(RouteType.VPS_RELAY)) {
+            for (VpsRelayConfig relay : s.vpsRelays) {
+                if (relay != null && relay.isUsable()
+                        && relay.capabilities().supports(dc, s.testDc)) {
+                    vps.add(RouteCandidate.vpsRelay(relay, dc, media, s.testDc));
+                }
+            }
         }
 
         ArrayList<RouteCandidate> worker = new ArrayList<>();
@@ -93,7 +96,8 @@ final class RouteEngine {
                 && !s.testDc && !MtProtoProxyEngine.CF_MODE_OFF.equals(s.cfMode)
                 && !s.publicCfDomains.isEmpty()
                 && TgConstants.supportsTelegramWebSocketDc(dc)) {
-            publicCf.add(RouteCandidate.publicCloudflare(dc, media, "public-cf"));
+            publicCf.add(RouteCandidate.publicCloudflare(
+                    dc, media, s.publicCfDomains.get(0)));
         }
 
         ArrayList<RouteCandidate> result = new ArrayList<>();
@@ -230,11 +234,7 @@ final class RouteEngine {
         private final List<String> workerDomains;
         private final List<String> customCfDomains;
         private final List<String> publicCfDomains;
-        private final boolean vpsRelayEnabled;
-        private final String vpsRelayName;
-        private final String vpsRelayHost;
-        private final int vpsRelayPort;
-        private final VpsRelayCapabilities vpsRelayCapabilities;
+        private final List<VpsRelayConfig> vpsRelays;
         private final boolean testDc;
 
         private Settings(Builder builder) {
@@ -249,12 +249,7 @@ final class RouteEngine {
             this.workerDomains = copy(builder.workerDomains);
             this.customCfDomains = copy(builder.customCfDomains);
             this.publicCfDomains = copy(builder.publicCfDomains);
-            this.vpsRelayEnabled = builder.vpsRelayEnabled;
-            this.vpsRelayName = builder.vpsRelayName;
-            this.vpsRelayHost = builder.vpsRelayHost;
-            this.vpsRelayPort = builder.vpsRelayPort;
-            this.vpsRelayCapabilities = builder.vpsRelayCapabilities == null
-                    ? VpsRelayCapabilities.unknown() : builder.vpsRelayCapabilities;
+            this.vpsRelays = copyRelays(builder.vpsRelays);
             this.testDc = builder.testDc;
         }
 
@@ -295,7 +290,7 @@ final class RouteEngine {
         }
 
         boolean vpsRelayEnabled() {
-            return vpsRelayEnabled;
+            return !vpsRelays.isEmpty();
         }
 
         private static List<String> copy(List<String> source) {
@@ -311,11 +306,7 @@ final class RouteEngine {
             private List<String> workerDomains = Collections.emptyList();
             private List<String> customCfDomains = Collections.emptyList();
             private List<String> publicCfDomains = Collections.emptyList();
-            private boolean vpsRelayEnabled;
-            private String vpsRelayName = "";
-            private String vpsRelayHost = "";
-            private int vpsRelayPort;
-            private VpsRelayCapabilities vpsRelayCapabilities = VpsRelayCapabilities.unknown();
+            private List<VpsRelayConfig> vpsRelays = Collections.emptyList();
             private boolean testDc;
 
             Builder networkProfile(NetworkProfile networkProfile) {
@@ -356,20 +347,19 @@ final class RouteEngine {
             }
 
             Builder vpsRelay(String name, String host, int port) {
-                this.vpsRelayEnabled = true;
-                this.vpsRelayName = name;
-                this.vpsRelayHost = host;
-                this.vpsRelayPort = port;
+                this.vpsRelays = Collections.singletonList(VpsRelayConfig.manual(
+                        true, name, host, port, true, "/apiws", "route-candidate", ""));
                 return this;
             }
 
             Builder vpsRelay(VpsRelayConfig relay) {
                 if (relay == null || !relay.isUsable()) return this;
-                this.vpsRelayEnabled = true;
-                this.vpsRelayName = relay.name();
-                this.vpsRelayHost = relay.host();
-                this.vpsRelayPort = relay.port();
-                this.vpsRelayCapabilities = relay.capabilities();
+                this.vpsRelays = Collections.singletonList(relay);
+                return this;
+            }
+
+            Builder vpsRelays(List<VpsRelayConfig> relays) {
+                this.vpsRelays = relays == null ? Collections.emptyList() : relays;
                 return this;
             }
 
@@ -387,6 +377,16 @@ final class RouteEngine {
             Settings build() {
                 return new Settings(this);
             }
+        }
+
+        private static List<VpsRelayConfig> copyRelays(List<VpsRelayConfig> source) {
+            ArrayList<VpsRelayConfig> result = new ArrayList<>();
+            if (source != null) {
+                for (VpsRelayConfig relay : source) {
+                    if (relay != null && relay.isUsable()) result.add(relay);
+                }
+            }
+            return result;
         }
     }
 }

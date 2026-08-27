@@ -73,6 +73,29 @@ public class VpsOwnerRecordTest {
         assertFalse(oversized.canManage());
     }
 
+    @Test
+    public void sshIdentityIncludesUserName() {
+        VpsOwnerRecord root = VpsOwnerRecord.fromSetup(request(true), relay("client-secret"));
+        VpsSetupRequest adminRequest = VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshPort(22)
+                .sshUser("admin")
+                .sshPassword("ssh-password")
+                .relayHost("relay-2.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("client-2")
+                .adminToken("owner-2")
+                .releaseVersion("1.1.0")
+                .build();
+        VpsOwnerRecord admin = VpsOwnerRecord.fromSetup(adminRequest,
+                VpsRelayConfig.manual(true, "Relay 2", "relay-2.example.com",
+                        443, true, "/apiws", "client-2", ""));
+
+        assertFalse(root.sameSshEndpoint(admin));
+    }
+
     private static String repeat(char value, int count) {
         StringBuilder out = new StringBuilder(count);
         for (int index = 0; index < count; index++) out.append(value);

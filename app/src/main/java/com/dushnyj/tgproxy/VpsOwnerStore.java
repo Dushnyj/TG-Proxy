@@ -37,24 +37,37 @@ final class VpsOwnerStore {
         return null;
     }
 
+    synchronized VpsOwnerRecord forSsh(VpsSshCredentials credentials) {
+        if (credentials == null) return null;
+        VpsOwnerRecord newest = null;
+        for (VpsOwnerRecord record : load().values()) {
+            if (!record.matchesSsh(credentials)) continue;
+            if (newest == null || record.updatedAtMs() > newest.updatedAtMs()) newest = record;
+        }
+        return newest;
+    }
+
     synchronized boolean saveSetup(VpsSetupRequest request, VpsRelayConfig relay) {
         if (request == null || relay == null || !relay.isUsable()
                 || request.adminToken().isEmpty()) return false;
         LinkedHashMap<String, VpsOwnerRecord> records = load();
         VpsOwnerRecord next = VpsOwnerRecord.fromSetup(request, relay);
-        String oldId = "";
         VpsOwnerRecord previous = records.get(next.id());
         if (previous == null) {
             for (VpsOwnerRecord record : records.values()) {
                 if (next.sameSshEndpoint(record)) {
                     previous = record;
-                    oldId = record.id();
                     break;
                 }
             }
         }
         next = next.mergedWith(previous);
-        if (!oldId.isEmpty() && !oldId.equals(next.id())) records.remove(oldId);
+        // A VPS can legitimately expose the same Relay through several public aliases. Keep
+        // the old exact-endpoint owner mapping instead of destructively moving it to the newest
+        // endpoint. This also makes a failed second setup unable to erase the first one.
+        if (previous != null && !previous.id().equals(next.id())) {
+            records.put(previous.id(), previous.withMergedManagedTokens(next));
+        }
         records.put(next.id(), next);
         return persist(records);
     }
@@ -64,7 +77,11 @@ final class VpsOwnerStore {
         LinkedHashMap<String, VpsOwnerRecord> records = load();
         VpsOwnerRecord owner = find(records, relay);
         if (owner == null || !owner.canManage()) return false;
-        records.put(owner.id(), owner.withManagedToken(tokenId, name, secret));
+        for (VpsOwnerRecord record : new ArrayList<>(records.values())) {
+            if (record.id().equals(owner.id()) || record.sameSshEndpoint(owner)) {
+                records.put(record.id(), record.withManagedToken(tokenId, name, secret));
+            }
+        }
         return persist(records);
     }
 
@@ -72,7 +89,11 @@ final class VpsOwnerStore {
         LinkedHashMap<String, VpsOwnerRecord> records = load();
         VpsOwnerRecord owner = find(records, relay);
         if (owner == null) return false;
-        records.put(owner.id(), owner.withoutManagedToken(tokenId));
+        for (VpsOwnerRecord record : new ArrayList<>(records.values())) {
+            if (record.id().equals(owner.id()) || record.sameSshEndpoint(owner)) {
+                records.put(record.id(), record.withoutManagedToken(tokenId));
+            }
+        }
         return persist(records);
     }
 

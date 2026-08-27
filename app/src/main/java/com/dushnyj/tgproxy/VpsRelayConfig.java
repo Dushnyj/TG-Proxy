@@ -2,6 +2,8 @@ package com.dushnyj.tgproxy;
 
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Locale;
 
 final class VpsRelayConfig {
@@ -109,6 +111,11 @@ final class VpsRelayConfig {
                 capabilities);
     }
 
+    VpsRelayConfig withName(String name) {
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
+                capabilities);
+    }
+
     VpsRelayConfig withCapabilities(VpsRelayCapabilities value) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey, value);
     }
@@ -147,6 +154,21 @@ final class VpsRelayConfig {
                 && tls == other.tls
                 && host.equals(other.host)
                 && path.equals(other.path);
+    }
+
+    /** Stable non-secret identity used to keep failover statistics separate per Relay token. */
+    String routingId() {
+        String value = (tls ? "tls" : "plain") + "\n" + host + "\n" + port + "\n"
+                + path + "\n" + token;
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder("r");
+            for (int i = 0; i < 8; i++) out.append(String.format(Locale.US, "%02x", hash[i] & 0xff));
+            return out.toString();
+        } catch (Exception ignored) {
+            return "r" + Integer.toHexString(value.hashCode());
+        }
     }
 
     String baseUrl() {

@@ -77,7 +77,16 @@ final class VpsOwnerRecord {
     }
 
     boolean sameSshEndpoint(VpsOwnerRecord other) {
-        return other != null && sshHost.equalsIgnoreCase(other.sshHost) && sshPort == other.sshPort;
+        return other != null && sshHost.equalsIgnoreCase(other.sshHost)
+                && sshPort == other.sshPort
+                && sshUser.equalsIgnoreCase(other.sshUser);
+    }
+
+    boolean matchesSsh(VpsSshCredentials credentials) {
+        return credentials != null
+                && sshHost.equalsIgnoreCase(credentials.host())
+                && sshPort == credentials.port()
+                && sshUser.equalsIgnoreCase(credentials.user());
     }
 
     List<ManagedToken> managedTokens() {
@@ -109,6 +118,13 @@ final class VpsOwnerRecord {
         merged.putAll(managedTokens);
         return new VpsOwnerRecord(id, sshHost, sshPort, sshUser, sshPassword, adminToken,
                 relayHost, relayPort, relayTls, relayPath, updatedAtMs, merged);
+    }
+
+    VpsOwnerRecord withMergedManagedTokens(VpsOwnerRecord other) {
+        if (other == null) return this;
+        LinkedHashMap<String, ManagedToken> merged = new LinkedHashMap<>(managedTokens);
+        merged.putAll(other.managedTokens);
+        return copy(merged);
     }
 
     String serialize() {

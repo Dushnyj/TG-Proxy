@@ -16,6 +16,7 @@ final class RuntimeConfigSnapshot {
     final boolean cfWarmupEnabled;
     final List<String> workerDomains;
     final VpsRelayConfig relay;
+    final List<VpsRelayConfig> relays;
     final boolean verbose;
     final NetworkProfile networkProfile;
     final RoutePreference routePreference;
@@ -30,7 +31,12 @@ final class RuntimeConfigSnapshot {
         cfCustomDomains = builder.cfCustomDomains;
         cfWarmupEnabled = builder.cfWarmupEnabled;
         workerDomains = Collections.unmodifiableList(new ArrayList<>(builder.workerDomains));
-        relay = builder.relay == null ? VpsRelayConfig.disabled() : builder.relay;
+        ArrayList<VpsRelayConfig> relayPool = new ArrayList<>();
+        for (VpsRelayConfig value : builder.relays) {
+            if (value != null && value.isUsable()) relayPool.add(value);
+        }
+        relays = Collections.unmodifiableList(relayPool);
+        relay = relays.isEmpty() ? VpsRelayConfig.disabled() : relays.get(0);
         verbose = builder.verbose;
         networkProfile = builder.networkProfile == null
                 ? NetworkProfile.defaultProfile() : builder.networkProfile;
@@ -59,7 +65,7 @@ final class RuntimeConfigSnapshot {
         private boolean cfCustomDomains;
         private boolean cfWarmupEnabled = true;
         private List<String> workerDomains = Collections.emptyList();
-        private VpsRelayConfig relay = VpsRelayConfig.disabled();
+        private List<VpsRelayConfig> relays = Collections.emptyList();
         private boolean verbose;
         private NetworkProfile networkProfile = NetworkProfile.defaultProfile();
         private RoutePreference routePreference = RoutePreference.AUTO;
@@ -79,7 +85,15 @@ final class RuntimeConfigSnapshot {
             workerDomains = value == null ? Collections.emptyList() : value;
             return this;
         }
-        Builder relay(VpsRelayConfig value) { relay = value; return this; }
+        Builder relay(VpsRelayConfig value) {
+            relays = value == null ? Collections.emptyList()
+                    : Collections.singletonList(value);
+            return this;
+        }
+        Builder relays(List<VpsRelayConfig> value) {
+            relays = value == null ? Collections.emptyList() : value;
+            return this;
+        }
         Builder verbose(boolean value) { verbose = value; return this; }
         Builder networkProfile(NetworkProfile value) { networkProfile = value; return this; }
         Builder routePreference(RoutePreference value) { routePreference = value; return this; }

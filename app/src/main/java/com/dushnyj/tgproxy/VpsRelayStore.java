@@ -71,8 +71,11 @@ final class VpsRelayStore {
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
         String id = existingEndpointId(relay);
-        if (id.isEmpty()) id = idFor(relay);
-        Record record = new Record(id, relay.withProfileKey(""));
+        boolean isNew = id.isEmpty();
+        if (isNew) id = idFor(relay);
+        VpsRelayConfig stored = relay.withProfileKey("")
+                .withName(uniqueName(relay.name(), isNew ? "" : id));
+        Record record = new Record(id, stored);
         relays.put(id, record);
         String key = normalize(profileKey);
         profileBindings.put(bindingKey(key), id);
@@ -85,6 +88,30 @@ final class VpsRelayStore {
                 return null;
             }
         } else if (!writeAll(editor)) {
+            relays.clear();
+            relays.putAll(previousRelays);
+            profileBindings.clear();
+            profileBindings.putAll(previousBindings);
+            return null;
+        }
+        return record;
+    }
+
+    synchronized Record updateRelayInto(String relayId, VpsRelayConfig relay, String profileKey,
+                                         SharedPreferences.Editor editor) {
+        String id = normalize(relayId);
+        if (id.isEmpty() || !relays.containsKey(id) || relay == null) {
+            return saveRelayInto(relay, profileKey, editor);
+        }
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        VpsRelayConfig stored = relay.withProfileKey("")
+                .withName(uniqueName(relay.name(), id));
+        Record record = new Record(id, stored);
+        relays.put(id, record);
+        profileBindings.put(bindingKey(profileKey), id);
+        boolean written = editor == null ? persist() : writeAll(editor);
+        if (!written) {
             relays.clear();
             relays.putAll(previousRelays);
             profileBindings.clear();
@@ -186,6 +213,22 @@ final class VpsRelayStore {
         return Collections.unmodifiableList(new ArrayList<>(relays.values()));
     }
 
+    /** Primary Relay followed by every other enabled saved Relay for automatic failover. */
+    synchronized List<VpsRelayConfig> relayPool(String profileKey) {
+        String selectedId = selectedRelayId(profileKey);
+        if (selectedId == null || selectedId.isEmpty()) return Collections.emptyList();
+        ArrayList<VpsRelayConfig> result = new ArrayList<>();
+        Record primary = relays.get(selectedId);
+        if (primary != null && primary.config().isUsable()) {
+            result.add(primary.config().withProfileKey(normalize(profileKey)));
+        }
+        for (Record record : relays.values()) {
+            if (record.id().equals(selectedId) || !record.config().isUsable()) continue;
+            result.add(record.config().withProfileKey(""));
+        }
+        return Collections.unmodifiableList(result);
+    }
+
     synchronized boolean importLegacyIfNeeded(VpsRelayConfig relay, String profileKey) {
         if (relay == null || !relay.isUsable()) return true;
         String existing = selectedRelayId(profileKey);
@@ -242,6 +285,23 @@ final class VpsRelayStore {
                     && record.config().token().equals(relay.token())) return record.id();
         }
         return "";
+    }
+
+    private String uniqueName(String requested, String exceptId) {
+        String base = normalize(requested);
+        if (base.isEmpty()) base = "VPS Relay";
+        if (!nameExists(base, exceptId)) return base;
+        int suffix = 2;
+        while (nameExists(base + " " + suffix, exceptId)) suffix++;
+        return base + " " + suffix;
+    }
+
+    private boolean nameExists(String name, String exceptId) {
+        for (Record record : relays.values()) {
+            if (record.id().equals(exceptId)) continue;
+            if (record.config().name().equalsIgnoreCase(name)) return true;
+        }
+        return false;
     }
 
     private static String serializeRelays(Map<String, Record> source) {

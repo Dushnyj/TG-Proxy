@@ -65,8 +65,9 @@ final class ActiveRoutePingPlanner {
                 }
                 break;
             case VPS_RELAY:
-                VpsRelayConfig relay = relayConfig == null
-                        ? VpsRelayConfig.disabled() : relayConfig;
+                VpsRelayConfig candidateRelay = route.relayConfig();
+                VpsRelayConfig relay = candidateRelay.isUsable() ? candidateRelay
+                        : (relayConfig == null ? VpsRelayConfig.disabled() : relayConfig);
                 if (relay.isUsable()) {
                     targets.add(RoutePingTarget.relay(relay, dc, media, route.test()));
                 }

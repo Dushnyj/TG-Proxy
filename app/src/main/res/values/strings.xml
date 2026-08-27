@@ -75,7 +75,7 @@
     <string name="route_direct_only">Оставить только Direct</string>
     <string name="route_none_warning">Включите хотя бы один маршрут.</string>
     <string name="vps_relay">VPS Relay</string>
-    <string name="vps_relay_note">Личный relay участвует в маршрутах только для выбранных профилей сети.</string>
+    <string name="vps_relay_note">Выбранный Relay используется первым. Если он недоступен, приложение автоматически пробует остальные включённые Relay.</string>
     <string name="vps_relay_enabled">Включить VPS Relay</string>
     <string name="vps_relay_name">Название</string>
     <string name="vps_relay_host">Host / домен</string>
@@ -536,6 +536,10 @@
     <string name="vps_setup_plan_technical_show">Показать технические подробности</string>
     <string name="vps_setup_plan_technical_hide">Скрыть технические подробности</string>
     <string name="vps_setup_plan_unknown">Не удалось построить план. Вернитесь назад и повторите проверку сервера.</string>
+    <string name="vps_setup_token_choice_title">На этом Relay уже есть токены</string>
+    <string name="vps_setup_token_choice_note">Можно использовать сохранённый токен без создания лишнего подключения или создать отдельный токен для нового устройства.</string>
+    <string name="vps_setup_token_existing_item">Использовать «%1$s» · %2$s</string>
+    <string name="vps_setup_token_create_new">Создать отдельный новый токен</string>
     <string name="vps_setup_plan_blocked_action">Сначала исправьте условия</string>
     <string name="vps_endpoint_updating_duckdns">Обновляем DuckDNS и ждём DNS…</string>
     <string name="vps_endpoint_checking_dns">Проверяем DNS и доступность адреса…</string>

@@ -175,9 +175,10 @@ public class RouteEngineTest {
         RouteCandidate mediaDc2 = engine.buildCandidates(settings, 2, true).get(0);
         RouteCandidate mainDc4 = engine.buildCandidates(settings, 4, false).get(0);
 
-        assertEquals("vps_relay:dc2", mainDc2.key());
-        assertEquals("vps_relay:dc2:media", mediaDc2.key());
-        assertEquals("vps_relay:dc4", mainDc4.key());
+        assertTrue(mainDc2.key().startsWith("vps_relay:r"));
+        assertTrue(mainDc2.key().endsWith(":dc2"));
+        assertTrue(mediaDc2.key().endsWith(":dc2:media"));
+        assertTrue(mainDc4.key().endsWith(":dc4"));
     }
 
     @Test
@@ -199,7 +200,7 @@ public class RouteEngineTest {
         RoutePlan mainPlan = engine.plan(settings, 2, false, "", stats, 11_000L);
 
         assertEquals(RouteType.VPS_RELAY, mainPlan.selected().type());
-        assertEquals("vps_relay:dc2", mainPlan.selected().key());
+        assertTrue(mainPlan.selected().key().endsWith(":dc2"));
     }
 
     @Test
@@ -339,6 +340,35 @@ public class RouteEngineTest {
         assertFalse(new RouteEngine().buildCandidates(
                 RouteEngine.Settings.builder().vpsRelay(relay).build(),
                 2, false).isEmpty());
+    }
+
+    @Test
+    public void multipleRelaysHaveIndependentCandidatesAndFailureState() {
+        VpsRelayConfig first = VpsRelayConfig.manual(true, "Relay 1",
+                "one.example.com", 443, true, "/apiws", "one", "");
+        VpsRelayConfig second = VpsRelayConfig.manual(true, "Relay 2",
+                "two.example.com", 443, true, "/apiws", "two", "");
+        RouteEngine.Settings settings = RouteEngine.Settings.builder()
+                .routePreference(RoutePreference.RELAY_FIRST)
+                .vpsRelays(Arrays.asList(first, second))
+                .build();
+        RouteEngine engine = new RouteEngine();
+        List<RouteCandidate> candidates = engine.buildCandidates(settings, 2, false);
+
+        assertEquals(2, candidates.stream()
+                .filter(value -> value.type() == RouteType.VPS_RELAY).count());
+        RouteCandidate primary = candidates.get(0);
+        RouteCandidate backup = candidates.get(1);
+        assertFalse(primary.key().equals(backup.key()));
+        RouteStats failedPrimary = new RouteStats();
+        failedPrimary.recordFailure(RouteError.TIMEOUT, 1_000L);
+        Map<String, RouteStats> stats = new LinkedHashMap<>();
+        stats.put(primary.key(), failedPrimary);
+
+        RoutePlan plan = engine.plan(candidates, "", stats, 1_001L);
+
+        assertEquals(backup.key(), plan.selected().key());
+        assertEquals("Relay 2", plan.selected().displayName());
     }
 
     private static VpsRelayConfig dynamicRelay() throws Exception {

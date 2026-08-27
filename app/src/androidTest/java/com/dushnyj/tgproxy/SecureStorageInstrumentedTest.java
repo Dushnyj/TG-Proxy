@@ -111,6 +111,56 @@ public class SecureStorageInstrumentedTest {
     }
 
     @Test
+    public void secondPublicAliasDoesNotRemoveOwnerAccessFromFirstRelay() {
+        VpsRelayConfig first = VpsRelayConfig.manual(true, "Relay 1",
+                "first.example.com", 443, true, "/apiws", "client-one", "");
+        VpsRelayConfig second = VpsRelayConfig.manual(true, "Relay 2",
+                "second.example.com", 443, true, "/apiws", "client-two", "");
+        VpsSetupRequest firstRequest = ownerRequest("root", "client-one", "owner-one");
+        VpsSetupRequest secondRequest = VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshPort(22)
+                .sshUser("root")
+                .sshPassword("ssh-secret")
+                .relayHost("second.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken("client-two")
+                .adminToken("owner-two")
+                .releaseVersion("1.2.0")
+                .rememberSshPassword(true)
+                .build();
+        VpsOwnerStore store = new VpsOwnerStore(context);
+
+        assertTrue(store.saveSetup(firstRequest, first));
+        assertTrue(store.saveSetup(secondRequest, second));
+
+        assertNotNull(store.forRelay(first));
+        assertNotNull(store.forRelay(second));
+        assertEquals("owner-one", store.forRelay(first).adminToken());
+        assertEquals("owner-two", store.forRelay(second).adminToken());
+        assertEquals(2, store.records().size());
+    }
+
+    private static VpsSetupRequest ownerRequest(String sshUser, String client, String admin) {
+        return VpsSetupRequest.builder()
+                .sshHost("vps.example.com")
+                .sshPort(22)
+                .sshUser(sshUser)
+                .sshPassword("ssh-secret")
+                .relayHost("first.example.com")
+                .relayPort(443)
+                .relayTls(true)
+                .relayPath("/apiws")
+                .relayToken(client)
+                .adminToken(admin)
+                .releaseVersion("1.2.0")
+                .rememberSshPassword(true)
+                .build();
+    }
+
+    @Test
     public void newServerAccessDraftSurvivesReloadAndRemainsEncrypted() {
         VpsSshDraftStore store = new VpsSshDraftStore(context);
         VpsSshCredentials credentials = new VpsSshCredentials(

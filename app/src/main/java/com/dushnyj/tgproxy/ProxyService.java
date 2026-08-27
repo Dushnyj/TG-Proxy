@@ -537,9 +537,8 @@ public class ProxyService extends Service {
                 prefs.getString("cfproxy_mode", fallback));
     }
 
-    private VpsRelayConfig vpsRelayConfigFromPrefs(String profileKey) {
-        VpsRelayConfig selected = VpsRelayStore.fromContext(ProxyService.this).selectedRelay(profileKey);
-        return selected == null ? VpsRelayConfig.disabled() : selected;
+    private java.util.List<VpsRelayConfig> vpsRelayPoolFromPrefs(String profileKey) {
+        return VpsRelayStore.fromContext(ProxyService.this).relayPool(profileKey);
     }
 
     private CharSequence colorTrafficInText(String text, int trafficStartHint) {
@@ -794,7 +793,7 @@ public class ProxyService extends Service {
                 .cfCustomDomains(prefs.getBoolean("cfproxy_custom_enabled", false))
                 .cfWarmupEnabled(prefs.getBoolean("cf_warmup", true))
                 .workerDomains(splitDomains(prefs.getString("worker_domains", "")))
-                .relay(vpsRelayConfigFromPrefs(selected.key()))
+                .relays(vpsRelayPoolFromPrefs(selected.key()))
                 .verbose(prefs.getBoolean("verbose_logging", false))
                 .networkProfile(selected.profile())
                 .routePreference(selected.routePreference())

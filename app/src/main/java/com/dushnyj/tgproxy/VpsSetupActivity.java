@@ -40,6 +40,8 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.File;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -81,6 +83,7 @@ public final class VpsSetupActivity extends AppCompatActivity {
     private boolean rememberCredentials = true;
     private String relayToken = "";
     private String adminToken = "";
+    private String tokenChoiceEndpoint = "";
     private VpsEndpointPolicy.Mode endpointMode = VpsEndpointPolicy.Mode.IP;
     private String duckDnsDomain = "";
     private String duckDnsToken = "";
@@ -136,8 +139,7 @@ public final class VpsSetupActivity extends AppCompatActivity {
         updateExisting = getIntent().getBooleanExtra(EXTRA_UPDATE_EXISTING, false);
         VpsRelayStore store = VpsRelayStore.fromContext(this);
         VpsRelayStore.Record record = relayId.isEmpty() ? null : store.relay(relayId);
-        selectedRelay = record == null ? store.selectedRelay(profileKey)
-                : record.config().withProfileKey(profileKey);
+        selectedRelay = record == null ? null : record.config().withProfileKey(profileKey);
         savedOwner = new VpsOwnerStore(this).forRelay(selectedRelay);
         ownerExisted = savedOwner != null && savedOwner.canManage();
         initializeValues();
@@ -277,6 +279,12 @@ public final class VpsSetupActivity extends AppCompatActivity {
             lastError = getString(R.string.vps_setup_access_required);
             renderAccess();
             return;
+        }
+        VpsOwnerRecord ownerForServer = new VpsOwnerStore(this).forSsh(credentials);
+        if (ownerForServer != null && ownerForServer.canManage()) {
+            savedOwner = ownerForServer;
+            ownerExisted = true;
+            adminToken = ownerForServer.adminToken();
         }
         hideKeyboard();
         running = true;
@@ -477,6 +485,119 @@ public final class VpsSetupActivity extends AppCompatActivity {
             }
         }
         final String endpointHost = host;
+        if (offerReusableToken(endpointHost)) return;
+        startEndpointPreparation(endpointHost);
+    }
+
+    private boolean offerReusableToken(String endpointHost) {
+        String path = selectedRelay != null && selectedRelay.isUsable()
+                ? selectedRelay.path() : "/apiws";
+        String existingPublicUrl = preflightAudit == null
+                ? "" : preflightAudit.value("existing_relay_public_url");
+        String endpointKey = endpointHost.toLowerCase(Locale.US) + ":443" + path
+                + "|" + existingPublicUrl;
+        if (endpointKey.equals(tokenChoiceEndpoint)) return false;
+
+        VpsRelayConfig endpoint = VpsRelayConfig.manual(true, "VPS Relay", endpointHost,
+                443, true, path, "probe-token", profileKey);
+        ArrayList<VpsRelayConfig> endpoints = new ArrayList<>();
+        endpoints.add(endpoint);
+        VpsRelayConfig existingEndpoint = existingRelayEndpoint();
+        if (existingEndpoint != null && !existingEndpoint.sameEndpoint(endpoint)) {
+            endpoints.add(existingEndpoint);
+        }
+        LinkedHashMap<String, VpsRelayConfig> choices = new LinkedHashMap<>();
+        for (VpsRelayStore.Record record : VpsRelayStore.fromContext(this).relays()) {
+            VpsRelayConfig config = record.config();
+            if (!config.isUsable() || !matchesAnyEndpoint(config, endpoints)) continue;
+            choices.put(VpsOwnerRecord.clientTokenId(config.token()),
+                    config.withProfileKey(profileKey));
+        }
+        VpsOwnerStore ownerStore = new VpsOwnerStore(this);
+        for (VpsRelayConfig candidateEndpoint : endpoints) {
+            VpsOwnerRecord endpointOwner = ownerStore.forRelay(candidateEndpoint);
+            if (endpointOwner == null) continue;
+            for (VpsOwnerRecord.ManagedToken token : endpointOwner.managedTokens()) {
+                if (token.secret().isEmpty()) continue;
+                choices.put(token.id(), candidateEndpoint.withTokenAndName(token.secret(),
+                        token.name().isEmpty() ? "VPS Relay" : token.name()));
+            }
+        }
+        if (choices.isEmpty()) {
+            tokenChoiceEndpoint = endpointKey;
+            return false;
+        }
+        if (selectedRelay != null && selectedRelay.isUsable()
+                && selectedRelay.sameEndpoint(endpoint)
+                && choices.containsKey(VpsOwnerRecord.clientTokenId(relayToken))) {
+            tokenChoiceEndpoint = endpointKey;
+            return false;
+        }
+
+        ArrayList<VpsRelayConfig> reusable = new ArrayList<>(choices.values());
+        ArrayList<String> labels = new ArrayList<>();
+        for (VpsRelayConfig config : reusable) {
+            labels.add(getString(R.string.vps_setup_token_existing_item,
+                    config.name(), config.maskedToken()));
+        }
+        labels.add(getString(R.string.vps_setup_token_create_new));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.vps_setup_token_choice_title)
+                .setMessage(R.string.vps_setup_token_choice_note)
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    if (which >= 0 && which < reusable.size()) {
+                        VpsRelayConfig chosen = reusable.get(which);
+                        relayToken = chosen.token();
+                        if (chosen.name() != null && !chosen.name().trim().isEmpty()) {
+                            selectedRelay = chosen;
+                        }
+                        VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(chosen);
+                        if (owner != null && owner.canManage()) {
+                            savedOwner = owner;
+                            ownerExisted = true;
+                            adminToken = owner.adminToken();
+                        }
+                    } else {
+                        relayToken = generateToken("tgpc_");
+                    }
+                    tokenChoiceEndpoint = endpointKey;
+                    startEndpointPreparation(endpointHost);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+        return true;
+    }
+
+    private VpsRelayConfig existingRelayEndpoint() {
+        if (preflightAudit == null) return null;
+        String value = preflightAudit.value("existing_relay_public_url");
+        if (value == null || value.trim().isEmpty()) return null;
+        try {
+            java.net.URI uri = new java.net.URI(value.trim());
+            boolean tls = "https".equalsIgnoreCase(uri.getScheme());
+            if (!tls && !"http".equalsIgnoreCase(uri.getScheme())) return null;
+            String host = uri.getHost();
+            if (host == null || host.trim().isEmpty()) return null;
+            int port = uri.getPort() > 0 ? uri.getPort() : (tls ? 443 : 80);
+            String path = uri.getPath() == null || uri.getPath().trim().isEmpty()
+                    ? "/apiws" : uri.getPath().trim();
+            return VpsRelayConfig.manual(true, "VPS Relay", host, port, tls, path,
+                    "probe-token", profileKey);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean matchesAnyEndpoint(VpsRelayConfig relay,
+                                              List<VpsRelayConfig> endpoints) {
+        if (relay == null || endpoints == null) return false;
+        for (VpsRelayConfig endpoint : endpoints) {
+            if (endpoint != null && relay.sameEndpoint(endpoint)) return true;
+        }
+        return false;
+    }
+
+    private void startEndpointPreparation(String endpointHost) {
         running = true;
         renderProgressPage(
                 endpointMode == VpsEndpointPolicy.Mode.DUCKDNS
@@ -555,7 +676,8 @@ public final class VpsSetupActivity extends AppCompatActivity {
 
                 @Override public boolean onPlan(VpsSetupPlan plan) {
                     boolean approved = awaitPlanApproval(plan);
-                    if (approved && !ownerStore.saveSetup(request, request.relayConfig())) {
+                    if (approved && !ownerExisted
+                            && !ownerStore.saveSetup(request, request.relayConfig())) {
                         ownerPreSaveFailed.set(true);
                         return false;
                     }

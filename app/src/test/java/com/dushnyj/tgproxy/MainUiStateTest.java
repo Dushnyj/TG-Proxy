@@ -93,12 +93,12 @@ public class MainUiStateTest {
     }
 
     @Test
-    public void failedAutoPingFallsBackToVerifiedRoutePing() {
+    public void failedAutoPingIsShownInsteadOfStaleRouteLatency() {
         RouteState routeState = RouteState.active(
                 RouteCandidate.publicCloudflare(2, "lovetrue.co.uk"),
                 "lovetrue.co.uk", 261, "stable");
 
-        assertEquals(261, MainUiState.displayedPing(
+        assertEquals(MainUiState.PING_ERROR_MS, MainUiState.displayedPing(
                 routeState,
                 MainUiState.routeIdentity(routeState),
                 MainUiState.PING_ERROR_MS,

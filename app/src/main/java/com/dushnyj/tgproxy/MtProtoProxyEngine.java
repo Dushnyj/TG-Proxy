@@ -96,6 +96,7 @@ public final class MtProtoProxyEngine {
     private boolean cfWarmupEnabled = true;
     private boolean verbose = false;
     private volatile VpsRelayConfig vpsRelayConfig = VpsRelayConfig.disabled();
+    private volatile List<VpsRelayConfig> vpsRelayConfigs = Collections.emptyList();
     private volatile NetworkProfile networkProfile =
             NetworkProfile.wifi(CfProxyDomainState.PROFILE_WIFI);
     private volatile String networkProfileKey = networkProfile.key();
@@ -158,6 +159,8 @@ public final class MtProtoProxyEngine {
 
     public void setVpsRelayConfig(VpsRelayConfig config) {
         this.vpsRelayConfig = config == null ? VpsRelayConfig.disabled() : config;
+        this.vpsRelayConfigs = this.vpsRelayConfig.isUsable()
+                ? Collections.singletonList(this.vpsRelayConfig) : Collections.emptyList();
     }
 
     public void setVerbose(boolean verbose) {
@@ -235,15 +238,17 @@ public final class MtProtoProxyEngine {
                     ? RoutePreference.AUTO : snapshot.routePreference;
             RouteAvailability nextAvailability = snapshot.routeAvailability == null
                     ? RouteAvailability.all() : snapshot.routeAvailability;
-            VpsRelayConfig nextRelay = snapshot.relay == null
-                    ? VpsRelayConfig.disabled() : snapshot.relay;
+            List<VpsRelayConfig> nextRelays = snapshot.relays == null
+                    ? Collections.emptyList() : new ArrayList<>(snapshot.relays);
+            VpsRelayConfig nextRelay = nextRelays.isEmpty()
+                    ? VpsRelayConfig.disabled() : nextRelays.get(0);
 
             boolean directChanged = !dcRedirects.equals(nextDcRedirects);
             boolean cfChanged = !cfProxyDomains.equals(nextCfDomains)
                     || cfProxyCustomDomains != snapshot.cfCustomDomains
                     || !cfProxyMode.equals(nextCfMode);
             boolean workerChanged = !cfWorkerDomains.equals(nextWorkerDomains);
-            boolean relayChanged = !vpsRelayConfig.sameRoutingIdentity(nextRelay);
+            boolean relayChanged = !sameRelayPools(vpsRelayConfigs, nextRelays);
             boolean profileChanged = !networkProfileKey.equals(nextProfile.key());
             java.util.Set<RouteType> disabledRoutes =
                     routeAvailability.disabledComparedTo(nextAvailability);
@@ -271,6 +276,7 @@ public final class MtProtoProxyEngine {
             cfWorkerDomains = nextWorkerDomains;
             cfWarmupEnabled = snapshot.cfWarmupEnabled;
             vpsRelayConfig = nextRelay;
+            vpsRelayConfigs = Collections.unmodifiableList(nextRelays);
             verbose = snapshot.verbose;
             networkProfile = nextProfile;
             networkProfileKey = nextProfile.key();
@@ -742,7 +748,8 @@ public final class MtProtoProxyEngine {
                                             long generation, ConnectBudget budget,
                                             ConnectionRacer.Cancellation cancellation,
                                             RawWebSocket.SocketObserver observer) {
-        VpsRelayConfig config = vpsRelayConfig;
+        VpsRelayConfig config = route == null
+                ? VpsRelayConfig.disabled() : route.relayConfig();
         if (config == null || !config.isAllowedForProfile(networkProfile.key())) return null;
         try {
             return RawWebSocket.connectRelay(config, dc, media, route.test(), budget,
@@ -1124,11 +1131,25 @@ public final class MtProtoProxyEngine {
         } else if (!test) {
             builder.publicCfDomains(cfProxyDomains);
         }
-        VpsRelayConfig relay = vpsRelayConfig;
-        if (relay != null && relay.isAllowedForProfile(networkProfile.key())) {
-            builder.vpsRelay(relay);
+        ArrayList<VpsRelayConfig> allowedRelays = new ArrayList<>();
+        for (VpsRelayConfig relay : vpsRelayConfigs) {
+            if (relay != null && relay.isAllowedForProfile(networkProfile.key())) {
+                allowedRelays.add(relay);
+            }
         }
+        builder.vpsRelays(allowedRelays);
         return builder.build();
+    }
+
+    private static boolean sameRelayPools(List<VpsRelayConfig> left,
+                                          List<VpsRelayConfig> right) {
+        List<VpsRelayConfig> a = left == null ? Collections.emptyList() : left;
+        List<VpsRelayConfig> b = right == null ? Collections.emptyList() : right;
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            if (!a.get(i).sameRoutingIdentity(b.get(i))) return false;
+        }
+        return true;
     }
 
     private void recordRouteSuccess(RouteCandidate route, int latencyMs) {
