@@ -490,6 +490,12 @@ public class ProxyService extends Service {
 
     private String serviceStatusLabel(ServiceState.Status status) {
         if (status == ServiceState.Status.ACTIVE) return getString(R.string.status_active);
+        if (status == ServiceState.Status.READY_FOR_TELEGRAM) {
+            return getString(R.string.status_ready_for_telegram);
+        }
+        if (status == ServiceState.Status.CONNECTING_TELEGRAM) {
+            return getString(R.string.status_connecting_telegram);
+        }
         if (status == ServiceState.Status.SLEEP) return getString(R.string.status_sleep);
         if (status == ServiceState.Status.DEGRADED) return getString(R.string.status_degraded);
         if (status == ServiceState.Status.RETRYING) return getString(R.string.status_retrying);
@@ -644,6 +650,11 @@ public class ProxyService extends Service {
                 : currentEngine.currentRouteState();
         boolean engineRunning = currentEngine != null && currentEngine.isRunning();
         boolean localPortListening = currentEngine != null && currentEngine.isListening();
+        Map<String, RouteStats> stats = currentEngine == null
+                ? java.util.Collections.emptyMap()
+                : currentEngine.routeStatsSnapshot();
+        long nowMs = System.currentTimeMillis();
+        long activeConnections = currentEngine == null ? 0L : currentEngine.activeConnectionCount();
         ServiceState serviceState = ServiceState.from(
                 instance != null,
                 engineRunning,
@@ -652,21 +663,30 @@ public class ProxyService extends Service {
                 routeState,
                 engineStartInProgress,
                 engineStartRetry != null,
-                System.currentTimeMillis());
-        Map<String, RouteStats> stats = currentEngine == null
-                ? java.util.Collections.emptyMap()
-                : currentEngine.routeStatsSnapshot();
+                activeConnections,
+                hasRecentRouteFailure(stats, nowMs),
+                nowMs);
         return new DiagnosticsSnapshot(
                 serviceState,
                 activeNetworkProfile,
                 stats,
-                currentEngine == null ? 0L : currentEngine.activeConnectionCount(),
+                activeConnections,
                 currentEngine == null ? 0L : currentEngine.connections.get(),
                 currentEngine == null ? 0L : currentEngine.bytesUp.get(),
                 currentEngine == null ? 0L : currentEngine.bytesDown.get(),
                 currentEngine == null ? 0L : currentEngine.errors.get(),
                 DiagnosticsSnapshot.totalRouteFailures(stats),
                 startTime <= 0L ? 0L : getUptime());
+    }
+
+    private static boolean hasRecentRouteFailure(Map<String, RouteStats> stats, long nowMs) {
+        if (stats == null) return false;
+        for (RouteStats value : stats.values()) {
+            if (value == null || value.lastError() == RouteError.NONE) continue;
+            long updated = value.lastUpdateMs();
+            if (updated > 0L && nowMs - updated <= 60_000L) return true;
+        }
+        return false;
     }
 
     void resetDiagnosticsState() {

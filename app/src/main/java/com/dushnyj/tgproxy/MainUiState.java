@@ -124,7 +124,7 @@ final class MainUiState {
         if (routeState != null
                 && routeIdentity(routeState).equals(
                         measuredRouteIdentity == null ? "" : measuredRouteIdentity)
-                && measuredPingMs >= 0
+                && (measuredPingMs >= 0 || measuredPingMs == PING_ERROR_MS)
                 && nowMs - measuredAtMs <= PING_MEASUREMENT_TTL_MS) {
             return measuredPingMs;
         }

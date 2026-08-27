@@ -44,8 +44,35 @@ public class ServiceStateTest {
                 false,
                 ServiceState.ROUTE_EVIDENCE_MAX_AGE_MS + 2_000L);
 
-        assertEquals(ServiceState.Status.DEGRADED, state.status());
+        assertEquals(ServiceState.Status.READY_FOR_TELEGRAM, state.status());
         assertFalse(state.isFullyActive());
+    }
+
+    @Test
+    public void healthyListenerWithoutTelegramTrafficIsReadyNotBroken() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.inactive("no verified route"), false, false,
+                0L, false, 10_000L);
+
+        assertEquals(ServiceState.Status.READY_FOR_TELEGRAM, state.status());
+    }
+
+    @Test
+    public void telegramSocketWithoutRouteIsConnecting() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.inactive("waiting first payload"), false, false,
+                1L, false, 10_000L);
+
+        assertEquals(ServiceState.Status.CONNECTING_TELEGRAM, state.status());
+    }
+
+    @Test
+    public void recentUpstreamFailureIsDegraded() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.inactive("route failed"), false, false,
+                1L, true, 10_000L);
+
+        assertEquals(ServiceState.Status.DEGRADED, state.status());
     }
 
     @Test

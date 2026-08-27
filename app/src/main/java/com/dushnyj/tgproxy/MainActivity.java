@@ -1233,6 +1233,12 @@ public class MainActivity extends AppCompatActivity {
             if (state.status() == ServiceState.Status.ACTIVE) {
                 tvStatus.setText(R.string.status_active);
                 tvStatus.setTextColor(getColorValue(R.color.green));
+            } else if (state.status() == ServiceState.Status.READY_FOR_TELEGRAM) {
+                tvStatus.setText(R.string.status_ready_for_telegram);
+                tvStatus.setTextColor(getColorValue(R.color.accent));
+            } else if (state.status() == ServiceState.Status.CONNECTING_TELEGRAM) {
+                tvStatus.setText(R.string.status_connecting_telegram);
+                tvStatus.setTextColor(getColorValue(R.color.warning));
             } else if (state.status() == ServiceState.Status.SLEEP) {
                 tvStatus.setText(R.string.status_sleep);
                 tvStatus.setTextColor(getColorValue(R.color.warning));
@@ -1371,8 +1377,10 @@ public class MainActivity extends AppCompatActivity {
             DiagnosticsLog.record("stale auto ping failure discarded " + routeIdentity);
             return;
         }
-        DiagnosticsLog.record("supplementary auto ping failed " + routeIdentity
-                + "; keeping verified route latency");
+        lastMeasuredPingIdentity = routeIdentity == null ? "" : routeIdentity;
+        lastMeasuredPingMs = MainUiState.PING_ERROR_MS;
+        lastMeasuredPingAt = System.currentTimeMillis();
+        DiagnosticsLog.record("supplementary MTProto probe failed " + routeIdentity);
         updateDisplayedPing(currentRoute);
     }
 
@@ -1501,19 +1509,13 @@ public class MainActivity extends AppCompatActivity {
                     VpsRelayConfig validatedRelay = relay.withCapabilities(result.capabilities());
                     if (!saveVpsRelaySettings(validatedRelay)) return;
                     DiagnosticsLog.record("vps relay check ok " + validatedRelay.host());
-                    if (result.warning().isEmpty()) {
-                        Toast.makeText(this, R.string.vps_relay_test_ok,
-                                Toast.LENGTH_LONG).show();
-                    } else {
-                        Toast.makeText(this, getString(R.string.vps_relay_test_ok_warning,
-                                result.warning()), Toast.LENGTH_LONG).show();
-                    }
+                    showVpsRelayTestResult(result);
                     checkActiveVpsRelayVersion(true);
                 } else {
                     DiagnosticsLog.record("vps relay check failed "
-                            + relay.host() + " " + result.status().name());
-                    Toast.makeText(this, getString(R.string.vps_relay_test_failed,
-                            relayFailureSummary(result)), Toast.LENGTH_LONG).show();
+                            + relay.host() + " " + result.status().name() + " "
+                            + relayFailureSummary(result));
+                    showVpsRelayTestResult(result);
                 }
                 refreshConnectionFields();
             });
@@ -1525,6 +1527,72 @@ public class MainActivity extends AppCompatActivity {
         String message = result.message() == null ? "" : result.message().trim();
         String value = result.status().name() + (message.isEmpty() ? "" : " — " + message);
         return value.length() > 220 ? value.substring(0, 220) : value;
+    }
+
+    private void showVpsRelayTestResult(VpsRelayCheckResult result) {
+        VpsRelayTestPresentation presentation = VpsRelayTestPresentation.from(result);
+        int title;
+        int message;
+        int icon;
+        switch (presentation.kind()) {
+            case SUCCESS:
+                title = R.string.vps_relay_test_title_ok;
+                message = R.string.vps_relay_test_message_ok;
+                icon = R.drawable.ic_status_check;
+                break;
+            case SUCCESS_WITH_TEST_DC_WARNING:
+                title = R.string.vps_relay_test_title_ok;
+                message = R.string.vps_relay_test_message_test_warning;
+                icon = R.drawable.ic_status_check;
+                break;
+            case INVALID_SETTINGS:
+                title = R.string.vps_relay_test_title_settings;
+                message = R.string.vps_relay_test_message_settings;
+                icon = R.drawable.ic_status_error;
+                break;
+            case WRONG_TOKEN:
+                title = R.string.vps_relay_test_title_token;
+                message = R.string.vps_relay_test_message_token;
+                icon = R.drawable.ic_status_error;
+                break;
+            case TLS:
+                title = R.string.vps_relay_test_title_tls;
+                message = R.string.vps_relay_test_message_tls;
+                icon = R.drawable.ic_status_error;
+                break;
+            case OUTDATED:
+                title = R.string.vps_relay_test_title_version;
+                message = R.string.vps_relay_test_message_version;
+                icon = R.drawable.ic_status_error;
+                break;
+            case DNS:
+                title = R.string.vps_relay_test_title_dns;
+                message = R.string.vps_relay_test_message_dns;
+                icon = R.drawable.ic_status_error;
+                break;
+            case TIMEOUT:
+                title = R.string.vps_relay_test_title_timeout;
+                message = R.string.vps_relay_test_message_timeout;
+                icon = R.drawable.ic_status_error;
+                break;
+            case TELEGRAM_DC:
+                title = R.string.vps_relay_test_title_telegram;
+                message = R.string.vps_relay_test_message_telegram;
+                icon = R.drawable.ic_status_error;
+                break;
+            case SERVER_UNAVAILABLE:
+            default:
+                title = R.string.vps_relay_test_title_server;
+                message = R.string.vps_relay_test_message_server;
+                icon = R.drawable.ic_status_error;
+                break;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setIcon(icon)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 
     private void checkActiveVpsRelayVersion(boolean userTriggered) {
