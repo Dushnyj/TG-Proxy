@@ -10,7 +10,9 @@ final class MainUiState {
     static final long STATS_REFRESH_INTERVAL_MS = 1_000L;
     static final long WATCHDOG_INTERVAL_MS = 3_000L;
     static final long NOTIFICATION_REFRESH_INTERVAL_MS = 60_000L;
-    static final long AUTO_PING_INTERVAL_MS = 3_000L;
+    // A full TCP/TLS/WebSocket/MTProto resPQ probe, not ICMP. Keep it infrequent so the
+    // diagnostic measurement cannot compete with media traffic on constrained operators.
+    static final long AUTO_PING_INTERVAL_MS = 30_000L;
     static final long PING_MEASUREMENT_TTL_MS = 60_000L;
     static final int PING_ERROR_MS = -2;
 

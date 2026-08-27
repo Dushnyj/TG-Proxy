@@ -19,11 +19,11 @@ public class SettingsLayoutOrderTest {
     @Test
     public void settingsBlocksFollowRequestedGroupingOrder() throws Exception {
         assertEquals(Arrays.asList(
-                "@+id/section_connection",
                 "@+id/section_profiles",
                 "@+id/section_route",
-                "@+id/section_optimization",
                 "@+id/section_vps_relay",
+                "@+id/section_connection",
+                "@+id/section_optimization",
                 "@+id/section_import_export",
                 "@+id/section_interface",
                 "@+id/section_behavior",

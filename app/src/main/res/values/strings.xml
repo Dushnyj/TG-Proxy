@@ -19,7 +19,7 @@
     <string name="port">Порт</string>
     <string name="secret">Secret</string>
     <string name="telegram_link">Ссылка для Telegram</string>
-    <string name="ping">Пинг</string>
+    <string name="ping">Отклик MTProto</string>
     <string name="quality">Качество</string>
     <string name="connections">Подключения</string>
     <string name="traffic">Трафик</string>
@@ -96,6 +96,7 @@
     <string name="vps_setup_ssh_port">SSH порт</string>
     <string name="vps_setup_ssh_user">SSH пользователь</string>
     <string name="vps_setup_ssh_password">SSH пароль</string>
+    <string name="vps_setup_remember_credentials">Безопасно сохранить данные VPS на этом устройстве</string>
     <string name="vps_setup_forget_ssh_key">Сбросить SSH-ключ</string>
     <string name="vps_setup_forget_ssh_key_confirm">Забыть сохранённый ключ %1$s:%2$d? Делайте это только после проверки VPS, например после его переустановки. Следующий ключ будет закреплён автоматически.</string>
     <string name="vps_setup_ssh_host_required">Сначала укажите SSH host</string>
@@ -116,9 +117,9 @@
     <string name="vps_setup_error_title">Ошибка настройки VPS</string>
     <string name="vps_setup_failed">Ошибка настройки VPS: %1$s</string>
     <string name="import_export">Импорт и экспорт</string>
-    <string name="import_export_note">Безопасный экспорт не включает secret, Relay token и SSH-данные. Relay и полный профиль экспортируются только с паролем.</string>
+    <string name="import_export_note">Безопасный экспорт не включает secret, Relay token и SSH-данные. Ссылка/QR Relay содержит только отдельный клиентский токен; SSH-данные и доступ владельца не передаются. Полный профиль сохраняется только с паролем.</string>
     <string name="export_safe_profile">Экспорт</string>
-    <string name="export_vps_relay">Relay с паролем</string>
+    <string name="export_vps_relay">Поделиться Relay</string>
     <string name="export_encrypted_profile">С паролем</string>
     <string name="import_settings">Импорт</string>
     <string name="export_ready">Экспорт готов</string>
@@ -134,6 +135,7 @@
     <string name="import_relay_rejected">Relay не импортирован: проверка не пройдена (%1$s).\n%2$s</string>
     <string name="import_failed_title">Импорт не выполнен</string>
     <string name="import_preview_title">Подтвердите импорт</string>
+    <string name="import_relay_add_title">Добавить новое подключение VPS Relay</string>
     <string name="import_preview_message">Источник открыл ссылку импорта. Проверьте изменения перед применением.\n\nТип: %1$s\nПрофиль: %2$s\nМаршрут: %3$s\nVPS Relay: %4$s\n%5$s\n\nСекретные значения не показаны.</string>
     <string name="import_preview_no_relay">не изменяется</string>
     <string name="import_preview_current_profile">текущий профиль</string>
@@ -155,6 +157,10 @@
     <string name="show_qr">QR</string>
     <string name="export_qr_title">QR для импорта</string>
     <string name="share_qr">Поделиться QR</string>
+    <string name="scan_import_qr">Сканировать QR подключения</string>
+    <string name="scan_import_qr_prompt">Наведите камеру на QR-код TG Proxy</string>
+    <string name="relay_share_title">Поделиться VPS Relay</string>
+    <string name="relay_share_note">В подключение входят только адрес Relay и отдельный клиентский токен. Доступ владельца и SSH-данные никогда не передаются.</string>
     <string name="export_saved">Экспорт сохранён: %1$s</string>
     <string name="open_import_file">Открыть файл</string>
     <string name="diagnostics_logs">Диагностика и логи</string>
@@ -170,7 +176,7 @@
     <string name="cf_proxy">Cloudflare CDN</string>
     <string name="cf_mode">Режим Cloudflare CDN</string>
     <string name="enable_cf_proxy">Cloudflare CDN</string>
-    <string name="cf_proxy_note">Авто: Wi‑Fi пробует Direct первым, мобильная сеть пробует Cloudflare CDN первым. Второй маршрут остаётся запасным.</string>
+    <string name="cf_proxy_note">Авто: на Wi‑Fi Direct идёт первым; в мобильной сети сначала проверяются VPS Relay, Worker и Cloudflare. Недоступные маршруты автоматически пропускаются.</string>
     <string name="cf_auto_domains">Автоматические CF-домены</string>
     <string name="cf_custom_domain">Свой домен</string>
     <string name="cf_domains">CF-домены через запятую</string>
@@ -196,6 +202,16 @@
     <string name="profile_name">Название профиля</string>
     <string name="route_preference">Приоритет маршрута</string>
     <string name="route_preference_note">Авто учитывает тип сети и статистику. Ручной приоритет задаёт порядок, но ошибки и cooldown всё равно учитываются.</string>
+    <string name="connection_hub_note">Сначала выберите профиль текущей сети, затем стратегию маршрута. VPS Relay и расширенные параметры настраиваются ниже.</string>
+    <string name="connection_advanced_show">Расширенные локальные параметры ▾</string>
+    <string name="connection_advanced_hide">Скрыть локальные параметры ▴</string>
+    <string name="connection_advanced_note">Локальный IP, порт, MTProto secret и ручная карта DC обычно не требуют изменения.</string>
+    <string name="vps_manual_show">Ручная настройка Relay ▾</string>
+    <string name="vps_manual_hide">Скрыть ручную настройку ▴</string>
+    <string name="route_priority_auto_explanation">Авто: на Wi‑Fi сначала Direct, затем VPS Relay, Worker и Cloudflare CDN; в мобильной сети сначала VPS Relay, затем Worker/Cloudflare и Direct. Если Relay не настроен, он просто пропускается. Ошибки и cooldown временно сдвигают недоступный маршрут вниз.</string>
+    <string name="route_priority_direct_explanation">Direct первым, затем VPS Relay, Cloudflare Worker и Cloudflare CDN. При ошибках приложение автоматически переходит к следующему доступному маршруту.</string>
+    <string name="route_priority_cloudflare_explanation">Сначала свой Cloudflare-домен, затем Worker и публичный Cloudflare; после них VPS Relay и Direct. Ошибки, cooldown и подтверждённое качество всё равно учитываются.</string>
+    <string name="route_priority_relay_explanation">VPS Relay первым, затем Cloudflare и Direct. Если Relay не отвечает, Telegram автоматически переводится на следующий рабочий маршрут.</string>
     <string name="create_profile">Создать</string>
     <string name="save_profile">Сохранить</string>
     <string name="delete_profile">Удалить</string>
@@ -217,19 +233,58 @@
     <string name="background_status_checking">Проверяем разрешения фоновой работы…</string>
     <string name="background_setup">Настроить работу в фоне</string>
     <string name="background_setup_title">Непрерывная работа прокси</string>
-    <string name="background_setup_message">На %1$s разрешите автозапуск и режим «Без ограничений». Приложение хранит команду «работать» и само восстанавливает сервис после перезапуска процесса.</string>
+    <string name="background_setup_message">Чтобы прокси не отключался на %1$s, включите запуск после перезагрузки, уведомления, автозапуск производителя и режим батареи «Без ограничений». Для точного имени Wi‑Fi включите геолокацию. После обновлений приложение перепроверяет эти условия.</string>
+    <string name="background_enable_boot">Запускать прокси после перезагрузки устройства</string>
     <string name="background_disable_battery_optimization">Отключить оптимизацию батареи</string>
     <string name="background_battery_ready">Оптимизация батареи уже отключена</string>
     <string name="background_open_autostart">Открыть автозапуск производителя</string>
+    <string name="background_autostart_confirmed">Я разрешил автозапуск TG Proxy в настройках устройства</string>
+    <string name="background_allow_notifications">Разрешить уведомление фонового сервиса</string>
+    <string name="background_enable_location_for_wifi">Включить геолокацию для точного имени Wi‑Fi</string>
+    <string name="background_allow_network_identity">Разрешить определение имени Wi‑Fi</string>
     <string name="background_open_app_settings">Открыть настройки приложения</string>
     <string name="background_settings_unavailable">Нужный экран не найден; открыты общие настройки приложения</string>
     <string name="background_status">Батарея: %1$s • Режим: %2$s • Сервис: %3$s</string>
+    <string name="background_status_extended">Батарея: %1$s • Автозапуск: %2$s • Уведомления: %3$s • Режим: %4$s • Сервис: %5$s</string>
     <string name="background_battery_ready_short">без ограничений</string>
     <string name="background_battery_restricted_short">ограничена</string>
+    <string name="background_autostart_ready_short">разрешён</string>
+    <string name="background_autostart_missing_short">не подтверждён</string>
+    <string name="background_notifications_ready_short">разрешены</string>
+    <string name="background_notifications_missing_short">запрещены</string>
     <string name="background_desired_on">всегда включён</string>
     <string name="background_desired_off">остановлен пользователем</string>
     <string name="background_service_alive">работает</string>
     <string name="background_service_waiting">восстанавливается</string>
+    <string name="background_service_stopped">не запущен</string>
+    <string name="background_check_ready">Проверить и сохранить</string>
+    <string name="background_not_now">Не сейчас</string>
+    <string name="background_missing_warning">Не все условия фоновой работы выполнены. Android или оболочка производителя могут остановить прокси; предупреждение остаётся в настройках.</string>
+
+    <string name="vps_owner_manage">Управление владельца VPS</string>
+    <string name="vps_owner_loading">Загрузка токенов и устройств…</string>
+    <string name="vps_owner_not_available">Для этого подключения нет локально сохранённых данных владельца. Управлять сервером и токенами может только устройство, на котором VPS был создан или введены его данные.</string>
+    <string name="vps_owner_failed">Операция владельца не выполнена: %1$s</string>
+    <string name="vps_owner_create_token">Создать новый токен</string>
+    <string name="vps_owner_token_name">Название пользователя или устройства</string>
+    <string name="vps_owner_token_default">Новое подключение</string>
+    <string name="vps_owner_save_failed">Токен создан на сервере, но его секрет не удалось безопасно сохранить на устройстве.</string>
+    <string name="vps_owner_pre_save_failed">Безопасно сохранить данные владельца VPS не удалось. Сервер не изменён. Проверьте хранилище устройства и повторите попытку.</string>
+    <string name="vps_owner_save_failed_title">Секрет токена не сохранён</string>
+    <string name="vps_owner_save_rolled_back">Безопасно сохранить секрет не удалось, поэтому новый токен автоматически удалён с сервера. Попробуйте ещё раз.</string>
+    <string name="vps_owner_save_failed_recovery">Безопасно сохранить секрет и автоматически удалить токен с сервера не удалось. Сохраните или отправьте подключение сейчас: после закрытия окна секрет восстановить нельзя.</string>
+    <string name="vps_owner_manage_note">Здесь видны только клиентские токены этого Relay. Новый секрет показывается и сохраняется только на устройстве владельца; получатель ссылки не получает права управления.</string>
+    <string name="vps_owner_token_summary">%1$s — активно: %2$d, известных устройств: %3$d</string>
+    <string name="vps_owner_devices">Устройства токена</string>
+    <string name="vps_owner_delete_token">Удалить токен</string>
+    <string name="vps_owner_no_devices">Этот токен ещё не использовался ни на одном устройстве.</string>
+    <string name="vps_owner_device_summary">%1$s\nПриложение: %2$s • Android: %3$s\n%4$s\nАктивных сессий: %5$d • Последняя активность: %6$s</string>
+    <string name="vps_owner_delete_token_warning">Токен будет немедленно отозван, а все его активные Relay-сессии закрыты. Подключённым пользователям потребуется новая ссылка или QR-код.</string>
+    <string name="vps_owner_forget_local">Забыть данные владельца на этом телефоне</string>
+    <string name="vps_owner_forget_local_warning">С телефона будут удалены сохранённые SSH-данные, пароль владельца и секреты созданных токенов. Сам Relay и выданные пользователям токены на VPS продолжат работать.</string>
+    <string name="vps_owner_forgotten">Данные владельца удалены с телефона</string>
+    <string name="vps_owner_token_deleted">Токен удалён и активные сессии закрыты.</string>
+    <string name="vps_owner_token_deleted_local_failed">Токен удалён на сервере и активные сессии закрыты, но локальную копию секрета стереть не удалось. Используйте «Забыть данные владельца».</string>
     <string name="updates">Обновления</string>
     <string name="check_updates_start">Проверять обновления при запуске</string>
     <string name="check_now">Проверить сейчас</string>
@@ -305,5 +360,12 @@
         <item>Direct первым</item>
         <item>Cloudflare первым</item>
         <item>Relay первым</item>
+    </string-array>
+
+    <string-array name="relay_share_options">
+        <item>Скопировать кликабельную ссылку</item>
+        <item>Показать QR-код</item>
+        <item>Поделиться ссылкой</item>
+        <item>Сохранить файл</item>
     </string-array>
 </resources>

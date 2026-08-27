@@ -1,5 +1,7 @@
 package com.dushnyj.tgproxy;
 
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.util.Locale;
 
 final class VpsRelayConfig {
@@ -40,8 +42,7 @@ final class VpsRelayConfig {
     boolean isUsable() {
         return enabled
                 && !host.isEmpty()
-                && host.length() <= 253
-                && host.matches("[a-z0-9._:%-]+")
+                && isValidHost(host)
                 && port > 0
                 && port <= 65535
                 && isValidPath(path)
@@ -86,6 +87,10 @@ final class VpsRelayConfig {
 
     VpsRelayConfig withProfileKey(String profileKey) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey);
+    }
+
+    VpsRelayConfig withTokenAndName(String token, String name) {
+        return new VpsRelayConfig(true, name, host, port, tls, path, token, profileKey);
     }
 
     boolean sameRoutingIdentity(VpsRelayConfig other) {
@@ -136,7 +141,47 @@ final class VpsRelayConfig {
             String suffix = value.substring(firstColon + 1);
             if (suffix.matches("\\d{1,5}")) value = value.substring(0, firstColon);
         }
+        while (value.endsWith(".") && value.length() > 1) {
+            value = value.substring(0, value.length() - 1);
+        }
         return value;
+    }
+
+    /** Pure validation for DNS names/IPv4 plus literal-only parsing for IPv6. */
+    static boolean isValidHost(String raw) {
+        String value = raw == null ? "" : raw.trim().toLowerCase(Locale.US);
+        if (value.isEmpty() || value.length() > 253 || value.indexOf('%') >= 0) return false;
+        if (value.indexOf(':') >= 0) {
+            try {
+                InetAddress parsed = InetAddress.getByName(value);
+                return parsed instanceof Inet6Address;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        if (value.matches("[0-9.]+")) {
+            String[] octets = value.split("\\.", -1);
+            if (octets.length != 4) return false;
+            for (String octet : octets) {
+                if (octet.isEmpty() || octet.length() > 3) return false;
+                int number;
+                try { number = Integer.parseInt(octet); }
+                catch (NumberFormatException ignored) { return false; }
+                if (number < 0 || number > 255) return false;
+            }
+            return true;
+        }
+        for (String label : value.split("\\.", -1)) {
+            if (label.isEmpty() || label.length() > 63
+                    || label.charAt(0) == '-' || label.charAt(label.length() - 1) == '-') {
+                return false;
+            }
+            for (int index = 0; index < label.length(); index++) {
+                char ch = label.charAt(index);
+                if (!isAsciiAlphaNumeric(ch) && ch != '-') return false;
+            }
+        }
+        return true;
     }
 
     private static String normalizePath(String raw) {
@@ -159,26 +204,30 @@ final class VpsRelayConfig {
         return false;
     }
 
-    /** Mirrors the Relay path contract so an imported/manual profile cannot fail later on VPS. */
+    /** Mirrors the Relay canonical path contract so reverse proxies and Go ServeMux agree. */
     static boolean isValidPath(String value) {
         if (value == null || value.isEmpty() || value.length() > 256
                 || value.charAt(0) != '/' || containsHttpUnsafe(value)
-                || value.indexOf('?') >= 0 || value.indexOf('#') >= 0) {
+                || value.length() == 1 || value.endsWith("/") || value.contains("//")
+                || value.indexOf('?') >= 0 || value.indexOf('#') >= 0
+                || value.indexOf('%') >= 0) {
             return false;
         }
         if ("/healthz".equals(value) || "/version".equals(value)
-                || "/test-routes".equals(value)) {
+                || "/test-routes".equals(value) || "/connect".equals(value)
+                || "/admin".equals(value) || value.startsWith("/admin/")
+                || "/apiws/connect".equals(value)
+                || "/apiws/admin".equals(value)
+                || value.startsWith("/apiws/admin/")) {
             return false;
         }
-        for (int index = 0; index < value.length(); index++) {
-            char ch = value.charAt(index);
-            if (isAsciiAlphaNumeric(ch) || "/._~-".indexOf(ch) >= 0) continue;
-            if (ch == '%' && index + 2 < value.length()
-                    && isHex(value.charAt(index + 1)) && isHex(value.charAt(index + 2))) {
-                index += 2;
-                continue;
+        String[] segments = value.substring(1).split("/", -1);
+        for (String segment : segments) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) return false;
+            for (int index = 0; index < segment.length(); index++) {
+                char ch = segment.charAt(index);
+                if (!isAsciiAlphaNumeric(ch) && "._~-".indexOf(ch) < 0) return false;
             }
-            return false;
         }
         return true;
     }
@@ -186,11 +235,6 @@ final class VpsRelayConfig {
     private static boolean isAsciiAlphaNumeric(char value) {
         return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
                 || (value >= '0' && value <= '9');
-    }
-
-    private static boolean isHex(char value) {
-        return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f')
-                || (value >= 'A' && value <= 'F');
     }
 
     private static boolean containsHeaderUnsafe(String value) {

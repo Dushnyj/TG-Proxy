@@ -18,7 +18,7 @@ public class BootReceiver extends BroadcastReceiver {
             boolean legacyWasRunning = ProcessExitTracker
                     .likelyRunningBeforePackageReplacement(context);
             if (!runState.hasDesiredState()) {
-                boolean legacyAutostart = prefs.getBoolean("autostart_boot", false);
+                boolean legacyAutostart = prefs.getBoolean("autostart_boot", true);
                 boolean migrated = legacyWasRunning
                         || (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
                         && legacyAutostart);
@@ -33,7 +33,8 @@ public class BootReceiver extends BroadcastReceiver {
         }
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)) {
-            boolean autostart = prefs.getBoolean("autostart_boot", false);
+            BackgroundReliabilityStore.markBootReceiverObserved(context);
+            boolean autostart = prefs.getBoolean("autostart_boot", true);
             if (autostart && runState.setDesiredRunning(true)) {
                 ProxyServiceLauncher.restoreIfDesired(context, "boot");
             } else if (autostart) {

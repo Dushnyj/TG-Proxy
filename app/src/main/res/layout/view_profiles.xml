@@ -5,7 +5,7 @@
     android:layout_marginTop="8dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
@@ -15,6 +15,14 @@
         android:textColor="@color/accent"
         android:textSize="14sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/connection_hub_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -50,7 +58,7 @@
     <Spinner
         android:id="@+id/sp_profile_selector"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:background="@drawable/edit_bg"
         android:paddingStart="8dp"
@@ -80,7 +88,7 @@
     <EditText
         android:id="@+id/et_profile_name"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:background="@drawable/edit_bg"
         android:inputType="textCapWords"
@@ -104,18 +112,19 @@
     <Spinner
         android:id="@+id/sp_route_preference"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:background="@drawable/edit_bg"
         android:paddingStart="8dp"
         android:paddingEnd="8dp" />
 
     <TextView
+        android:id="@+id/tv_route_preference_explanation"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
         android:includeFontPadding="false"
-        android:text="@string/route_preference_note"
+        android:text="@string/route_priority_auto_explanation"
         android:textColor="@color/text_secondary"
         android:textSize="10sp" />
 
@@ -128,7 +137,7 @@
         <Button
             android:id="@+id/btn_create_profile"
             android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginEnd="5dp"
             android:layout_weight="1"
             android:text="@string/create_profile"
@@ -138,7 +147,7 @@
         <Button
             android:id="@+id/btn_save_profile"
             android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginStart="5dp"
             android:layout_marginEnd="5dp"
             android:layout_weight="1"
@@ -149,7 +158,7 @@
         <Button
             android:id="@+id/btn_delete_profile"
             android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginStart="5dp"
             android:layout_weight="1"
             android:text="@string/delete_profile"

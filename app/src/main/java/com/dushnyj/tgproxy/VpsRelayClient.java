@@ -191,14 +191,20 @@ final class VpsRelayClient {
 
     private static HttpResult request(VpsRelayConfig config, String method,
                                       String path, String body) throws Exception {
-        if (!config.tls()) return requestPlain(config, method, path, body);
+        return request(config, config.token(), method, path, body);
+    }
+
+    private static HttpResult request(VpsRelayConfig config, String bearer, String method,
+                                      String path, String body) throws Exception {
+        if (!validBearer(bearer)) throw new IOException("invalid bearer credential");
+        if (!config.tls()) return requestPlain(config, bearer, method, path, body);
         URL url = new URL(config.baseUrl() + path);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(TIMEOUT_MS);
         connection.setReadTimeout(MANAGEMENT_READ_TIMEOUT_MS);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestMethod(method);
-        connection.setRequestProperty("Authorization", "Bearer " + config.token());
+        connection.setRequestProperty("Authorization", "Bearer " + bearer);
         connection.setRequestProperty("Accept", "text/plain, application/json");
         if (body != null && !body.isEmpty()) {
             byte[] bytes = body.getBytes("UTF-8");
@@ -218,7 +224,7 @@ final class VpsRelayClient {
      * The Relay UI nevertheless supports an explicit non-TLS/IP mode, so its authenticated
      * management requests use the same bounded raw TCP transport as the WebSocket tunnel.
      */
-    private static HttpResult requestPlain(VpsRelayConfig config, String method,
+    private static HttpResult requestPlain(VpsRelayConfig config, String bearer, String method,
                                            String path, String body) throws Exception {
         byte[] requestBody = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
         try (Socket socket = new Socket()) {
@@ -230,7 +236,7 @@ final class VpsRelayClient {
             headers.append(method).append(' ').append(path).append(" HTTP/1.1\r\n")
                     .append("Host: ").append(httpHost(config.host(), config.port(), false))
                     .append("\r\n")
-                    .append("Authorization: Bearer ").append(config.token()).append("\r\n")
+                    .append("Authorization: Bearer ").append(bearer).append("\r\n")
                     .append("Accept: text/plain, application/json\r\n")
                     .append("Connection: close\r\n");
             if (requestBody.length > 0) {
@@ -382,10 +388,34 @@ final class VpsRelayClient {
 
     private static HttpResult requestManagement(VpsRelayConfig config, String method,
                                                 String endpoint, String body) throws Exception {
+        return requestManagement(config, config.token(), method, endpoint, body);
+    }
+
+    static HttpResult requestOwner(VpsRelayConfig config, String adminToken, String method,
+                                   String endpoint, String body) throws Exception {
+        if (config == null || !config.isUsable() || adminToken == null
+                || !validBearer(adminToken.trim())) {
+            throw new IOException("owner access is not configured");
+        }
+        return requestManagement(config, adminToken.trim(), method, endpoint, body);
+    }
+
+    private static boolean validBearer(String value) {
+        if (value == null || value.isEmpty() || value.length() > 512) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char ch = value.charAt(index);
+            if (ch < 0x21 || ch > 0x7e) return false;
+        }
+        return true;
+    }
+
+    private static HttpResult requestManagement(VpsRelayConfig config, String bearer,
+                                                String method, String endpoint,
+                                                String body) throws Exception {
         String prefixed = prefixedManagementPath(config.path(), endpoint);
-        HttpResult result = request(config, method, prefixed, body);
+        HttpResult result = request(config, bearer, method, prefixed, body);
         if (!prefixed.equals(endpoint) && (result.code == 404 || result.code == 405)) {
-            return request(config, method, endpoint, body);
+            return request(config, bearer, method, endpoint, body);
         }
         return result;
     }
@@ -671,7 +701,7 @@ final class VpsRelayClient {
         return fallback;
     }
 
-    private static final class HttpResult {
+    static final class HttpResult {
         final int code;
         final String body;
 

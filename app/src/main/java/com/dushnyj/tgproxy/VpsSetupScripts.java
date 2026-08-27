@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 final class VpsSetupScripts {
-    static final String RELAY_VERSION = "1.0.5";
+    static final String RELAY_VERSION = "1.1.0";
     private static final String RELEASE_BASE =
             "https://github.com/Dushnyj/TG-Proxy-Relay/releases/download";
     private static final String RELAY_DC_MAP_JSON =
@@ -237,10 +237,14 @@ final class VpsSetupScripts {
                 + "if ! $SUDO test -d /opt/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/opt-dir.absent\"; fi\n"
                 + "if ! $SUDO test -d /etc/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/etc-dir.absent\"; fi\n"
                 + "if ! $SUDO test -d /var/log/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/log-dir.absent\"; fi\n"
+                + "if ! $SUDO test -d /var/lib/tgproxy-relay; then $SUDO touch \"$BACKUP_DIR/state-dir.absent\"; else $SUDO cp -a /var/lib/tgproxy-relay \"$BACKUP_DIR/state-dir\"; fi\n"
+                + "if ! $SUDO test -d /etc/systemd/system/tgproxy-relay.service.d; then $SUDO touch \"$BACKUP_DIR/service-dropin-dir.absent\"; fi\n"
                 + "if ! id tgproxy-relay >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/user.absent\"; fi\n"
+                + "if ! getent group tgproxy-relay >/dev/null 2>&1; then $SUDO touch \"$BACKUP_DIR/group.absent\"; fi\n"
                 + "if $SUDO test -f /opt/tgproxy-relay/tgproxy-relay; then $SUDO cp -p /opt/tgproxy-relay/tgproxy-relay \"$BACKUP_DIR/tgproxy-relay\"; else $SUDO touch \"$BACKUP_DIR/binary.absent\"; fi\n"
                 + "if $SUDO test -f /etc/tgproxy-relay/config.json; then $SUDO cp -p /etc/tgproxy-relay/config.json \"$BACKUP_DIR/config.json\"; else $SUDO touch \"$BACKUP_DIR/config.absent\"; fi\n"
                 + "if $SUDO test -f /etc/systemd/system/tgproxy-relay.service; then $SUDO cp -p /etc/systemd/system/tgproxy-relay.service \"$BACKUP_DIR/tgproxy-relay.service\"; else $SUDO touch \"$BACKUP_DIR/service.absent\"; fi\n"
+                + "if $SUDO test -f /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf; then $SUDO cp -p /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf \"$BACKUP_DIR/20-owner-state.conf\"; else $SUDO touch \"$BACKUP_DIR/service-dropin.absent\"; fi\n"
                 + "backup_path() {\n"
                 + "  f=$1\n"
                 + "  safe=path-$(printf '%s' \"$f\" | sha256sum | awk '{print $1}')\n"
@@ -276,12 +280,14 @@ final class VpsSetupScripts {
                 && plan.installMode() == VpsSetupPlan.InstallMode.CADDY_EXISTING_SITE;
         String version = request.releaseVersion().isEmpty() ? RELAY_VERSION : request.releaseVersion();
         String token = request.relayToken();
+        String adminToken = request.adminToken();
         String archive = "TG-Proxy-Relay-v" + version + "-linux-${RELAY_ARCH}.tar.gz";
         StringBuilder script = new StringBuilder();
         script.append("#!/bin/sh\n")
                 .append("set -eu\n")
                 .append(sudoPrelude())
                 .append("TOKEN=").append(shellQuote(token)).append('\n')
+                .append("ADMIN_TOKEN=").append(shellQuote(adminToken)).append('\n')
                 .append("PUBLIC_URL=").append(shellQuote(request.publicUrl())).append('\n')
                 .append("DOMAIN=").append(shellQuote(request.relayHost())).append('\n')
                 .append("RELAY_PATH=").append(shellQuote(request.relayPath())).append('\n')
@@ -314,12 +320,15 @@ final class VpsSetupScripts {
                 .append("if ! id tgproxy-relay >/dev/null 2>&1; then $SUDO useradd --system --home /nonexistent --shell /usr/sbin/nologin tgproxy-relay; fi\n")
                 .append("$SUDO install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay\n")
                 .append("$SUDO chown -R tgproxy-relay:tgproxy-relay /var/log/tgproxy-relay || true\n")
+                .append("$SUDO install -d -m 0750 -o tgproxy-relay -g tgproxy-relay /var/lib/tgproxy-relay\n")
                 .append("TOKEN_HASH=sha256:$(printf '%s' \"$TOKEN\" | sha256sum | awk '{print $1}')\n")
+                .append("ADMIN_HASH=sha256:$(printf '%s' \"$ADMIN_TOKEN\" | sha256sum | awk '{print $1}')\n")
                 .append("$SUDO sh -c 'cat > /etc/tgproxy-relay/config.json' <<EOF\n")
                 .append("{\n")
                 .append("  \"listen\": \"$LISTEN\",\n")
                 .append("  \"publicUrl\": \"$PUBLIC_URL\",\n")
                 .append("  \"tokens\": [{\"name\": \"phone\", \"hash\": \"$TOKEN_HASH\"}],\n")
+                .append("  \"admin\": {\"tokens\": [{\"name\": \"owner\", \"hash\": \"$ADMIN_HASH\"}], \"statePath\": \"/var/lib/tgproxy-relay/state.json\", \"geoIpUrl\": \"https://ipwho.is/%s?lang=ru&fields=success,country,city\"},\n")
                 .append("  \"telegram\": {\n")
                 .append("    \"connectTimeoutMs\": 7000,\n")
                 .append("    \"idleTimeoutSec\": 0,\n")
@@ -359,7 +368,7 @@ final class VpsSetupScripts {
                 .append("ProtectHome=true\n")
                 .append("CapabilityBoundingSet=\n")
                 .append("AmbientCapabilities=\n")
-                .append("ReadWritePaths=/var/log/tgproxy-relay\n\n")
+                .append("ReadWritePaths=/var/log/tgproxy-relay /var/lib/tgproxy-relay\n\n")
                 .append("[Install]\n")
                 .append("WantedBy=multi-user.target\n")
                 .append("EOF\n");
@@ -617,6 +626,7 @@ final class VpsSetupScripts {
                 + "set -eu\n"
                 + sudoPrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
+                + "ADMIN_TOKEN=" + shellQuote(request.adminToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
                 + "DOMAIN=" + shellQuote(request.relayHost()) + "\n"
                 + "RELAY_PATH=" + shellQuote(request.relayPath()) + "\n"
@@ -626,15 +636,17 @@ final class VpsSetupScripts {
                 + "command -v python3 >/dev/null 2>&1 || { echo python3_required >&2; exit 53; }\n"
                 + "command -v sha256sum >/dev/null 2>&1 || { echo sha256sum_required >&2; exit 43; }\n"
                 + "TOKEN_HASH=sha256:$(printf '%s' \"$TOKEN\" | sha256sum | awk '{print $1}')\n"
+                + "ADMIN_HASH=sha256:$(printf '%s' \"$ADMIN_TOKEN\" | sha256sum | awk '{print $1}')\n"
                 + "TMP_CONFIG=$(mktemp)\n"
                 + "TMPDIR=$(mktemp -d)\n"
                 + "cleanup() { rm -f \"$TMP_CONFIG\"; rm -rf \"$TMPDIR\"; }\n"
                 + "trap cleanup EXIT\n"
-	                + "$SUDO env TOKEN_HASH=\"$TOKEN_HASH\" EXISTING_CONFIG=\"$EXISTING_CONFIG\" TMP_CONFIG=\"$TMP_CONFIG\" python3 - <<'PY'\n"
+	                + "$SUDO env TOKEN_HASH=\"$TOKEN_HASH\" ADMIN_HASH=\"$ADMIN_HASH\" EXISTING_CONFIG=\"$EXISTING_CONFIG\" TMP_CONFIG=\"$TMP_CONFIG\" python3 - <<'PY'\n"
                 + "import json, os, time\n"
                 + "path = os.environ['EXISTING_CONFIG']\n"
                 + "tmp = os.environ['TMP_CONFIG']\n"
                 + "token_hash = os.environ['TOKEN_HASH']\n"
+                + "admin_hash = os.environ['ADMIN_HASH']\n"
                 + "with open(path, 'r', encoding='utf-8') as fh:\n"
                 + "    cfg = json.load(fh)\n"
                 + "tokens = cfg.setdefault('tokens', [])\n"
@@ -643,6 +655,7 @@ final class VpsSetupScripts {
                 + "exists = any(isinstance(item, dict) and item.get('hash') == token_hash for item in tokens)\n"
                 + "if not exists:\n"
                 + "    tokens.append({'name': 'phone-' + time.strftime('%Y%m%d%H%M%S'), 'hash': token_hash})\n"
+                + ownerConfigPythonRepair()
                 + "with open(tmp, 'w', encoding='utf-8') as fh:\n"
                 + "    json.dump(cfg, fh, indent=2, ensure_ascii=False)\n"
                 + "    fh.write('\\n')\n"
@@ -651,6 +664,7 @@ final class VpsSetupScripts {
                 + "$SUDO cp -p \"$EXISTING_CONFIG\" \"$TMPDIR/config.previous\"\n"
                 + "$SUDO install -m 0640 \"$TMP_CONFIG\" \"$EXISTING_CONFIG\"\n"
                 + existingConfigPermissions()
+                + ownerRuntimePermissions()
                 + "rollback_config() { $SUDO install -m 0640 \"$TMPDIR/config.previous\" \"$EXISTING_CONFIG\"; "
                 + existingConfigPermissions().replace("\n", "; ")
                 + "$SUDO systemctl restart tgproxy-relay >/dev/null 2>&1 || true; }\n"
@@ -670,6 +684,7 @@ final class VpsSetupScripts {
                 + "set -eu\n"
                 + sudoPrelude()
                 + "TOKEN=" + shellQuote(request.relayToken()) + "\n"
+                + "ADMIN_TOKEN=" + shellQuote(request.adminToken()) + "\n"
                 + "EXISTING_CONFIG=" + shellQuote(configPath) + "\n"
                 + "PUBLIC_URL=" + shellQuote(request.publicUrl()) + "\n"
                 + "DOMAIN=" + shellQuote(request.relayHost()) + "\n"
@@ -698,11 +713,13 @@ final class VpsSetupScripts {
                 + "tar -xzf \"$TMPDIR/$ARCHIVE\" -C \"$TMPDIR\"\n"
                 + "[ \"$(\"$TMPDIR/tgproxy-relay\" -version)\" = \"$VERSION\" ] || { echo relay_version_mismatch >&2; exit 45; }\n"
                 + "TOKEN_HASH=sha256:$(printf '%s' \"$TOKEN\" | sha256sum | awk '{print $1}')\n"
-	                + "$SUDO env TOKEN_HASH=\"$TOKEN_HASH\" RELAY_PATH=\"$RELAY_PATH\" PUBLIC_URL=\"$PUBLIC_URL\" EXISTING_CONFIG=\"$EXISTING_CONFIG\" TMP_CONFIG=\"$TMP_CONFIG\" python3 - <<'PY'\n"
+                + "ADMIN_HASH=sha256:$(printf '%s' \"$ADMIN_TOKEN\" | sha256sum | awk '{print $1}')\n"
+	                + "$SUDO env TOKEN_HASH=\"$TOKEN_HASH\" ADMIN_HASH=\"$ADMIN_HASH\" RELAY_PATH=\"$RELAY_PATH\" PUBLIC_URL=\"$PUBLIC_URL\" EXISTING_CONFIG=\"$EXISTING_CONFIG\" TMP_CONFIG=\"$TMP_CONFIG\" python3 - <<'PY'\n"
                 + "import json, os, time\n"
                 + "path = os.environ['EXISTING_CONFIG']\n"
                 + "tmp = os.environ['TMP_CONFIG']\n"
                 + "token_hash = os.environ['TOKEN_HASH']\n"
+                + "admin_hash = os.environ['ADMIN_HASH']\n"
                 + "with open(path, 'r', encoding='utf-8') as fh:\n"
                 + "    cfg = json.load(fh)\n"
                 + "tokens = cfg.setdefault('tokens', [])\n"
@@ -711,6 +728,7 @@ final class VpsSetupScripts {
                 + "exists = any(isinstance(item, dict) and item.get('hash') == token_hash for item in tokens)\n"
                 + "if not exists:\n"
                 + "    tokens.append({'name': 'phone-' + time.strftime('%Y%m%d%H%M%S'), 'hash': token_hash})\n"
+                + ownerConfigPythonRepair()
                 + relayDcMapPythonRepair()
                 + "with open(tmp, 'w', encoding='utf-8') as fh:\n"
                 + "    json.dump(cfg, fh, indent=2, ensure_ascii=False)\n"
@@ -723,6 +741,7 @@ final class VpsSetupScripts {
                 + "$SUDO install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay\n"
                 + "$SUDO install -m 0640 \"$TMP_CONFIG\" \"$EXISTING_CONFIG\"\n"
                 + existingConfigPermissions()
+                + ownerRuntimePermissions()
                 + "rollback_relay() { [ ! -f \"$TMPDIR/tgproxy-relay.previous\" ] || $SUDO install -m 0755 \"$TMPDIR/tgproxy-relay.previous\" /opt/tgproxy-relay/tgproxy-relay; $SUDO install -m 0640 \"$TMPDIR/config.previous\" \"$EXISTING_CONFIG\"; "
                 + existingConfigPermissions().replace("\n", "; ")
                 + "$SUDO systemctl restart tgproxy-relay >/dev/null 2>&1 || true; }\n"
@@ -735,6 +754,37 @@ final class VpsSetupScripts {
     private static String existingConfigPermissions() {
         return "$SUDO chmod 0640 \"$EXISTING_CONFIG\"\n"
                 + "$SUDO chown root:tgproxy-relay \"$EXISTING_CONFIG\" || $SUDO chmod 0644 \"$EXISTING_CONFIG\"\n";
+    }
+
+    private static String ownerConfigPythonRepair() {
+        return "admin = cfg.setdefault('admin', {})\n"
+                + "if not isinstance(admin, dict):\n"
+                + "    raise SystemExit('invalid_admin_config')\n"
+                + "admin_tokens = admin.setdefault('tokens', [])\n"
+                + "if not isinstance(admin_tokens, list):\n"
+                + "    raise SystemExit('invalid_admin_tokens')\n"
+                + "admin_exists = any(isinstance(item, dict) and item.get('hash') == admin_hash for item in admin_tokens)\n"
+                + "if not admin_exists:\n"
+                + "    admin_tokens.append({'name': 'owner-' + time.strftime('%Y%m%d%H%M%S'), 'hash': admin_hash})\n"
+                + "admin['statePath'] = '/var/lib/tgproxy-relay/state.json'\n"
+                + "admin.setdefault('geoIpUrl', 'https://ipwho.is/%s?lang=ru&fields=success,country,city')\n";
+    }
+
+    private static String ownerRuntimePermissions() {
+        return "$SUDO install -d -m 0750 -o tgproxy-relay -g tgproxy-relay /var/lib/tgproxy-relay\n"
+                + "$SUDO install -d -m 0755 /etc/systemd/system/tgproxy-relay.service.d\n"
+                + "$SUDO tee /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf >/dev/null <<'EOF'\n"
+                + "[Unit]\n"
+                + "StartLimitIntervalSec=0\n"
+                + "\n"
+                + "[Service]\n"
+                + "Restart=always\n"
+                + "RestartSec=2s\n"
+                + "TimeoutStopSec=15s\n"
+                + "LimitNOFILE=65536\n"
+                + "ReadWritePaths=/var/lib/tgproxy-relay\n"
+                + "EOF\n"
+                + "$SUDO systemctl daemon-reload\n";
     }
 
     private static String relayDcMapPythonRepair() {
@@ -893,8 +943,12 @@ final class VpsSetupScripts {
                 + sudoPrelude()
                 + "LATEST=" + shellQuote("/var/backups/tgproxy-relay/txn-" + transaction) + "\n"
                 + "$SUDO test -d \"$LATEST\" || { echo backup_transaction_missing >&2; exit 72; }\n"
+                + "$SUDO systemctl stop tgproxy-relay >/dev/null 2>&1 || true\n"
                 + "if $SUDO test -f \"$LATEST/binary.absent\"; then $SUDO rm -f /opt/tgproxy-relay/tgproxy-relay; elif $SUDO test -f \"$LATEST/tgproxy-relay\"; then $SUDO install -m 0755 \"$LATEST/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/config.absent\"; then $SUDO rm -f /etc/tgproxy-relay/config.json; elif $SUDO test -f \"$LATEST/config.json\"; then $SUDO cp -p \"$LATEST/config.json\" /etc/tgproxy-relay/config.json; fi\n"
+                + "if $SUDO test -f \"$LATEST/state-dir.absent\"; then $SUDO rm -rf -- /var/lib/tgproxy-relay; elif $SUDO test -d \"$LATEST/state-dir\"; then $SUDO rm -rf -- /var/lib/tgproxy-relay; $SUDO cp -a \"$LATEST/state-dir\" /var/lib/tgproxy-relay; else echo rollback_state_snapshot_missing >&2; exit 79; fi\n"
+                + "if $SUDO test -f \"$LATEST/service-dropin.absent\"; then $SUDO rm -f /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf; elif $SUDO test -f \"$LATEST/20-owner-state.conf\"; then $SUDO install -d -m 0755 /etc/systemd/system/tgproxy-relay.service.d; $SUDO cp -p \"$LATEST/20-owner-state.conf\" /etc/systemd/system/tgproxy-relay.service.d/20-owner-state.conf; else echo rollback_service_dropin_snapshot_missing >&2; exit 80; fi\n"
+                + "if $SUDO test -f \"$LATEST/service-dropin-dir.absent\"; then $SUDO rmdir /etc/systemd/system/tgproxy-relay.service.d >/dev/null 2>&1 || true; fi\n"
                 + "if $SUDO test -f \"$LATEST/absent-paths.txt\"; then\n"
                 + "  $SUDO cat \"$LATEST/absent-paths.txt\" | while IFS= read -r target; do\n"
                 + "    [ -n \"$target\" ] || continue\n"
@@ -926,6 +980,7 @@ final class VpsSetupScripts {
                 + "if $SUDO test -f \"$LATEST/etc-dir.absent\"; then $SUDO rm -rf -- /etc/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/log-dir.absent\"; then $SUDO rm -rf -- /var/log/tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/user.absent\" && id tgproxy-relay >/dev/null 2>&1; then $SUDO userdel tgproxy-relay; fi\n"
+                + "if $SUDO test -f \"$LATEST/group.absent\" && getent group tgproxy-relay >/dev/null 2>&1; then $SUDO groupdel tgproxy-relay; fi\n"
                 + "if $SUDO test -f \"$LATEST/reload-nginx\"; then $SUDO nginx -t; $SUDO systemctl reload nginx; fi\n"
                 + "if $SUDO test -f \"$LATEST/reload-caddy-target\"; then\n"
                 + "  CADDY_TARGET=$($SUDO cat \"$LATEST/reload-caddy-target\")\n"

@@ -39,11 +39,7 @@ final class NetworkProfile {
     static NetworkProfile opaqueWifi(String opaqueId) {
         String normalized = normalize(opaqueId);
         if (!normalized.startsWith("opaque_")) normalized = "opaque_" + normalized;
-        String suffix = normalized.substring("opaque_".length());
-        String label = suffix.length() >= 4
-                ? "Wi-Fi • " + suffix.substring(0, 4).toUpperCase(Locale.US)
-                : "Wi-Fi (имя скрыто)";
-        return new NetworkProfile(Kind.WIFI, normalized, label);
+        return new NetworkProfile(Kind.WIFI, normalized, "Wi-Fi (имя недоступно)");
     }
 
     static NetworkProfile mobile(String id) {
@@ -154,13 +150,10 @@ final class NetworkProfile {
 
     private static String wifiDisplayName(String id) {
         if (isHiddenWifiId(id)) {
-            return "Wi-Fi (имя скрыто)";
+            return "Wi-Fi (имя недоступно)";
         }
         if (isOpaqueWifiId(id)) {
-            String suffix = id.substring("opaque_".length());
-            return suffix.length() >= 4
-                    ? "Wi-Fi • " + suffix.substring(0, 4).toUpperCase(Locale.US)
-                    : "Wi-Fi (имя скрыто)";
+            return "Wi-Fi (имя недоступно)";
         }
         return titleCase(id.replace('_', ' ')).replace("Wifi", "WiFi");
     }

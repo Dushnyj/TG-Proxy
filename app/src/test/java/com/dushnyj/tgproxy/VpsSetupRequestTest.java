@@ -45,9 +45,31 @@ public class VpsSetupRequestTest {
         assertFalse(validRequest().relayPath("/apiws;include").build().isValid());
         assertFalse(validRequest().relayPath("/apiws%").build().isValid());
         assertFalse(validRequest().relayPath("/test-routes").build().isValid());
+        assertFalse(validRequest().relayPath("/").build().isValid());
+        assertFalse(validRequest().relayPath("/apiws/").build().isValid());
+        assertFalse(validRequest().relayPath("/nested//apiws").build().isValid());
+        assertFalse(validRequest().relayPath("/nested/../apiws").build().isValid());
+        assertFalse(validRequest().relayPath("/apiws/admin/v1/tokens").build().isValid());
         assertFalse(validRequest().relayToken("token with spaces").build().isValid());
         assertFalse(validRequest().releaseVersion("1.0.4/other").build().isValid());
         assertFalse(validRequest().relayHost("relay.example.com\ninvalid").build().isValid());
+        assertFalse(validRequest().adminToken("").build().isValid());
+        assertFalse(validRequest().adminToken("owner token with spaces").build().isValid());
+    }
+
+    @Test
+    public void ownerAndCredentialRetentionOptionsSurviveEndpointDiscovery() {
+        VpsSetupRequest request = validRequest()
+                .sshPassword("ssh-secret")
+                .adminToken("owner-secret")
+                .rememberSshPassword(false)
+                .build()
+                .withRelayEndpoint("new.example.com", 443, true, "/relay");
+
+        assertTrue(request.isValid());
+        assertTrue(request.adminToken().equals("owner-secret"));
+        assertFalse(request.rememberSshPassword());
+        assertTrue(request.sshCredentials().password().equals("ssh-secret"));
     }
 
     @Test

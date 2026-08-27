@@ -2,11 +2,15 @@ package com.dushnyj.tgproxy;
 
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+
+import org.bouncycastle.util.encoders.Base64;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -20,6 +24,10 @@ final class SettingsTransfer {
     private static final String PLAIN_HEADER = "TGPROXY-SETTINGS-v1";
     private static final String ENC_HEADER = "TGPROXY-ENC-v1";
     private static final String DEEPLINK_PREFIX = "tgproxy://import?data=";
+    private static final String COMPACT_PREFIX = "b64_";
+    private static final int MAX_SHARE_PAYLOAD_BYTES = 12 * 1024;
+    private static final int MAX_COMPACT_CHARS = ((MAX_SHARE_PAYLOAD_BYTES + 2) / 3) * 4;
+    private static final int MAX_DEEPLINK_NESTING = 3;
     private static final int PBKDF2_ITERATIONS = 120_000;
     private static final int KEY_BITS = 256;
     private static final int GCM_TAG_BITS = 128;
@@ -101,10 +109,20 @@ final class SettingsTransfer {
     }
 
     static Imported parse(String raw, String password) throws SettingsTransferException {
+        return parse(raw, password, 0);
+    }
+
+    private static Imported parse(String raw, String password, int nesting)
+            throws SettingsTransferException {
+        if (nesting > MAX_DEEPLINK_NESTING) {
+            throw new SettingsTransferException("deeplink nesting is too deep");
+        }
         requireAcceptableSize(raw);
         String normalized = raw == null ? "" : raw.trim();
-        String embeddedDeepLink = extractDeepLink(normalized);
-        if (!embeddedDeepLink.isEmpty()) return parseDeepLink(embeddedDeepLink, password);
+        String embeddedDeepLink = extractImportLink(normalized);
+        if (!embeddedDeepLink.isEmpty()) {
+            return parseDeepLink(embeddedDeepLink, password, nesting + 1);
+        }
         if (normalized.startsWith(ENC_HEADER)) {
             return parsePlain(decrypt(normalized, password), true);
         }
@@ -128,10 +146,24 @@ final class SettingsTransfer {
         return new Imported(kind, data);
     }
 
-    private static String extractDeepLink(String raw) {
+    private static String extractImportLink(String raw) {
         String value = raw == null ? "" : raw.trim();
         int start = value.indexOf(DEEPLINK_PREFIX);
-        if (start < 0) return "";
+        if (start >= 0) return linkToken(value, start);
+        int cursor = 0;
+        while (cursor < value.length()) {
+            int https = value.indexOf("https://", cursor);
+            int http = value.indexOf("http://", cursor);
+            if (https < 0 && http < 0) return "";
+            start = https >= 0 && http >= 0 ? Math.min(https, http) : Math.max(https, http);
+            String candidate = trimTrailingLinkPunctuation(linkToken(value, start));
+            if (isImportLink(candidate)) return candidate;
+            cursor = Math.max(start + 1, start + candidate.length());
+        }
+        return "";
+    }
+
+    private static String linkToken(String value, int start) {
         int end = value.length();
         for (int i = start; i < value.length(); i++) {
             char ch = value.charAt(i);
@@ -143,6 +175,16 @@ final class SettingsTransfer {
         return value.substring(start, end);
     }
 
+    private static String trimTrailingLinkPunctuation(String value) {
+        String result = value == null ? "" : value;
+        while (!result.isEmpty()) {
+            char last = result.charAt(result.length() - 1);
+            if (last != '.' && last != ',' && last != ')' && last != ']' && last != '}') break;
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
     static String toDeepLink(String payload) throws SettingsTransferException {
         try {
             return DEEPLINK_PREFIX + URLEncoder.encode(payload == null ? "" : payload, "UTF-8");
@@ -151,21 +193,149 @@ final class SettingsTransfer {
         }
     }
 
+    static String toRelayShareLink(VpsRelayConfig relay, String payload)
+            throws SettingsTransferException {
+        if (relay == null || !relay.isUsable()) {
+            throw new SettingsTransferException("relay is not configured");
+        }
+        String path = relay.path();
+        while (path.endsWith("/") && path.length() > 1) {
+            path = path.substring(0, path.length() - 1);
+        }
+        // Keep the client credential in the URL fragment. Fragments are not sent in HTTP
+        // requests, so reverse-proxy/access logs never receive the Relay token embedded in the
+        // exported payload. The landing page converts it to the private app scheme locally.
+        return relay.baseUrl() + path + "/connect#data=" + compactData(payload);
+    }
+
+    static String toCompactDeepLink(String payload) throws SettingsTransferException {
+        return DEEPLINK_PREFIX + compactData(payload);
+    }
+
+    static boolean isImportLink(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.startsWith(DEEPLINK_PREFIX)) return true;
+        try {
+            URI uri = new URI(value);
+            String scheme = uri.getScheme();
+            String path = uri.getPath();
+            return ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                    && uri.getHost() != null && uri.getUserInfo() == null
+                    && path != null && path.endsWith("/connect")
+                    && linkData(uri) != null;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     static Imported parseDeepLink(String raw, String password) throws SettingsTransferException {
+        return parseDeepLink(raw, password, 0);
+    }
+
+    private static Imported parseDeepLink(String raw, String password, int nesting)
+            throws SettingsTransferException {
+        if (nesting > MAX_DEEPLINK_NESTING) {
+            throw new SettingsTransferException("deeplink nesting is too deep");
+        }
         requireAcceptableSize(raw);
         String value = raw == null ? "" : raw.trim();
-        if (!value.startsWith(DEEPLINK_PREFIX)) {
-            throw new SettingsTransferException("unsupported deeplink");
-        }
         try {
-            String decoded = URLDecoder.decode(value.substring(DEEPLINK_PREFIX.length()), "UTF-8");
+            String encoded;
+            if (value.startsWith(DEEPLINK_PREFIX)) {
+                encoded = value.substring(DEEPLINK_PREFIX.length());
+            } else {
+                URI uri = new URI(value);
+                String scheme = uri.getScheme();
+                if (!("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                        || uri.getHost() == null || uri.getUserInfo() != null
+                        || uri.getPath() == null || !uri.getPath().endsWith("/connect")) {
+                    throw new SettingsTransferException("unsupported deeplink");
+                }
+                encoded = linkData(uri);
+                if (encoded == null) throw new SettingsTransferException("unsupported deeplink");
+            }
+            String decoded = URLDecoder.decode(encoded, "UTF-8");
+            if (decoded.startsWith(COMPACT_PREFIX)) {
+                decoded = decodeCompact(decoded.substring(COMPACT_PREFIX.length()));
+            }
             requireAcceptableSize(decoded);
-            return parse(decoded, password);
+            return parse(decoded, password, nesting + 1);
         } catch (SettingsTransferException e) {
             throw e;
         } catch (Exception e) {
             throw new SettingsTransferException("could not decode deeplink", e);
         }
+    }
+
+    private static String compactData(String payload) throws SettingsTransferException {
+        try {
+            byte[] bytes = (payload == null ? "" : payload).getBytes(StandardCharsets.UTF_8);
+            if (bytes.length == 0 || bytes.length > MAX_SHARE_PAYLOAD_BYTES) {
+                throw new SettingsTransferException("share payload is too large");
+            }
+            String encoded = Base64.toBase64String(bytes)
+                    .replace('+', '-').replace('/', '_').replace("=", "");
+            return COMPACT_PREFIX + encoded;
+        } catch (SettingsTransferException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new SettingsTransferException("could not encode share link", error);
+        }
+    }
+
+    private static String decodeCompact(String encoded) throws SettingsTransferException {
+        try {
+            String compact = encoded == null ? "" : encoded;
+            if (compact.isEmpty() || compact.length() > MAX_COMPACT_CHARS
+                    || (compact.length() & 3) == 1) {
+                throw new SettingsTransferException("could not decode share link");
+            }
+            for (int index = 0; index < compact.length(); index++) {
+                char value = compact.charAt(index);
+                boolean allowed = value >= 'A' && value <= 'Z'
+                        || value >= 'a' && value <= 'z'
+                        || value >= '0' && value <= '9'
+                        || value == '-' || value == '_';
+                if (!allowed) {
+                    throw new SettingsTransferException("could not decode share link");
+                }
+            }
+            String standard = compact.replace('-', '+').replace('_', '/');
+            while ((standard.length() & 3) != 0) standard += "=";
+            byte[] decoded = Base64.decode(standard);
+            if (decoded.length == 0 || decoded.length > MAX_SHARE_PAYLOAD_BYTES) {
+                throw new SettingsTransferException("share payload is too large");
+            }
+            String canonical = Base64.toBase64String(decoded)
+                    .replace('+', '-').replace('/', '_').replace("=", "");
+            if (!canonical.equals(compact)) {
+                throw new SettingsTransferException("could not decode share link");
+            }
+            return new String(decoded, StandardCharsets.UTF_8);
+        } catch (SettingsTransferException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new SettingsTransferException("could not decode share link", error);
+        }
+    }
+
+    private static String queryValue(String rawQuery, String name) throws Exception {
+        if (rawQuery == null || name == null) return null;
+        for (String part : rawQuery.split("&", -1)) {
+            int equal = part.indexOf('=');
+            String key = equal < 0 ? part : part.substring(0, equal);
+            if (name.equals(URLDecoder.decode(key, "UTF-8"))) {
+                return equal < 0 ? "" : part.substring(equal + 1);
+            }
+        }
+        return null;
+    }
+
+    private static String linkData(URI uri) throws Exception {
+        if (uri == null) return null;
+        String query = queryValue(uri.getRawQuery(), "data");
+        if (query != null) return query;
+        return queryValue(uri.getRawFragment(), "data");
     }
 
     private static LinkedHashMap<String, String> baseFields(Kind kind, Data data) {

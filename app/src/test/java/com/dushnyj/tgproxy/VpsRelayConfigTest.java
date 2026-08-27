@@ -66,11 +66,31 @@ public class VpsRelayConfigTest {
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/apiws%XZ", "token", "").isUsable());
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws/", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/nested//apiws", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/nested/../apiws", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/healthz", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/admin", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws/admin/v1/tokens", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws/connect", "token", "").isUsable());
         assertTrue(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
-                true, "/private%2Drelay", "token", "").isUsable());
+                true, "/private-relay/v1", "token", "").isUsable());
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/apiws", repeat('t', 513), "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "bad_host.example.com", 443,
+                true, "/apiws", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "999.1.2.3", 443,
+                true, "/apiws", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "fe80::1%wlan0", 443,
+                true, "/apiws", "token", "").isUsable());
     }
 
     @Test

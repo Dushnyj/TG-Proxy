@@ -34,4 +34,20 @@ public class RouteProbeClientTest {
 
         assertSame(close, RouteProbeClient.normalizeReadFailure(close, false));
     }
+
+    @Test
+    public void exhaustedLoopWithoutReadExceptionIsReportedAsProbeTimeout() {
+        IOException failure = RouteProbeClient.invalidResponseFailure(false);
+
+        assertTrue(failure instanceof SocketTimeoutException);
+        assertEquals("telegram probe deadline exceeded", failure.getMessage());
+    }
+
+    @Test
+    public void invalidResponseBeforeDeadlineRemainsProtocolFailure() {
+        IOException failure = RouteProbeClient.invalidResponseFailure(true);
+
+        assertEquals(IOException.class, failure.getClass());
+        assertEquals("telegram dc response is invalid", failure.getMessage());
+    }
 }

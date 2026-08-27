@@ -5,7 +5,7 @@
     android:layout_marginTop="8dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
@@ -27,7 +27,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -76,7 +76,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -94,8 +94,8 @@
 
         <TextView
             android:id="@+id/btn_cf_help"
-            android:layout_width="38dp"
-            android:layout_height="34dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@drawable/btn_start_bg"
             android:clickable="true"
             android:focusable="true"
@@ -111,7 +111,7 @@
     <EditText
         android:id="@+id/et_cf_domains"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:background="@drawable/edit_bg"
         android:enabled="false"
@@ -131,7 +131,7 @@
         android:includeFontPadding="false"
         android:text="@string/worker_note"
         android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
+        android:textSize="12sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -151,8 +151,8 @@
 
         <TextView
             android:id="@+id/btn_worker_help"
-            android:layout_width="38dp"
-            android:layout_height="34dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@drawable/btn_start_bg"
             android:clickable="true"
             android:focusable="true"
@@ -167,7 +167,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:orientation="horizontal">
 

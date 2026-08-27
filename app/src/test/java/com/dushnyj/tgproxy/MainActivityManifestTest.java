@@ -28,6 +28,22 @@ public class MainActivityManifestTest {
         assertTrue(configChanges.contains("screenSize"));
     }
 
+    @Test
+    public void manifestDeclaresQrWifiAndBackgroundReliabilityCapabilities() throws Exception {
+        Document document = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(manifest().toFile());
+        String xml = new String(Files.readAllBytes(manifest()), "UTF-8");
+
+        assertTrue(xml.contains("android.permission.CAMERA"));
+        assertTrue(xml.contains("android.permission.NEARBY_WIFI_DEVICES"));
+        assertTrue(xml.contains("android.permission.POST_NOTIFICATIONS"));
+        assertTrue(xml.contains("android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"));
+        assertTrue(xml.contains("android.permission.RECEIVE_BOOT_COMPLETED"));
+        assertTrue(xml.contains("android.intent.action.MY_PACKAGE_REPLACED"));
+        assertTrue(document.getElementsByTagName("receiver").getLength() >= 1);
+    }
+
     private static Node mainActivity(Document document) {
         NodeList activities = document.getElementsByTagName("activity");
         for (int i = 0; i < activities.getLength(); i++) {

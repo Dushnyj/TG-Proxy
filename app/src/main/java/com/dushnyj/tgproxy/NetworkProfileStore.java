@@ -281,6 +281,7 @@ final class NetworkProfileStore {
     }
 
     private static boolean isLegacyGeneratedWifiDisplayName(String name) {
+        if (NetworkProfileRecord.isLegacyGeneratedWifiLabel(name)) return true;
         if (isLegacyGatewayDisplayName(name)) return true;
         String value = name == null ? "" : name.trim().toLowerCase(Locale.US);
         value = value.replace('\u2013', '-').replace('\u2014', '-');
@@ -296,7 +297,13 @@ final class NetworkProfileStore {
                 .replace('\u2012', '-')
                 .replace('\u2013', '-')
                 .replace('\u2014', '-');
-        return "wifi".equals(value) || "wi-fi".equals(value) || "wi fi".equals(value);
+        return "wifi".equals(value)
+                || "wi-fi".equals(value)
+                || "wi fi".equals(value)
+                || "wi-fi (имя недоступно)".equals(value)
+                || "wi-fi (имя скрыто)".equals(value)
+                || "wi-fi (ssid unavailable)".equals(value)
+                || "wi-fi (ssid hidden)".equals(value);
     }
 
     private void mergeRouteStats(String oldProfileKey, String newProfileKey) {

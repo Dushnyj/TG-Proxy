@@ -23,6 +23,7 @@ public class ImportExportSettingsLayoutTest {
         assertId(document, "btn_export_vps_relay");
         assertId(document, "btn_export_encrypted_profile");
         assertId(document, "btn_import_settings");
+        assertId(document, "btn_scan_qr");
     }
 
     private static void assertId(Document document, String id) {

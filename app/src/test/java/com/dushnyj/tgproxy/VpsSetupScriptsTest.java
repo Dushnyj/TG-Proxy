@@ -170,6 +170,10 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("\"pingIntervalSec\": 25"));
         assertTrue(script.contains("Restart=always"));
         assertTrue(script.contains("StartLimitIntervalSec=0"));
+        assertTrue(script.contains("\"admin\": {\"tokens\":"));
+        assertTrue(script.contains("\"statePath\": \"/var/lib/tgproxy-relay/state.json\""));
+        assertTrue(script.contains("ReadWritePaths=/var/log/tgproxy-relay /var/lib/tgproxy-relay"));
+        assertTrue(script.contains("install -d -m 0750 -o tgproxy-relay -g tgproxy-relay /var/lib/tgproxy-relay"));
         assertFalse(script.contains("ssh-secret"));
     }
 
@@ -229,6 +233,15 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
         assertTrue(script.contains("json.load"));
         assertTrue(script.contains("TOKEN_HASH"));
+        assertTrue(script.contains("ADMIN_HASH"));
+        assertTrue(script.contains("admin_tokens = admin.setdefault('tokens', [])"));
+        assertTrue(script.contains("admin['statePath'] = '/var/lib/tgproxy-relay/state.json'"));
+        assertTrue(script.contains("20-owner-state.conf"));
+        assertTrue(script.contains("StartLimitIntervalSec=0"));
+        assertTrue(script.contains("Restart=always"));
+        assertTrue(script.contains("RestartSec=2s"));
+        assertTrue(script.contains("TimeoutStopSec=15s"));
+        assertTrue(script.contains("LimitNOFILE=65536"));
         assertFalse(script.contains("relay_dc_map = {"));
         assertTrue(script.contains("TOKEN_HASH=sha256:$(printf '%s' \"$TOKEN\""));
         assertFalse(script.contains("-token \"$TOKEN\""));
@@ -337,6 +350,14 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("if not str(test_dc_map.get(dc, '')).strip()"));
         assertTrue(script.contains("if as_int(websocket.get('pingIntervalSec')) <= 0"));
         assertTrue(script.contains("cfg['publicUrl'] = public_url"));
+        assertTrue(script.contains("ADMIN_HASH"));
+        assertTrue(script.contains("admin_tokens = admin.setdefault('tokens', [])"));
+        assertTrue(script.contains("ReadWritePaths=/var/lib/tgproxy-relay"));
+        assertTrue(script.contains("StartLimitIntervalSec=0"));
+        assertTrue(script.contains("Restart=always"));
+        assertTrue(script.contains("RestartSec=2s"));
+        assertTrue(script.contains("TimeoutStopSec=15s"));
+        assertTrue(script.contains("LimitNOFILE=65536"));
         assertFalse(script.contains("-token \"$TOKEN\""));
         assertTrue(script.contains("install -m 0755 \"$TMPDIR/tgproxy-relay\" /opt/tgproxy-relay/tgproxy-relay"));
         assertTrue(script.contains("EXISTING_CONFIG='/etc/tgproxy-relay/config.json'"));
@@ -555,7 +576,12 @@ public class VpsSetupScriptsTest {
         assertTrue(backup.contains("ufw.was-active"));
         assertTrue(backup.contains("/etc/ufw/user.rules"));
         assertTrue(backup.contains("opt-dir.absent"));
+        assertTrue(backup.contains("state-dir.absent"));
+        assertTrue(backup.contains("$BACKUP_DIR/state-dir"));
+        assertTrue(backup.contains("service-dropin.absent"));
+        assertTrue(backup.contains("20-owner-state.conf"));
         assertTrue(backup.contains("user.absent"));
+        assertTrue(backup.contains("group.absent"));
         assertTrue(backup.contains("txn-" + transaction));
         assertTrue(rollback.contains("txn-" + transaction));
         assertFalse(rollback.contains("ls -td /var/backups"));
@@ -564,12 +590,18 @@ public class VpsSetupScriptsTest {
         assertTrue(rollback.contains("mutation-paths.txt"));
         assertTrue(rollback.contains("$SUDO ufw reload"));
         assertTrue(rollback.contains("$SUDO rm -rf -- /opt/tgproxy-relay"));
+        assertTrue(rollback.contains("$SUDO rm -rf -- /var/lib/tgproxy-relay"));
+        assertTrue(rollback.contains("$LATEST/state-dir"));
+        assertTrue(rollback.contains("service-dropin-dir.absent"));
+        assertTrue(rollback.contains("20-owner-state.conf"));
         assertTrue(rollback.contains("$SUDO userdel tgproxy-relay"));
+        assertTrue(rollback.contains("$SUDO groupdel tgproxy-relay"));
         assertTrue(rollback.contains("cat \"$LATEST/path-map.tsv\""));
         assertFalse(rollback.contains("for f in /etc/nginx/conf.d/tgproxy-relay-*.conf"));
         assertFalse(rollback.contains("for f in /etc/nginx/snippets/tgproxy-relay-*.conf"));
         assertTrue(rollback.contains("set -eu"));
         assertTrue(rollback.contains("systemctl disable --now tgproxy-relay"));
+        assertTrue(rollback.contains("systemctl stop tgproxy-relay"));
         assertTrue(rollback.contains("/var/lib/docker/volumes/*"));
     }
 

@@ -99,8 +99,8 @@ final class RouteEngine {
             result.addAll(publicCf);
         } else if (s.routePreference == RoutePreference.CLOUDFLARE_FIRST) {
             result.addAll(customCf);
-            result.addAll(publicCf);
             result.addAll(worker);
+            result.addAll(publicCf);
             result.addAll(vps);
             result.addAll(direct);
         } else if (s.routePreference == RoutePreference.RELAY_FIRST) {

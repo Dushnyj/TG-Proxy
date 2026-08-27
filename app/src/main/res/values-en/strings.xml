@@ -17,7 +17,7 @@
     <string name="port">Port</string>
     <string name="secret">Secret</string>
     <string name="telegram_link">Telegram link</string>
-    <string name="ping">Ping</string>
+    <string name="ping">MTProto response</string>
     <string name="quality">Quality</string>
     <string name="connections">Connections</string>
     <string name="traffic">Traffic</string>
@@ -81,6 +81,7 @@
     <string name="vps_setup_ssh_port">SSH port</string>
     <string name="vps_setup_ssh_user">SSH user</string>
     <string name="vps_setup_ssh_password">SSH password</string>
+    <string name="vps_setup_remember_credentials">Securely save VPS details on this device</string>
     <string name="vps_setup_forget_ssh_key">Reset SSH key</string>
     <string name="vps_setup_forget_ssh_key_confirm">Forget the saved key for %1$s:%2$d? Do this only after verifying the VPS, for example after reinstalling it. The next key will be pinned automatically.</string>
     <string name="vps_setup_ssh_host_required">Enter the SSH host first</string>
@@ -101,9 +102,9 @@
     <string name="vps_setup_error_title">VPS setup error</string>
     <string name="vps_setup_failed">VPS setup failed: %1$s</string>
     <string name="import_export">Import and export</string>
-    <string name="import_export_note">Safe export does not include the secret, Relay token, or SSH data. Relay and full profiles are exported only with a password.</string>
+    <string name="import_export_note">Safe export excludes the secret, Relay token, and SSH data. A Relay link/QR contains only a separate client token; SSH details and owner access are never shared. A full profile is saved only with a password.</string>
     <string name="export_safe_profile">Export</string>
-    <string name="export_vps_relay">Password Relay</string>
+    <string name="export_vps_relay">Share Relay</string>
     <string name="export_encrypted_profile">Password</string>
     <string name="import_settings">Import</string>
     <string name="export_ready">Export ready</string>
@@ -119,6 +120,7 @@
     <string name="import_relay_rejected">Relay was not imported because validation failed (%1$s).\n%2$s</string>
     <string name="import_failed_title">Import failed</string>
     <string name="import_preview_title">Confirm import</string>
+    <string name="import_relay_add_title">Add a new VPS Relay connection</string>
     <string name="import_preview_message">Another source opened an import link. Review the changes before applying them.\n\nType: %1$s\nProfile: %2$s\nRoute: %3$s\nVPS Relay: %4$s\n%5$s\n\nSecret values are not shown.</string>
     <string name="import_preview_no_relay">unchanged</string>
     <string name="import_preview_current_profile">current profile</string>
@@ -140,6 +142,10 @@
     <string name="show_qr">QR</string>
     <string name="export_qr_title">Import QR</string>
     <string name="share_qr">Share QR</string>
+    <string name="scan_import_qr">Scan connection QR</string>
+    <string name="scan_import_qr_prompt">Point the camera at a TG Proxy QR code</string>
+    <string name="relay_share_title">Share VPS Relay</string>
+    <string name="relay_share_note">The connection contains only the Relay address and a separate client token. Owner access and SSH details are never shared.</string>
     <string name="export_saved">Export saved: %1$s</string>
     <string name="open_import_file">Open file</string>
     <string name="diagnostics_logs">Diagnostics and logs</string>
@@ -155,7 +161,7 @@
     <string name="cf_proxy">Cloudflare CDN</string>
     <string name="cf_mode">Cloudflare CDN mode</string>
     <string name="enable_cf_proxy">Cloudflare CDN</string>
-    <string name="cf_proxy_note">Auto: Wi‑Fi tries Direct first, cellular tries Cloudflare CDN first. The other route remains as fallback.</string>
+    <string name="cf_proxy_note">Auto: Wi-Fi tries Direct first; cellular tries VPS Relay, Worker, and Cloudflare first. Unavailable routes are skipped automatically.</string>
     <string name="cf_auto_domains">Automatic CF domains</string>
     <string name="cf_custom_domain">Own domain</string>
     <string name="cf_domains">CF domains, comma-separated</string>
@@ -181,6 +187,16 @@
     <string name="profile_name">Profile name</string>
     <string name="route_preference">Route priority</string>
     <string name="route_preference_note">Auto uses network type and route statistics. Manual priority changes order, but errors and cooldowns still apply.</string>
+    <string name="connection_hub_note">Choose the current network profile first, then its route strategy. VPS Relay and advanced connection settings are configured below.</string>
+    <string name="connection_advanced_show">Advanced local settings ▾</string>
+    <string name="connection_advanced_hide">Hide local settings ▴</string>
+    <string name="connection_advanced_note">The local IP, port, MTProto secret, and manual DC map normally do not need to be changed.</string>
+    <string name="vps_manual_show">Manual Relay setup ▾</string>
+    <string name="vps_manual_hide">Hide manual setup ▴</string>
+    <string name="route_priority_auto_explanation">Auto: Wi-Fi tries Direct, VPS Relay, Worker, then Cloudflare CDN; mobile data tries VPS Relay, Worker/Cloudflare, then Direct. An unconfigured Relay is simply skipped. Failures and cooldowns temporarily move unhealthy routes down.</string>
+    <string name="route_priority_direct_explanation">Direct first, followed by VPS Relay, Cloudflare Worker, and Cloudflare CDN. The app automatically advances after a route failure.</string>
+    <string name="route_priority_cloudflare_explanation">Custom Cloudflare first, followed by Worker and the public Cloudflare pool, then VPS Relay and Direct. Failures, cooldowns, and verified quality still affect selection.</string>
+    <string name="route_priority_relay_explanation">VPS Relay first, followed by Cloudflare and Direct. If Relay stops responding, Telegram is automatically moved to the next working route.</string>
     <string name="saved_profiles">Saved profiles</string>
     <string name="profile_list_empty">Profiles will appear automatically after connecting to networks.</string>
     <string name="verbose_logging">Verbose logging</string>
@@ -193,19 +209,58 @@
     <string name="background_status_checking">Checking background execution permissions…</string>
     <string name="background_setup">Configure background operation</string>
     <string name="background_setup_title">Continuous proxy operation</string>
-    <string name="background_setup_message">On %1$s, allow auto-start and choose the unrestricted battery mode. The app persists the “keep running” command and restores its service after a process restart.</string>
+    <string name="background_setup_message">To keep the proxy running on %1$s, enable start after reboot, notifications, manufacturer auto-start, and unrestricted battery use. Enable location for the exact Wi-Fi name. The app checks these conditions again after updates.</string>
+    <string name="background_enable_boot">Start the proxy after device reboot</string>
     <string name="background_disable_battery_optimization">Disable battery optimization</string>
     <string name="background_battery_ready">Battery optimization is already disabled</string>
     <string name="background_open_autostart">Open manufacturer auto-start</string>
+    <string name="background_autostart_confirmed">I enabled TG Proxy auto-start in device settings</string>
+    <string name="background_allow_notifications">Allow the background service notification</string>
+    <string name="background_enable_location_for_wifi">Enable location for the exact Wi-Fi name</string>
+    <string name="background_allow_network_identity">Allow exact Wi-Fi name detection</string>
     <string name="background_open_app_settings">Open app settings</string>
     <string name="background_settings_unavailable">The dedicated screen was not found; general app settings were opened</string>
     <string name="background_status">Battery: %1$s • Mode: %2$s • Service: %3$s</string>
+    <string name="background_status_extended">Battery: %1$s • Auto-start: %2$s • Notifications: %3$s • Mode: %4$s • Service: %5$s</string>
     <string name="background_battery_ready_short">unrestricted</string>
     <string name="background_battery_restricted_short">restricted</string>
+    <string name="background_autostart_ready_short">allowed</string>
+    <string name="background_autostart_missing_short">not confirmed</string>
+    <string name="background_notifications_ready_short">allowed</string>
+    <string name="background_notifications_missing_short">blocked</string>
     <string name="background_desired_on">always on</string>
     <string name="background_desired_off">stopped by user</string>
     <string name="background_service_alive">running</string>
     <string name="background_service_waiting">recovering</string>
+    <string name="background_service_stopped">not running</string>
+    <string name="background_check_ready">Check and save</string>
+    <string name="background_not_now">Not now</string>
+    <string name="background_missing_warning">Background operation is not fully configured. Android or the manufacturer software may stop the proxy; the warning remains visible in Settings.</string>
+
+    <string name="vps_owner_manage">VPS owner management</string>
+    <string name="vps_owner_loading">Loading tokens and devices…</string>
+    <string name="vps_owner_not_available">Owner credentials are not stored locally for this connection. Server and token management is available only on the device that created the VPS or where its server details were entered.</string>
+    <string name="vps_owner_failed">Owner operation failed: %1$s</string>
+    <string name="vps_owner_create_token">Create a new token</string>
+    <string name="vps_owner_token_name">User or device label</string>
+    <string name="vps_owner_token_default">New connection</string>
+    <string name="vps_owner_save_failed">The token was created on the server, but its secret could not be stored securely on this device.</string>
+    <string name="vps_owner_pre_save_failed">Owner credentials could not be stored securely. The server was not changed. Check device storage and try again.</string>
+    <string name="vps_owner_save_failed_title">Token secret was not saved</string>
+    <string name="vps_owner_save_rolled_back">The secret could not be stored securely, so the new token was automatically removed from the server. Try again.</string>
+    <string name="vps_owner_save_failed_recovery">The secret could not be stored securely and the token could not be removed from the server automatically. Save or share the connection now: the secret cannot be recovered after this dialog is closed.</string>
+    <string name="vps_owner_manage_note">Only this Relay\'s client tokens are listed here. New secrets are shown and stored only on the owner\'s device; recipients never receive management access.</string>
+    <string name="vps_owner_token_summary">%1$s — active: %2$d, known devices: %3$d</string>
+    <string name="vps_owner_devices">Token devices</string>
+    <string name="vps_owner_delete_token">Delete token</string>
+    <string name="vps_owner_no_devices">This token has not been used by a device yet.</string>
+    <string name="vps_owner_device_summary">%1$s\nApp: %2$s • Android: %3$s\n%4$s\nActive sessions: %5$d • Last activity: %6$s</string>
+    <string name="vps_owner_delete_token_warning">The token will be revoked immediately and all of its active Relay sessions will be closed. Connected users will need a new link or QR code.</string>
+    <string name="vps_owner_forget_local">Forget owner data on this phone</string>
+    <string name="vps_owner_forget_local_warning">Saved SSH details, the owner credential, and locally retained token secrets will be removed from this phone. The Relay and tokens already issued to users will keep working on the VPS.</string>
+    <string name="vps_owner_forgotten">Owner data removed from this phone</string>
+    <string name="vps_owner_token_deleted">Token deleted and active sessions closed.</string>
+    <string name="vps_owner_token_deleted_local_failed">The token was deleted on the server and its active sessions were closed, but the local secret copy could not be erased. Use “Forget owner data”.</string>
     <string name="updates">Updates</string>
     <string name="check_updates_start">Check updates on launch</string>
     <string name="check_now">Check now</string>
@@ -306,5 +361,12 @@
         <item>Direct first</item>
         <item>Cloudflare first</item>
         <item>Relay first</item>
+    </string-array>
+
+    <string-array name="relay_share_options">
+        <item>Copy clickable link</item>
+        <item>Show QR code</item>
+        <item>Share link</item>
+        <item>Save file</item>
     </string-array>
 </resources>

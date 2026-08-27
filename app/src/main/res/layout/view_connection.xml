@@ -5,7 +5,7 @@
     android:layout_marginTop="8dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
@@ -15,6 +15,31 @@
         android:textColor="@color/accent"
         android:textSize="14sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/connection_advanced_note"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/btn_connection_advanced_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:minHeight="48dp"
+        android:text="@string/connection_advanced_show"
+        android:textAllCaps="false"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/connection_advanced_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -41,7 +66,7 @@
             <EditText
                 android:id="@+id/et_custom_ip"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginTop="3dp"
                 android:background="@drawable/edit_bg"
                 android:inputType="textUri"
@@ -71,7 +96,7 @@
             <EditText
                 android:id="@+id/et_custom_port"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginTop="3dp"
                 android:background="@drawable/edit_bg"
                 android:inputType="number"
@@ -95,7 +120,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:orientation="horizontal">
 
@@ -152,4 +177,5 @@
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_hint"
         android:textSize="13sp" />
+    </LinearLayout>
 </LinearLayout>

@@ -8,9 +8,11 @@ final class VpsSetupRequest {
     private final boolean relayTls;
     private final String relayPath;
     private final String relayToken;
+    private final String adminToken;
     private final String releaseVersion;
     private final String profileKey;
     private final boolean updateExistingRelay;
+    private final boolean rememberSshPassword;
 
     private VpsSetupRequest(Builder builder) {
         this.sshCredentials = new VpsSshCredentials(
@@ -21,9 +23,11 @@ final class VpsSetupRequest {
         this.relayTls = builder.relayTls;
         this.relayPath = normalizePath(valueOr(builder.relayPath, "/apiws"));
         this.relayToken = clean(builder.relayToken);
+        this.adminToken = clean(builder.adminToken);
         this.releaseVersion = clean(builder.releaseVersion);
         this.profileKey = clean(builder.profileKey);
         this.updateExistingRelay = builder.updateExistingRelay;
+        this.rememberSshPassword = builder.rememberSshPassword;
     }
 
     static Builder builder() {
@@ -37,6 +41,9 @@ final class VpsSetupRequest {
                 && relayHost.length() <= 253
                 && VpsRelayConfig.isValidPath(relayPath)
                 && relayToken.length() <= 512
+                && !adminToken.isEmpty()
+                && adminToken.length() <= 512
+                && !containsHeaderUnsafe(adminToken)
                 && releaseVersion.length() <= 64
                 && releaseVersion.matches("[0-9]+(?:\\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?");
     }
@@ -74,6 +81,10 @@ final class VpsSetupRequest {
         return relayToken;
     }
 
+    String adminToken() {
+        return adminToken;
+    }
+
     String releaseVersion() {
         return releaseVersion;
     }
@@ -84,6 +95,10 @@ final class VpsSetupRequest {
 
     boolean updateExistingRelay() {
         return updateExistingRelay;
+    }
+
+    boolean rememberSshPassword() {
+        return rememberSshPassword;
     }
 
     VpsSetupRequest withRelayEndpoint(String host, int port, boolean tls, String path) {
@@ -98,9 +113,11 @@ final class VpsSetupRequest {
                 .relayTls(tls)
                 .relayPath(path)
                 .relayToken(relayToken)
+                .adminToken(adminToken)
                 .releaseVersion(releaseVersion)
                 .profileKey(profileKey)
                 .updateExistingRelay(updateExistingRelay)
+                .rememberSshPassword(rememberSshPassword)
                 .build();
     }
 
@@ -139,9 +156,11 @@ final class VpsSetupRequest {
         private boolean relayTls;
         private String relayPath = "/apiws";
         private String relayToken = "";
+        private String adminToken = randomAdminToken();
         private String releaseVersion = "";
         private String profileKey = "";
         private boolean updateExistingRelay;
+        private boolean rememberSshPassword = true;
 
         Builder sshHost(String value) {
             sshHost = value;
@@ -193,6 +212,11 @@ final class VpsSetupRequest {
             return this;
         }
 
+        Builder adminToken(String value) {
+            adminToken = value;
+            return this;
+        }
+
         Builder releaseVersion(String value) {
             releaseVersion = value;
             return this;
@@ -205,6 +229,11 @@ final class VpsSetupRequest {
 
         Builder updateExistingRelay(boolean value) {
             updateExistingRelay = value;
+            return this;
+        }
+
+        Builder rememberSshPassword(boolean value) {
+            rememberSshPassword = value;
             return this;
         }
 
@@ -245,5 +274,24 @@ final class VpsSetupRequest {
 
     private static String clean(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static boolean containsHeaderUnsafe(String value) {
+        if (value == null) return true;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch < 0x21 || ch > 0x7e) return true;
+        }
+        return false;
+    }
+
+    private static String randomAdminToken() {
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        StringBuilder out = new StringBuilder("tgpa_");
+        for (byte value : bytes) {
+            out.append(String.format(java.util.Locale.US, "%02x", value & 0xff));
+        }
+        return out.toString();
     }
 }

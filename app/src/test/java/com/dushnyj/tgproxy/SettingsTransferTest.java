@@ -1,5 +1,13 @@
 package com.dushnyj.tgproxy;
 
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.MultiFormatReader;
+import com.google.zxing.RGBLuminanceSource;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.common.HybridBinarizer;
+import com.google.zxing.qrcode.QRCodeWriter;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -66,6 +74,80 @@ public class SettingsTransferTest {
     }
 
     @Test
+    public void clickableRelayLinkKeepsCredentialInFragmentAndRoundTrips() throws Exception {
+        VpsRelayConfig relay = sampleData().relayConfig();
+        String exported = SettingsTransfer.exportVpsRelay(relay);
+
+        String link = SettingsTransfer.toRelayShareLink(relay, exported);
+
+        assertTrue(link.startsWith("http://relay.example.com:18080/apiws/connect#data=b64_"));
+        assertFalse(link.contains("?data="));
+        assertFalse(link.contains("relay-token"));
+        assertTrue(SettingsTransfer.isImportLink(link));
+        SettingsTransfer.Imported imported = SettingsTransfer.parseDeepLink(link, "");
+        assertEquals(SettingsTransfer.Kind.VPS_RELAY, imported.kind());
+        assertEquals("relay-token", imported.data().relayConfig().token());
+    }
+
+    @Test
+    public void relayQrEncodesAndDecodesTheClickableImportLink() throws Exception {
+        VpsRelayConfig relay = sampleData().relayConfig();
+        String link = SettingsTransfer.toRelayShareLink(
+                relay, SettingsTransfer.exportVpsRelay(relay));
+        BitMatrix matrix = new QRCodeWriter().encode(link, BarcodeFormat.QR_CODE, 640, 640);
+        int[] pixels = new int[matrix.getWidth() * matrix.getHeight()];
+        for (int y = 0; y < matrix.getHeight(); y++) {
+            for (int x = 0; x < matrix.getWidth(); x++) {
+                pixels[y * matrix.getWidth() + x] = matrix.get(x, y)
+                        ? 0xff000000 : 0xffffffff;
+            }
+        }
+
+        String decoded = new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(
+                new RGBLuminanceSource(matrix.getWidth(), matrix.getHeight(), pixels))))
+                .getText();
+
+        assertEquals(link, decoded);
+        assertEquals("relay-token",
+                SettingsTransfer.parseDeepLink(decoded, "").data().relayConfig().token());
+    }
+
+    @Test
+    public void legacyQueryRelayLinkRemainsImportable() throws Exception {
+        VpsRelayConfig relay = sampleData().relayConfig();
+        String exported = SettingsTransfer.exportVpsRelay(relay);
+        String compact = SettingsTransfer.toCompactDeepLink(exported)
+                .substring("tgproxy://import?data=".length());
+        String legacy = "https://relay.example.com/apiws/connect?data=" + compact;
+
+        assertTrue(SettingsTransfer.isImportLink(legacy));
+        assertEquals("relay-token",
+                SettingsTransfer.parseDeepLink(legacy, "").data().relayConfig().token());
+    }
+
+    @Test
+    public void sharedTextSkipsUnrelatedUrlBeforeRelayLink() throws Exception {
+        VpsRelayConfig relay = sampleData().relayConfig();
+        String link = SettingsTransfer.toRelayShareLink(
+                relay, SettingsTransfer.exportVpsRelay(relay));
+
+        SettingsTransfer.Imported imported = SettingsTransfer.parse(
+                "Инструкция: https://example.org/help\nПодключение: " + link + ".", "");
+
+        assertEquals("relay-token", imported.data().relayConfig().token());
+    }
+
+    @Test
+    public void hostileOrIncompleteHttpLinksAreNotAcceptedAsImports() throws Exception {
+        assertFalse(SettingsTransfer.isImportLink(
+                "https://user@example.org/apiws/connect#data=b64_YQ"));
+        assertFalse(SettingsTransfer.isImportLink(
+                "https://example.org/apiws/connect"));
+        assertFalse(SettingsTransfer.isImportLink(
+                "javascript://example.org/apiws/connect#data=b64_YQ"));
+    }
+
+    @Test
     public void encryptedRelayExportDoesNotExposeTokenAndRoundTrips() throws Exception {
         String exported = SettingsTransfer.exportEncryptedVpsRelay(
                 sampleData().relayConfig(), "relay-password");
@@ -96,6 +178,30 @@ public class SettingsTransferTest {
         assertTooLarge(() -> SettingsTransfer.parse(payload.toString(), ""));
         assertTooLarge(() -> SettingsTransfer.parseDeepLink(
                 "tgproxy://import?data=" + payload, ""));
+    }
+
+    @Test
+    public void recursivelyNestedDeepLinksAreRejectedWithABoundedError() throws Exception {
+        String nested = SettingsTransfer.exportVpsRelay(sampleData().relayConfig());
+        for (int index = 0; index < 6; index++) nested = SettingsTransfer.toDeepLink(nested);
+        String deeplyNested = nested;
+
+        assertRejected(() -> SettingsTransfer.parseDeepLink(deeplyNested, ""), "nesting");
+    }
+
+    @Test
+    public void compactLinksRejectInvalidAlphabetLengthAndNonCanonicalEncoding() throws Exception {
+        assertRejected(() -> SettingsTransfer.parseDeepLink(
+                "tgproxy://import?data=b64_%%%", ""), "decode");
+        assertRejected(() -> SettingsTransfer.parseDeepLink(
+                "tgproxy://import?data=b64_A", ""), "decode share link");
+        assertRejected(() -> SettingsTransfer.parseDeepLink(
+                "tgproxy://import?data=b64_AB", ""), "decode share link");
+
+        StringBuilder oversized = new StringBuilder("tgproxy://import?data=b64_");
+        while (oversized.length() < 17_000) oversized.append('A');
+        assertRejected(() -> SettingsTransfer.parseDeepLink(
+                oversized.toString(), ""), "decode share link");
     }
 
     @Test

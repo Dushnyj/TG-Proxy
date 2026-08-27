@@ -5,7 +5,7 @@
     android:layout_marginTop="8dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
@@ -19,7 +19,7 @@
     <CheckBox
         android:id="@+id/cb_cf_warmup"
         android:layout_width="match_parent"
-        android:layout_height="34dp"
+        android:layout_height="48dp"
         android:layout_marginTop="5dp"
         android:buttonTint="@color/accent"
         android:includeFontPadding="false"
@@ -33,12 +33,12 @@
         android:includeFontPadding="false"
         android:text="@string/cf_warmup_note"
         android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
+        android:textSize="12sp" />
 
     <CheckBox
         android:id="@+id/cb_cf_recheck_network"
         android:layout_width="match_parent"
-        android:layout_height="34dp"
+        android:layout_height="48dp"
         android:layout_marginTop="6dp"
         android:buttonTint="@color/accent"
         android:includeFontPadding="false"
@@ -52,5 +52,5 @@
         android:includeFontPadding="false"
         android:text="@string/cf_recheck_network_note"
         android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
+        android:textSize="12sp" />
 </LinearLayout>

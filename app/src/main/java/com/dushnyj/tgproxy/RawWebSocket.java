@@ -284,18 +284,20 @@ public class RawWebSocket {
         byte[] keyBytes = new byte[16];
         rng.nextBytes(keyBytes);
         String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
-        String req = "GET " + path + " HTTP/1.1\r\n" +
-                "Host: " + relayHostHeader(host, ws.socket.getPort(), tls) + "\r\n" +
-                "Authorization: Bearer " + token + "\r\n" +
-                "Upgrade: websocket\r\n" +
-                "Connection: Upgrade\r\n" +
-                "Sec-WebSocket-Key: " + wsKey + "\r\n" +
-                "Sec-WebSocket-Version: 13\r\n" +
-                "Sec-WebSocket-Protocol: binary\r\n" +
-                "Origin: https://web.telegram.org\r\n" +
-                "\r\n";
+        StringBuilder request = new StringBuilder()
+                .append("GET ").append(path).append(" HTTP/1.1\r\n")
+                .append("Host: ").append(relayHostHeader(host, ws.socket.getPort(), tls)).append("\r\n")
+                .append("Authorization: Bearer ").append(token).append("\r\n")
+                .append("Upgrade: websocket\r\n")
+                .append("Connection: Upgrade\r\n")
+                .append("Sec-WebSocket-Key: ").append(wsKey).append("\r\n")
+                .append("Sec-WebSocket-Version: 13\r\n")
+                .append("Sec-WebSocket-Protocol: binary\r\n")
+                .append("Origin: https://web.telegram.org\r\n");
+        RelayClientMetadata.appendHttpHeaders(request);
+        request.append("\r\n");
 
-        ws.out.write(req.getBytes("UTF-8"));
+        ws.out.write(request.toString().getBytes("UTF-8"));
         ws.out.flush();
         ws.socket.setSoTimeout(requirePhaseTimeout(budget, perPhaseTimeoutMs));
 

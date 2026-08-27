@@ -7,7 +7,7 @@ Telegram Android
   -> MTProto Proxy (127.0.0.1:1443)
   -> TG Proxy service
   -> Route Engine
-  -> Direct WS / VPS Relay / Cloudflare Worker / Cloudflare CDN / TCP fallback
+  -> Direct WS / VPS Relay / Cloudflare Worker / Cloudflare CDN
   -> Telegram DC
 ```
 
@@ -41,12 +41,18 @@ Route Engine строит список кандидатов для каждог�
 - `Cloudflare Worker` - WebSocket/TLS к Worker, затем TCP к Telegram DC;
 - `Cloudflare CDN` - WebSocket/TLS через пользовательские `kws<dc>` записи;
 - `Public Cloudflare` - встроенный публичный fallback;
-- `TCP fallback` - прямой TCP как крайний резерв.
+
+Runtime Route Engine не выдаёт неподтверждённый «TCP fallback»: Telegram подключается к
+локальному MTProto listener, а каждый upstream-кандидат должен быть одним из явно проверяемых
+WebSocket/Relay-маршрутов выше.
 
 ## Network profiles
 
 Профиль сети хранит статистику маршрутов для конкретной сети, а не просто одно имя оператора.
-Wi-Fi различается по SSID/BSSID, мобильные профили различаются по оператору и активной SIM/eSIM, но две SIM одного оператора используют один профиль.
+Wi-Fi различается по SSID или приватному стабильному идентификатору BSSID/network ID, если
+Android скрывает SSID. В UI такой профиль честно называется `Wi-Fi (имя недоступно)`, без
+псевдослучайного «имени сети». Мобильные профили различаются по оператору и активной SIM/eSIM,
+но две SIM одного оператора используют один профиль.
 
 Примеры:
 
@@ -59,7 +65,9 @@ Wi-Fi различается по SSID/BSSID, мобильные профили 
 ## VPS Relay
 
 Серверная часть вынесена в отдельный репозиторий: [Dushnyj/TG-Proxy-Relay](https://github.com/Dushnyj/TG-Proxy-Relay).
-Android хранит Relay profiles, токены, импорт/экспорт и SSH auto-setup flow, но Go server source и release archives собираются отдельно.
+Android хранит Relay profiles и отдельное Keystore-хранилище владельца (SSH/admin/client
+secrets), реализует import/share и SSH auto-setup flow. Обычный получатель client token не
+получает owner API. Go server source и release archives собираются отдельно.
 
 Версионный контракт:
 
@@ -71,4 +79,4 @@ minimumSupportedProtocol
 features
 ```
 
-TG Proxy Android `1.0.7` ожидает совместимую серверную версию `TG Proxy VPS Relay 1.0.5`.
+TG Proxy Android `1.1.0` ожидает совместимую серверную версию `TG Proxy VPS Relay 1.1.0`.

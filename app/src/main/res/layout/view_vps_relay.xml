@@ -5,7 +5,7 @@
     android:layout_marginTop="8dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
@@ -23,7 +23,7 @@
         android:includeFontPadding="false"
         android:text="@string/vps_relay_note"
         android:textColor="@color/text_secondary"
-        android:textSize="10sp" />
+        android:textSize="12sp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -37,7 +37,7 @@
     <Spinner
         android:id="@+id/sp_vps_relay_saved"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:background="@drawable/edit_bg"
         android:paddingStart="9dp"
@@ -45,7 +45,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="7dp"
         android:orientation="horizontal">
 
@@ -94,13 +94,30 @@
     <CheckBox
         android:id="@+id/cb_vps_relay_enabled"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:layout_marginTop="6dp"
         android:buttonTint="@color/accent"
         android:includeFontPadding="false"
         android:text="@string/vps_relay_enabled"
         android:textColor="@color/text_primary"
         android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/btn_vps_manual_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="6dp"
+        android:minHeight="48dp"
+        android:text="@string/vps_manual_show"
+        android:textAllCaps="false"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/vps_manual_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
 
     <TextView
         android:layout_width="wrap_content"
@@ -114,7 +131,7 @@
     <EditText
         android:id="@+id/et_vps_relay_name"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:background="@drawable/edit_bg"
         android:hint="@string/vps_relay"
@@ -151,7 +168,7 @@
             <EditText
                 android:id="@+id/et_vps_relay_host"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginTop="3dp"
                 android:background="@drawable/edit_bg"
                 android:inputType="textUri"
@@ -180,7 +197,7 @@
             <EditText
                 android:id="@+id/et_vps_relay_port"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginTop="3dp"
                 android:background="@drawable/edit_bg"
                 android:inputType="number"
@@ -195,7 +212,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="7dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -236,7 +253,7 @@
     <EditText
         android:id="@+id/et_vps_relay_path"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:background="@drawable/edit_bg"
         android:hint="/apiws"
@@ -260,7 +277,7 @@
     <EditText
         android:id="@+id/et_vps_relay_token"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:layout_marginTop="3dp"
         android:background="@drawable/edit_bg"
         android:fontFamily="monospace"
@@ -272,9 +289,11 @@
         android:textColorHint="@color/text_hint"
         android:textSize="12sp" />
 
+    </LinearLayout>
+
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="48dp"
         android:layout_marginTop="8dp"
         android:orientation="horizontal">
 
@@ -304,6 +323,16 @@
             android:textAllCaps="false"
             android:textSize="12sp" />
     </LinearLayout>
+
+    <Button
+        android:id="@+id/btn_vps_owner_manage"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:minHeight="48dp"
+        android:text="@string/vps_owner_manage"
+        android:textAllCaps="false"
+        android:textSize="13sp" />
 
     <ProgressBar
         android:id="@+id/progress_vps_setup"

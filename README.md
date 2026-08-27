@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.7-3390EC?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-3390EC?style=for-the-badge">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="proxy" src="https://img.shields.io/badge/proxy-MTProto-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge">
@@ -53,10 +53,14 @@ Direct WS идет напрямую к Telegram WebSocket endpoint, Cloudflare C
 
 - локальный MTProto-прокси для Telegram на Android;
 - автоссылка `tg://proxy` для добавления прокси в Telegram;
-- автоматический пинг активного маршрута без наложения проверок;
+- настоящий MTProto `req_pq/resPQ`-отклик активного маршрута без наложения проверок;
 - аптайм, трафик и состояние в приложении и foreground-уведомлении;
+- восстановление foreground service после завершения процесса, перезагрузки и обновления;
+- помощник фоновой работы: уведомления, boot-start, батарея и OEM-автозапуск с постоянным предупреждением о неполной настройке;
 - сетевые профили для Wi-Fi, операторов, dual SIM и eSIM;
-- ручной VPS Relay, импорт/экспорт, QR и автонастройка VPS;
+- безопасно сохранённые данные владельца VPS и автонастройка с транзакционным rollback;
+- owner-управление Relay: список/создание/отзыв токенов и известные устройства пользователей;
+- одна команда «Поделиться Relay»: кликабельная HTTPS-ссылка, QR, системный Share или файл;
 - Cloudflare Worker и пользовательские Cloudflare-домены;
 - диагностика с TXT/ZIP-отчетом, копированием и сбросом результата;
 - обновления Android-приложения через GitHub Releases.
@@ -76,7 +80,10 @@ Direct WS идет напрямую к Telegram WebSocket endpoint, Cloudflare C
 Secret: значение из приложения
 ```
 
-Если Android агрессивно закрывает фоновые сервисы, отключите оптимизацию батареи для TG Proxy.
+При первом запуске и после обновления откройте помощник фоновой работы: разрешите уведомления,
+запуск после перезагрузки, режим батареи «Без ограничений» и OEM-автозапуск. Если часть условий
+не выполнена, приложение оставляет видимое предупреждение. Постоянно включённый экран сам по
+себе не запрещает Android/MIUI завершить фоновый процесс.
 
 ## Маршруты
 
@@ -96,10 +103,12 @@ Secret: значение из приложения
 ## VPS Relay
 
 Серверная часть живет отдельно: [Dushnyj/TG-Proxy-Relay](https://github.com/Dushnyj/TG-Proxy-Relay).
-Android-приложение умеет сохранить Relay, импортировать/экспортировать подключение, поделиться QR и выполнить автонастройку VPS по SSH.
+Android-приложение умеет сохранить Relay, выполнить автонастройку VPS по SSH, управлять
+клиентскими токенами владельца и передавать отдельное клиентское подключение одной кнопкой.
+SSH-пароль, SSH host key и owner/admin token не входят ни в ссылку, ни в QR-код.
 
 Автонастройка Android скачивает release asset из `TG-Proxy-Relay`, а не из Android-репозитория.
-Текущая совместимая версия Relay для TG Proxy `1.0.7`: `TG Proxy VPS Relay 1.0.5`.
+Текущий контракт: `TG Proxy Android 1.1.0` и `TG Proxy VPS Relay 1.1.0`.
 
 ## Диагностика
 

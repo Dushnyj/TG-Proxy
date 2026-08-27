@@ -42,6 +42,9 @@ import androidx.core.content.FileProvider;
 import androidx.core.os.LocaleListCompat;
 import androidx.preference.PreferenceManager;
 
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -69,6 +72,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String REPO_URL = "https://github.com/Dushnyj/TG-Proxy";
     private static final int REQUEST_IMPORT_FILE = 1101;
     private static final int REQUEST_INSTALL_UPDATE = 1102;
+    private static final int REQUEST_NETWORK_IDENTITY_PERMISSIONS = 100;
+    private static final int REQUEST_NOTIFICATION_PERMISSION = 101;
     private static final String STATE_SCREEN = "screen";
     private static final String STATE_SECTION = "settings_section";
     private static final String STATE_DIAGNOSTICS_RETURN = "diagnostics_return";
@@ -77,10 +82,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String SCREEN_DIAGNOSTICS = "diagnostics";
     private static final int VPS_DOMAIN_DISCOVERY_TIMEOUT_MS = 30_000;
     private static final String VPS_SSH_KNOWN_HOSTS_FILE = "vps_ssh_known_hosts";
-    private static final String KEY_BACKGROUND_SETUP_PROMPTED = "background_setup_prompted.v2";
     private static final String KEY_VPS_RELAY_LEGACY_MIGRATED = "vps_relay_legacy_migrated.v1";
     private static final String KEY_PENDING_INSTALL_VERSION = "update_pending_version.v1";
     private static final String KEY_PENDING_INSTALL_DESIRED = "update_pending_desired_running.v1";
+    private static final String KEY_NOTIFICATION_PERMISSION_REQUESTED =
+            "notification_permission_requested.v1";
 
     private ImageButton btnStart;
     private Button btnStop, btnRegenerateSecret;
@@ -88,10 +94,13 @@ public class MainActivity extends AppCompatActivity {
     private Button btnTestCf, btnTestWorker;
     private Button btnVpsRelayTest;
     private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
+    private Button btnVpsOwnerManage;
+    private Button btnVpsManualToggle, btnConnectionAdvancedToggle;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
     private Button btnCreateProfile, btnSaveProfile, btnDeleteProfile;
     private Button btnExportSafeProfile, btnExportVpsRelay, btnExportEncryptedProfile, btnImportSettings;
+    private Button btnScanQr;
     private Button btnSettingsDiagnostics;
     private Button btnBackgroundSetup;
     private Button btnDiagnosticsSaveZip, btnDiagnosticsSaveTxt, btnDiagnosticsCopyShort;
@@ -99,6 +108,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStatus, tvAddress, tvRoute, tvCfDomain, tvPort, tvTgLink, tvPing, tvTraffic, tvUptime;
     private TextView tvMainProfile, tvQuality, tvConnections;
     private TextView tvActiveProfile, tvProfileKey, tvProfilesList;
+    private TextView tvRoutePreferenceExplanation;
     private TextView tvUpdateStatus, tvUpdateProgress, tvVersion;
     private TextView tvVpsSetupStatus;
     private TextView tvBackgroundStatus;
@@ -120,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
     private View sectionConnection, sectionRoute, sectionProfiles, sectionOptimization, sectionVpsRelay;
     private View sectionImportExport, sectionDiagnosticsLogs, sectionBehavior;
     private View sectionInterface, sectionUpdates, sectionAdvanced, sectionAbout;
+    private View vpsManualContent, connectionAdvancedContent;
 
     private SharedPreferences prefs;
     private Handler handler;
@@ -134,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean vpsRelaySelectorReady;
     private boolean vpsRelayFormBinding;
     private boolean vpsSetupRunning;
+    private boolean backgroundSetupDialogShowing;
     private final AtomicBoolean vpsRelayTestRunning = new AtomicBoolean(false);
     private final AtomicBoolean vpsRelayVersionCheckRunning = new AtomicBoolean(false);
     private String vpsRelayUpdateDialogKey = "";
@@ -182,9 +194,14 @@ public class MainActivity extends AppCompatActivity {
         setupActions();
         refreshConnectionFields();
         updateRunningState(ProxyService.getInstance() != null);
-        requestPermissions();
-        handleImportIntent(getIntent());
+        boolean launchedForImport = handleImportIntent(getIntent());
         restoreUiState(savedInstanceState);
+        if (!launchedForImport) {
+            boolean networkPermissionDialogShown = requestNetworkIdentityPermissions();
+            if (!networkPermissionDialogShown) {
+                handler.postDelayed(this::showBackgroundSetupOnce, 900L);
+            }
+        }
 
         ProxyServiceLauncher.restoreIfDesired(this, "activity-open");
 
@@ -253,6 +270,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        IntentResult scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+        if (scan != null) {
+            if (scan.getContents() != null) {
+                importSettingsPayload(scan.getContents(), "", true);
+            }
+            return;
+        }
         if (requestCode == REQUEST_IMPORT_FILE && resultCode == RESULT_OK
                 && data != null && data.getData() != null) {
             try {
@@ -281,7 +305,7 @@ public class MainActivity extends AppCompatActivity {
         if (!prefs.contains("cf_warmup")) e.putBoolean("cf_warmup", true);
         if (!prefs.contains("cf_recheck_network")) e.putBoolean("cf_recheck_network", true);
         e.putBoolean("smart_sleep", false);
-        if (!prefs.contains("autostart_boot")) e.putBoolean("autostart_boot", false);
+        if (!prefs.contains("autostart_boot")) e.putBoolean("autostart_boot", true);
         if (!prefs.contains("buffer_kb")) e.putInt("buffer_kb", MtProtoConfig.DEFAULT_BUFFER_KB);
         if (!prefs.contains("pool_size")) e.putInt("pool_size", MtProtoConfig.DEFAULT_POOL_SIZE);
         if (!prefs.contains("check_updates")) e.putBoolean("check_updates", true);
@@ -309,6 +333,9 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelaySave = findViewById(R.id.btn_vps_relay_save);
         btnVpsRelayDelete = findViewById(R.id.btn_vps_relay_delete);
         btnVpsRelayAutoSetup = findViewById(R.id.btn_vps_relay_auto_setup);
+        btnVpsOwnerManage = findViewById(R.id.btn_vps_owner_manage);
+        btnVpsManualToggle = findViewById(R.id.btn_vps_manual_toggle);
+        btnConnectionAdvancedToggle = findViewById(R.id.btn_connection_advanced_toggle);
         btnCfHelp = findViewById(R.id.btn_cf_help);
         btnWorkerHelp = findViewById(R.id.btn_worker_help);
         btnCheckUpdate = findViewById(R.id.btn_check_update);
@@ -321,6 +348,7 @@ public class MainActivity extends AppCompatActivity {
         btnExportVpsRelay = findViewById(R.id.btn_export_vps_relay);
         btnExportEncryptedProfile = findViewById(R.id.btn_export_encrypted_profile);
         btnImportSettings = findViewById(R.id.btn_import_settings);
+        btnScanQr = findViewById(R.id.btn_scan_qr);
         btnSettingsDiagnostics = findViewById(R.id.btn_settings_diagnostics);
         btnBackgroundSetup = findViewById(R.id.btn_background_setup);
         btnDiagnosticsSaveZip = findViewById(R.id.btn_diagnostics_save_zip);
@@ -350,6 +378,7 @@ public class MainActivity extends AppCompatActivity {
         tvActiveProfile = findViewById(R.id.tv_active_profile);
         tvProfileKey = findViewById(R.id.tv_profile_key);
         tvProfilesList = findViewById(R.id.tv_profiles_list);
+        tvRoutePreferenceExplanation = findViewById(R.id.tv_route_preference_explanation);
         tvDiagnosticsNetwork = findViewById(R.id.tv_diagnostics_network);
         tvDiagnosticsProfile = findViewById(R.id.tv_diagnostics_profile);
         tvDiagnosticsRoute = findViewById(R.id.tv_diagnostics_route);
@@ -408,6 +437,8 @@ public class MainActivity extends AppCompatActivity {
         sectionUpdates = findViewById(R.id.section_updates);
         sectionAdvanced = findViewById(R.id.section_advanced);
         sectionAbout = findViewById(R.id.section_about);
+        vpsManualContent = findViewById(R.id.vps_manual_content);
+        connectionAdvancedContent = findViewById(R.id.connection_advanced_content);
     }
 
     private void loadSettings() {
@@ -420,7 +451,7 @@ public class MainActivity extends AppCompatActivity {
         etWorkerDomains.setText(prefs.getString("worker_domains", ""));
         cbSmartSleep.setChecked(prefs.getBoolean("smart_sleep", TgRoutePolicy.DEFAULT_SMART_SLEEP));
         cbAutostartOpen.setChecked(prefs.getBoolean("autostart_open", false));
-        cbAutostartBoot.setChecked(prefs.getBoolean("autostart_boot", false));
+        cbAutostartBoot.setChecked(prefs.getBoolean("autostart_boot", true));
         setupCfModeControl();
         cbCfCustomDomain.setChecked(prefs.getBoolean("cfproxy_custom_enabled", !cfDomains.trim().isEmpty()));
         updateCfCustomDomainEnabled();
@@ -471,6 +502,8 @@ public class MainActivity extends AppCompatActivity {
                 spVpsRelaySaved.setSelection(0);
             }
             clearVpsRelayForm();
+            setExpandableSection(vpsManualContent, btnVpsManualToggle, true,
+                    R.string.vps_manual_show, R.string.vps_manual_hide);
             vpsRelaySelectorReady = true;
             setEnabled(btnVpsRelayDelete, false);
         });
@@ -484,6 +517,15 @@ public class MainActivity extends AppCompatActivity {
         });
         btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
         btnVpsRelayAutoSetup.setOnClickListener(v -> showVpsAutoSetupDialog());
+        btnVpsOwnerManage.setOnClickListener(v -> showVpsOwnerManager());
+        btnVpsManualToggle.setOnClickListener(v -> setExpandableSection(
+                vpsManualContent, btnVpsManualToggle,
+                vpsManualContent.getVisibility() != View.VISIBLE,
+                R.string.vps_manual_show, R.string.vps_manual_hide));
+        btnConnectionAdvancedToggle.setOnClickListener(v -> setExpandableSection(
+                connectionAdvancedContent, btnConnectionAdvancedToggle,
+                connectionAdvancedContent.getVisibility() != View.VISIBLE,
+                R.string.connection_advanced_show, R.string.connection_advanced_hide));
         btnCfHelp.setOnClickListener(v -> openLink("https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/CfProxy.md"));
         btnWorkerHelp.setOnClickListener(v -> openLink("https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/CfWorker.md"));
         btnCheckUpdate.setOnClickListener(v -> checkUpdates(true));
@@ -496,6 +538,7 @@ public class MainActivity extends AppCompatActivity {
         btnExportVpsRelay.setOnClickListener(v -> exportVpsRelay());
         btnExportEncryptedProfile.setOnClickListener(v -> showEncryptedExportDialog());
         btnImportSettings.setOnClickListener(v -> showImportSettingsDialog());
+        btnScanQr.setOnClickListener(v -> scanImportQr());
         btnSettingsDiagnostics.setOnClickListener(v -> showDiagnostics(true));
         btnBackgroundSetup.setOnClickListener(v -> showBackgroundSetupDialog());
         btnDiagnosticsSaveZip.setOnClickListener(v -> saveDiagnosticsZip(buildDiagnosticsReport()));
@@ -637,6 +680,7 @@ public class MainActivity extends AppCompatActivity {
         spRoutePreference.setAdapter(adapter);
         spRoutePreference.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateRoutePreferenceExplanation(selectedRoutePreference());
                 if (!profileControlReady) return;
                 saveDisplayedRoutePreference();
                 refreshConnectionFields();
@@ -657,10 +701,12 @@ public class MainActivity extends AppCompatActivity {
                 String relayId = vpsRelaySelectorIds.get(position);
                 if (relayId.isEmpty()) {
                     clearVpsRelayForm();
+                    setExpandableSection(vpsManualContent, btnVpsManualToggle, true,
+                            R.string.vps_manual_show, R.string.vps_manual_hide);
                     setEnabled(btnVpsRelayDelete, false);
                     return;
                 }
-                VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
+                VpsRelayStore store = VpsRelayStore.fromContext(MainActivity.this);
                 VpsRelayStore.Record record = store.relay(relayId);
                 if (record == null) return;
                 String profileKey = cbVpsRelayBindProfile != null && cbVpsRelayBindProfile.isChecked()
@@ -681,7 +727,7 @@ public class MainActivity extends AppCompatActivity {
         });
         if (!prefs.getBoolean(KEY_VPS_RELAY_LEGACY_MIGRATED, false)) {
             VpsRelayConfig legacyRelay = currentVpsRelayConfig();
-            boolean imported = VpsRelayStore.fromPreferences(prefs)
+            boolean imported = VpsRelayStore.fromContext(this)
                     .importLegacyIfNeeded(legacyRelay, legacyRelay.profileKey());
             if (imported && !prefs.edit()
                     .putBoolean(KEY_VPS_RELAY_LEGACY_MIGRATED, true).commit()) {
@@ -689,6 +735,10 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         refreshVpsRelaySelector();
+        VpsRelayConfig securedRelay = activeVpsRelayConfig();
+        if (securedRelay != null && securedRelay.isUsable()) {
+            prefs.edit().remove("vps_relay_token").commit();
+        }
         applyVpsSetupProgress(VpsSetupProgress.of(
                 VpsSetupProgress.Stage.AUDIT, 0, getString(R.string.vps_setup_idle)));
     }
@@ -871,6 +921,21 @@ public class MainActivity extends AppCompatActivity {
         showSettingsScreen(true);
     }
 
+    private void updateRoutePreferenceExplanation(RoutePreference preference) {
+        if (tvRoutePreferenceExplanation == null) return;
+        int message;
+        if (preference == RoutePreference.DIRECT_FIRST) {
+            message = R.string.route_priority_direct_explanation;
+        } else if (preference == RoutePreference.CLOUDFLARE_FIRST) {
+            message = R.string.route_priority_cloudflare_explanation;
+        } else if (preference == RoutePreference.RELAY_FIRST) {
+            message = R.string.route_priority_relay_explanation;
+        } else {
+            message = R.string.route_priority_auto_explanation;
+        }
+        tvRoutePreferenceExplanation.setText(message);
+    }
+
     private void showSettingsScreen(boolean show) {
         if (show) {
             refreshProfileControls(true);
@@ -1006,7 +1071,9 @@ public class MainActivity extends AppCompatActivity {
                 stagedProfiles.setRoutePreference(stagedProfileKey, selectedRoutePreference());
             }
             editor.putString(NetworkProfileStore.KEY_PROFILES, stagedProfiles.exportProfiles());
-            updateStoredVpsRelaySelection(editor, relay);
+            if (!updateStoredVpsRelaySelection(editor, relay)) {
+                throw new IllegalStateException("secure Relay staging failed");
+            }
             putVpsRelaySettings(editor, relay);
             if (!editor.commit()) throw new IllegalStateException("settings commit failed");
             NetworkProfileStore persistedProfiles = NetworkProfileStore.fromPreferences(prefs);
@@ -1022,7 +1089,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean matchesSavedVpsRelay(VpsRelayConfig relay) {
         if (relay == null || !relay.isEnabled() || prefs == null) return false;
-        VpsRelayConfig saved = VpsRelayStore.fromPreferences(prefs)
+        VpsRelayConfig saved = VpsRelayStore.fromContext(this)
                 .selectedRelay(relay.profileKey());
         return saved != null && saved.sameRoutingIdentity(relay);
     }
@@ -1668,7 +1735,254 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
             return;
         }
-        showEncryptedExportDialog(relay);
+        showRelayShareMenu(relay);
+    }
+
+    private void showRelayShareMenu(VpsRelayConfig relay) {
+        try {
+            String payload = SettingsTransfer.exportVpsRelay(relay);
+            String link = SettingsTransfer.toRelayShareLink(relay, payload);
+            String[] actions = getResources().getStringArray(R.array.relay_share_options);
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.relay_share_title)
+                    .setMessage(R.string.relay_share_note)
+                    .setItems(actions, (dialog, which) -> {
+                        if (which == 0) {
+                            copy(link);
+                            Toast.makeText(this, R.string.copy_done, Toast.LENGTH_SHORT).show();
+                        } else if (which == 1) {
+                            showTransferQr(payload, link);
+                        } else if (which == 2) {
+                            shareRelayLink(link);
+                        } else if (which == 3) {
+                            saveTransferPayload(payload, "tgproxy-vps-relay.tgproxy");
+                        }
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        } catch (Exception error) {
+            Toast.makeText(this, getString(R.string.import_failed,
+                    error.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void showVpsOwnerManager() {
+        VpsRelayConfig relay = activeVpsRelayConfig();
+        VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(relay);
+        if (relay == null || !relay.isUsable() || owner == null || !owner.canManage()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.vps_owner_manage)
+                    .setMessage(R.string.vps_owner_not_available)
+                    .setPositiveButton(R.string.vps_relay_auto_setup,
+                            (dialog, which) -> showVpsAutoSetupDialog(true))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return;
+        }
+        ProgressBar progress = new ProgressBar(this);
+        progress.setPadding(dp(24), dp(18), dp(24), dp(18));
+        AlertDialog loading = new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_owner_loading)
+                .setView(progress)
+                .setCancelable(false)
+                .create();
+        loading.show();
+        setEnabled(btnVpsOwnerManage, false);
+        new Thread(() -> {
+            try {
+                VpsOwnerClient.Overview overview = new VpsOwnerClient()
+                        .load(relay, owner.adminToken());
+                handler.post(() -> {
+                    loading.dismiss();
+                    setEnabled(btnVpsOwnerManage, true);
+                    showVpsOwnerOverview(relay, owner, overview);
+                });
+            } catch (Exception error) {
+                handler.post(() -> {
+                    loading.dismiss();
+                    setEnabled(btnVpsOwnerManage, true);
+                    new AlertDialog.Builder(this)
+                            .setTitle(R.string.vps_owner_manage)
+                            .setMessage(getString(R.string.vps_owner_failed,
+                                    firstLine(error.getMessage())))
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                });
+            }
+        }, "tg-vps-owner-load").start();
+    }
+
+    private void showVpsOwnerOverview(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                      VpsOwnerClient.Overview overview) {
+        ArrayList<VpsOwnerClient.Token> tokens = new ArrayList<>(overview.tokens());
+        String[] labels = new String[tokens.size() + 2];
+        labels[0] = getString(R.string.vps_owner_create_token);
+        for (int i = 0; i < tokens.size(); i++) {
+            VpsOwnerClient.Token token = tokens.get(i);
+            labels[i + 1] = getString(R.string.vps_owner_token_summary,
+                    token.name().isEmpty() ? token.id() : token.name(),
+                    token.activeDevices(), token.knownDevices());
+        }
+        labels[labels.length - 1] = getString(R.string.vps_owner_forget_local);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_owner_manage)
+                .setMessage(R.string.vps_owner_manage_note)
+                .setItems(labels, (dialog, which) -> {
+                    if (which == 0) showVpsOwnerCreateToken(relay, owner);
+                    else if (which - 1 < tokens.size()) showVpsOwnerTokenActions(
+                            relay, owner, overview, tokens.get(which - 1));
+                    else confirmForgetVpsOwnerData(relay);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void showVpsOwnerCreateToken(VpsRelayConfig relay, VpsOwnerRecord owner) {
+        EditText name = dialogField(R.string.vps_owner_token_name, "",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_owner_create_token)
+                .setView(name)
+                .setPositiveButton(R.string.vps_owner_create_token, (dialog, which) -> {
+                    String tokenName = valueOrDefault(name, getString(R.string.vps_owner_token_default));
+                    new Thread(() -> {
+                        try {
+                            VpsOwnerClient.CreatedToken created = new VpsOwnerClient().create(
+                                    relay, owner.adminToken(), tokenName);
+                            boolean saved = new VpsOwnerStore(this).saveManagedToken(relay,
+                                    created.token().id(), created.token().name(), created.secret());
+                            VpsRelayConfig shared = relay.withTokenAndName(created.secret(),
+                                    created.token().name());
+                            boolean rolledBack = false;
+                            if (!saved) {
+                                try {
+                                    new VpsOwnerClient().delete(relay, owner.adminToken(),
+                                            created.token().id());
+                                    rolledBack = true;
+                                } catch (Exception rollbackError) {
+                                    DiagnosticsLog.record("VPS owner token rollback failed: "
+                                            + firstLine(rollbackError.getMessage()));
+                                }
+                            }
+                            boolean tokenRolledBack = rolledBack;
+                            handler.post(() -> {
+                                if (saved) {
+                                    showRelayShareMenu(shared);
+                                } else if (tokenRolledBack) {
+                                    Toast.makeText(this, R.string.vps_owner_save_rolled_back,
+                                            Toast.LENGTH_LONG).show();
+                                } else {
+                                    new AlertDialog.Builder(this)
+                                            .setTitle(R.string.vps_owner_save_failed_title)
+                                            .setMessage(R.string.vps_owner_save_failed_recovery)
+                                            .setPositiveButton(R.string.relay_share_title,
+                                                    (ignored, button) -> showRelayShareMenu(shared))
+                                            .setNegativeButton(android.R.string.cancel, null)
+                                            .show();
+                                }
+                            });
+                        } catch (Exception error) {
+                            handler.post(() -> Toast.makeText(this,
+                                    getString(R.string.vps_owner_failed,
+                                            firstLine(error.getMessage())),
+                                    Toast.LENGTH_LONG).show());
+                        }
+                    }, "tg-vps-owner-create").start();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void showVpsOwnerTokenActions(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                          VpsOwnerClient.Overview overview,
+                                          VpsOwnerClient.Token token) {
+        VpsOwnerRecord freshOwner = new VpsOwnerStore(this).forRelay(relay);
+        VpsOwnerRecord.ManagedToken local = freshOwner == null
+                ? null : freshOwner.managedToken(token.id());
+        ArrayList<String> actions = new ArrayList<>();
+        if (local != null && !local.secret().isEmpty()) actions.add(getString(R.string.relay_share_title));
+        actions.add(getString(R.string.vps_owner_devices));
+        actions.add(getString(R.string.vps_owner_delete_token));
+        new AlertDialog.Builder(this)
+                .setTitle(token.name().isEmpty() ? token.id() : token.name())
+                .setItems(actions.toArray(new String[0]), (dialog, which) -> {
+                    String action = actions.get(which);
+                    if (action.equals(getString(R.string.relay_share_title)) && local != null) {
+                        showRelayShareMenu(relay.withTokenAndName(local.secret(), token.name()));
+                    } else if (action.equals(getString(R.string.vps_owner_devices))) {
+                        showVpsOwnerDevices(overview.clientsFor(token.id()));
+                    } else {
+                        confirmDeleteVpsOwnerToken(relay, owner, token);
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void showVpsOwnerDevices(List<VpsOwnerClient.Client> clients) {
+        if (clients == null || clients.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle(R.string.vps_owner_devices)
+                    .setMessage(R.string.vps_owner_no_devices)
+                    .setPositiveButton(android.R.string.ok, null).show();
+            return;
+        }
+        String[] labels = new String[clients.size()];
+        for (int i = 0; i < clients.size(); i++) {
+            VpsOwnerClient.Client client = clients.get(i);
+            labels[i] = getString(R.string.vps_owner_device_summary, client.deviceLabel(),
+                    client.appVersion(), client.android(), client.locationLabel(),
+                    client.activeSessions(), client.lastSeen());
+        }
+        new AlertDialog.Builder(this).setTitle(R.string.vps_owner_devices)
+                .setItems(labels, null).setPositiveButton(android.R.string.ok, null).show();
+    }
+
+    private void confirmDeleteVpsOwnerToken(VpsRelayConfig relay, VpsOwnerRecord owner,
+                                            VpsOwnerClient.Token token) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_owner_delete_token)
+                .setMessage(R.string.vps_owner_delete_token_warning)
+                .setPositiveButton(R.string.vps_owner_delete_token, (dialog, which) ->
+                        new Thread(() -> {
+                            try {
+                                new VpsOwnerClient().delete(relay, owner.adminToken(), token.id());
+                                boolean removedLocally = new VpsOwnerStore(this)
+                                        .removeManagedToken(relay, token.id());
+                                if (!removedLocally) {
+                                    DiagnosticsLog.record("VPS owner token removed remotely but "
+                                            + "local secret cleanup failed");
+                                }
+                                handler.post(() -> {
+                                    Toast.makeText(this, removedLocally
+                                                    ? R.string.vps_owner_token_deleted
+                                                    : R.string.vps_owner_token_deleted_local_failed,
+                                            Toast.LENGTH_LONG).show();
+                                    showVpsOwnerManager();
+                                });
+                            } catch (Exception error) {
+                                handler.post(() -> Toast.makeText(this,
+                                        getString(R.string.vps_owner_failed,
+                                                firstLine(error.getMessage())),
+                                        Toast.LENGTH_LONG).show());
+                            }
+                        }, "tg-vps-owner-delete").start())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void confirmForgetVpsOwnerData(VpsRelayConfig relay) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.vps_owner_forget_local)
+                .setMessage(R.string.vps_owner_forget_local_warning)
+                .setPositiveButton(R.string.vps_owner_forget_local, (dialog, which) -> {
+                    boolean removed = new VpsOwnerStore(this).forget(relay);
+                    updateVpsRelayFieldsEnabled();
+                    Toast.makeText(this, removed ? R.string.vps_owner_forgotten
+                                    : R.string.vps_owner_save_failed,
+                            Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void showEncryptedExportDialog() {
@@ -1707,6 +2021,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void showImportSettingsDialog() {
         showImportSettingsDialog("", false);
+    }
+
+    private void scanImportQr() {
+        new IntentIntegrator(this)
+                .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                .setPrompt(getString(R.string.scan_import_qr_prompt))
+                .setBeepEnabled(false)
+                .setOrientationLocked(false)
+                .initiateScan();
     }
 
     private void showImportSettingsDialog(String initialPayload) {
@@ -1808,6 +2131,16 @@ public class MainActivity extends AppCompatActivity {
         startActivity(Intent.createChooser(intent, getString(R.string.share_export)));
     }
 
+    private void shareRelayLink(String link) {
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.relay_share_title));
+        intent.putExtra(Intent.EXTRA_TEXT, shareableImportText(link));
+        intent.putExtra(Intent.EXTRA_HTML_TEXT, "<a href=\"" + link + "\">"
+                + getString(R.string.relay_share_title) + "</a>");
+        startActivity(Intent.createChooser(intent, getString(R.string.share_export)));
+    }
+
     private void showTransferQr(String payload) {
         String link;
         try {
@@ -1817,6 +2150,10 @@ public class MainActivity extends AppCompatActivity {
                     e.getMessage()), Toast.LENGTH_LONG).show();
             return;
         }
+        showTransferQr(payload, link);
+    }
+
+    private void showTransferQr(String payload, String link) {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(18), dp(8), dp(18), 0);
@@ -1849,7 +2186,8 @@ public class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.export_qr_title)
                 .setView(layout)
-                .setPositiveButton(R.string.share_qr, (dialog, which) -> shareTransferQrImage(payload))
+                .setPositiveButton(R.string.share_qr,
+                        (dialog, which) -> shareTransferQrImage(payload, link))
                 .setNegativeButton(android.R.string.ok, null)
                 .show();
     }
@@ -1857,6 +2195,15 @@ public class MainActivity extends AppCompatActivity {
     private void shareTransferQrImage(String payload) {
         try {
             String link = SettingsTransfer.toDeepLink(payload);
+            shareTransferQrImage(payload, link);
+        } catch (Exception e) {
+            Toast.makeText(this, getString(R.string.import_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void shareTransferQrImage(String payload, String link) {
+        try {
             File dir = new File(getCacheDir(), "exports");
             if (!dir.exists() && !dir.mkdirs()) throw new IOException("mkdir failed");
             File file = new File(dir, "tgproxy-import-qr.png");
@@ -1939,7 +2286,7 @@ public class MainActivity extends AppCompatActivity {
     private void importSettingsPayload(String payload, String password,
                                        boolean confirmExternalAfterDecrypt) {
         try {
-            SettingsTransfer.Imported imported = payload != null && payload.trim().startsWith("tgproxy://")
+            SettingsTransfer.Imported imported = SettingsTransfer.isImportLink(payload)
                     ? SettingsTransfer.parseDeepLink(payload.trim(), password)
                     : SettingsTransfer.parse(payload, password);
             if (confirmExternalAfterDecrypt) {
@@ -1961,16 +2308,20 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void handleImportIntent(Intent intent) {
-        if (intent == null || intent.getData() == null) return;
+    private boolean handleImportIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return false;
         String raw = intent.getData().toString();
-        if (!raw.startsWith("tgproxy://import")) return;
+        if (!SettingsTransfer.isImportLink(raw)) return false;
+        // Consume the external URI exactly once. Otherwise an Activity recreation can display a
+        // second import confirmation for the same token-bearing link.
+        intent.setData(null);
         try {
             SettingsTransfer.Imported imported = SettingsTransfer.parseDeepLink(raw, "");
             confirmExternalImport(imported);
         } catch (SettingsTransferException e) {
             showImportSettingsDialog(raw, true);
         }
+        return true;
     }
 
     private void confirmExternalImport(SettingsTransfer.Imported imported) {
@@ -1998,7 +2349,8 @@ public class MainActivity extends AppCompatActivity {
                             : getString(R.string.import_preview_secret_unchanged));
         }
         new AlertDialog.Builder(this)
-                .setTitle(R.string.import_preview_title)
+                .setTitle(imported.kind() == SettingsTransfer.Kind.VPS_RELAY
+                        ? R.string.import_relay_add_title : R.string.import_preview_title)
                 .setMessage(getString(R.string.import_preview_message,
                         imported.kind().name(), profile,
                          data.routePreference().name(), relaySummary, changes))
@@ -2153,6 +2505,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         refreshVpsRelaySelector();
+        VpsRelayConfig securedRelay = activeVpsRelayConfig();
+        if (securedRelay != null && securedRelay.isUsable()) {
+            prefs.edit().remove("vps_relay_token").commit();
+        }
         refreshConnectionFields();
         Toast.makeText(this, R.string.import_applied, Toast.LENGTH_LONG).show();
     }
@@ -2716,7 +3072,7 @@ public class MainActivity extends AppCompatActivity {
 
     private VpsRelayConfig activeVpsRelayConfig() {
         String profileKey = currentProfileRecord().key();
-        VpsRelayConfig selected = VpsRelayStore.fromPreferences(prefs).selectedRelay(profileKey);
+        VpsRelayConfig selected = VpsRelayStore.fromContext(this).selectedRelay(profileKey);
         return selected == null ? VpsRelayConfig.disabled() : selected;
     }
 
@@ -2729,7 +3085,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshVpsRelaySelector() {
         if (spVpsRelaySaved == null || prefs == null) return;
-        VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
+        VpsRelayStore store = VpsRelayStore.fromContext(this);
         List<VpsRelayStore.Record> relays = store.relays();
         vpsRelaySelectorReady = false;
         vpsRelaySelectorIds.clear();
@@ -2819,7 +3175,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void deleteSelectedVpsRelay(String relayId) {
         if (prefs == null) return;
-        VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
+        VpsRelayStore store = VpsRelayStore.fromContext(this);
         SharedPreferences.Editor editor = prefs.edit();
         if (!store.deleteRelayInto(relayId, editor)) return;
         putVpsRelaySettings(editor, VpsRelayConfig.manual(
@@ -2868,14 +3224,27 @@ public class MainActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(18), dp(4), dp(18), 0);
 
+        VpsRelayConfig selectedRelay = activeVpsRelayConfig();
+        VpsOwnerRecord savedOwner = new VpsOwnerStore(this).forRelay(selectedRelay);
         EditText sshHost = dialogField(R.string.vps_setup_ssh_host,
-                valueOrDefault(etVpsRelayHost, ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+                savedOwner == null ? valueOrDefault(etVpsRelayHost, "") : savedOwner.sshHost(),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         EditText sshPort = dialogField(R.string.vps_setup_ssh_port,
-                "22", InputType.TYPE_CLASS_NUMBER);
+                String.valueOf(savedOwner == null ? 22 : savedOwner.sshPort()),
+                InputType.TYPE_CLASS_NUMBER);
         EditText sshUser = dialogField(R.string.vps_setup_ssh_user,
-                "root", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL);
+                savedOwner == null ? "root" : savedOwner.sshUser(),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL);
         EditText sshPassword = dialogField(R.string.vps_setup_ssh_password,
-                "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                savedOwner == null ? "" : savedOwner.sshPassword(),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        String ownerAdminToken = savedOwner != null && savedOwner.canManage()
+                ? savedOwner.adminToken() : generateAdminToken();
+        CheckBox rememberPassword = new CheckBox(this);
+        rememberPassword.setText(R.string.vps_setup_remember_credentials);
+        rememberPassword.setTextColor(getColorValue(R.color.text_primary));
+        rememberPassword.setTextSize(14f);
+        rememberPassword.setChecked(savedOwner == null || !savedOwner.sshPassword().isEmpty());
         String initialRelayHost = valueOrDefault(etVpsRelayHost, "");
         EditText relayHost = dialogField(R.string.vps_setup_relay_host,
                 initialRelayHost, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -2903,6 +3272,7 @@ public class MainActivity extends AppCompatActivity {
         form.addView(sshPort);
         form.addView(sshUser);
         form.addView(sshPassword);
+        form.addView(rememberPassword);
         form.addView(relayHost);
         form.addView(relayPort);
         form.addView(relayTls);
@@ -2918,8 +3288,9 @@ public class MainActivity extends AppCompatActivity {
                                 sshUser.getText().toString(),
                                 sshPassword.getText().toString(),
                                 relayHost.getText().toString(),
-                                intOrDefault(relayPort, 18080),
-                                 relayTls.isChecked(),
+                                 intOrDefault(relayPort, 18080),
+                                 relayTls.isChecked(), ownerAdminToken,
+                                 rememberPassword.isChecked(),
                                  updateExistingRelay))
                 .setNeutralButton(R.string.vps_setup_forget_ssh_key, null)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -2948,10 +3319,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void startVpsAutoSetup(String sshHost, int sshPort, String sshUser,
                                    String sshPassword, String relayHost, int relayPort,
-                                   boolean relayTls, boolean updateExistingRelay) {
+                                   boolean relayTls, String adminToken,
+                                   boolean rememberSshPassword, boolean updateExistingRelay) {
         if ((relayHost == null || relayHost.trim().isEmpty()) && relayTls) {
             discoverVpsDomainsThenStart(sshHost, sshPort, sshUser, sshPassword,
-                    relayPort, updateExistingRelay);
+                    relayPort, adminToken, rememberSshPassword, updateExistingRelay);
             return;
         }
         String profileKey = vpsRelayProfileKeyForUi();
@@ -2970,9 +3342,11 @@ public class MainActivity extends AppCompatActivity {
                 .relayTls(tlsDomain)
                 .relayPath(valueOrDefault(etVpsRelayPath, "/apiws"))
                 .relayToken(token)
+                .adminToken(adminToken)
                 .releaseVersion(VpsSetupScripts.RELAY_VERSION)
                 .profileKey(profileKey)
                 .updateExistingRelay(updateExistingRelay)
+                .rememberSshPassword(rememberSshPassword)
                 .build();
         if (!request.isValid()) {
             Toast.makeText(this, R.string.invalid_settings, Toast.LENGTH_LONG).show();
@@ -2986,6 +3360,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void discoverVpsDomainsThenStart(String sshHost, int sshPort, String sshUser,
                                              String sshPassword, int relayPort,
+                                             String adminToken, boolean rememberSshPassword,
                                              boolean updateExistingRelay) {
         VpsSshCredentials credentials = new VpsSshCredentials(sshHost, sshPort, sshUser, sshPassword);
         if (!credentials.isValid()) {
@@ -3006,7 +3381,9 @@ public class MainActivity extends AppCompatActivity {
                 .relayTls(true)
                 .relayPath(valueOrDefault(etVpsRelayPath, "/apiws"))
                 .relayToken("audit")
+                .adminToken(adminToken)
                 .releaseVersion(VpsSetupScripts.RELAY_VERSION)
+                .rememberSshPassword(rememberSshPassword)
                 .build();
         new Thread(() -> {
             try {
@@ -3021,7 +3398,7 @@ public class MainActivity extends AppCompatActivity {
                             VpsSetupProgress.Stage.PLAN, 25,
                             getString(R.string.vps_domain_discovery_done, domains.size())));
                     showVpsDomainChoice(domains, sshHost, sshPort, sshUser, sshPassword,
-                            relayPort, updateExistingRelay);
+                            relayPort, adminToken, rememberSshPassword, updateExistingRelay);
                 });
             } catch (Exception e) {
                 String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -3039,6 +3416,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showVpsDomainChoice(List<String> domains, String sshHost, int sshPort,
                                      String sshUser, String sshPassword, int relayPort,
+                                     String adminToken, boolean rememberSshPassword,
                                      boolean updateExistingRelay) {
         if (domains == null || domains.isEmpty()) {
             new AlertDialog.Builder(this)
@@ -3057,20 +3435,28 @@ public class MainActivity extends AppCompatActivity {
                         sshUser,
                         sshPassword,
                         items[which],
-                        443,
-                        true,
-                        updateExistingRelay))
+                         443,
+                         true, adminToken, rememberSshPassword,
+                         updateExistingRelay))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
     private void runVpsAutoSetup(VpsSetupRequest request, Map<Integer, String> dcRules) {
+        VpsOwnerStore ownerStore = new VpsOwnerStore(this);
         VpsAutoSetupWizard wizard = new VpsAutoSetupWizard(
                 createVpsSshClient(),
                 (config, rules) -> new VpsRelayClient().check(config, rules),
-                VpsRelayStore.fromPreferences(prefs),
+                VpsRelayStore.fromContext(this),
                 dcRules);
         try {
+            // Persist the only copy of the admin token and the optional SSH password before
+            // the wizard is allowed to mutate the server. A successful remote install must
+            // never leave the creator without owner access because the local secure write
+            // happened afterwards and failed.
+            if (!ownerStore.saveSetup(request, request.relayConfig())) {
+                throw new VpsSetupException(getString(R.string.vps_owner_pre_save_failed));
+            }
             VpsRelayConfig relay = wizard.run(request, new VpsAutoSetupWizard.Listener() {
                 @Override public void onProgress(VpsSetupProgress progress) {
                     handler.post(() -> applyVpsSetupProgress(progress));
@@ -3080,12 +3466,20 @@ public class MainActivity extends AppCompatActivity {
                     return confirmVpsSetupPlan(plan);
                 }
             });
+            boolean ownerSaved = ownerStore.saveSetup(request, relay);
+            if (!ownerSaved) {
+                DiagnosticsLog.record("VPS owner credentials could not be persisted");
+            }
             handler.post(() -> {
                 fillVpsRelayForm(relay);
                 if (!saveVpsRelaySettings(relay)) return;
                 refreshVpsRelaySelector();
                 refreshConnectionFields();
                 Toast.makeText(MainActivity.this, R.string.saved, Toast.LENGTH_SHORT).show();
+                if (!ownerSaved) {
+                    Toast.makeText(MainActivity.this, R.string.vps_owner_save_failed,
+                            Toast.LENGTH_LONG).show();
+                }
             });
         } catch (Exception e) {
             String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -3167,6 +3561,14 @@ public class MainActivity extends AppCompatActivity {
         return out.toString();
     }
 
+    private static String generateAdminToken() {
+        byte[] bytes = new byte[32];
+        new SecureRandom().nextBytes(bytes);
+        StringBuilder out = new StringBuilder("tgpa_");
+        for (byte b : bytes) out.append(String.format(Locale.US, "%02x", b & 0xff));
+        return out.toString();
+    }
+
     private void updateVpsRelayFieldsEnabled() {
         boolean enabled = cbVpsRelayEnabled != null && cbVpsRelayEnabled.isChecked();
         setEnabled(etVpsRelayName, enabled);
@@ -3178,11 +3580,21 @@ public class MainActivity extends AppCompatActivity {
         setEnabled(cbVpsRelayBindProfile, enabled);
         setEnabled(btnVpsRelayTest, enabled);
         setEnabled(btnVpsRelayAutoSetup, !vpsSetupRunning);
+        VpsRelayConfig current = currentVpsRelayConfig();
+        VpsOwnerRecord owner = enabled && current.isUsable()
+                ? new VpsOwnerStore(this).forRelay(current) : null;
+        boolean canManage = owner != null && owner.canManage();
+        setVisible(btnVpsOwnerManage, canManage);
+        setEnabled(btnVpsOwnerManage, canManage);
     }
 
     private boolean saveVpsRelaySettings(VpsRelayConfig relay) {
         SharedPreferences.Editor editor = prefs.edit();
-        updateStoredVpsRelaySelection(editor, relay);
+        if (!updateStoredVpsRelaySelection(editor, relay)) {
+            DiagnosticsLog.record("secure VPS Relay staging failed");
+            Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
+            return false;
+        }
         putVpsRelaySettings(editor, relay);
         boolean committed = editor.commit();
         if (!committed) {
@@ -3192,13 +3604,13 @@ public class MainActivity extends AppCompatActivity {
         return committed;
     }
 
-    private void updateStoredVpsRelaySelection(SharedPreferences.Editor editor,
-                                               VpsRelayConfig relay) {
-        if (relay == null) return;
-        VpsRelayStore store = VpsRelayStore.fromPreferences(prefs);
+    private boolean updateStoredVpsRelaySelection(SharedPreferences.Editor editor,
+                                                  VpsRelayConfig relay) {
+        if (relay == null || editor == null) return false;
+        VpsRelayStore store = VpsRelayStore.fromContext(this);
         String profileKey = relay.profileKey().isEmpty() ? "" : relay.profileKey();
-        if (relay.isUsable()) store.saveRelayInto(relay, profileKey, editor);
-        else store.bindProfileInto(profileKey, "", editor);
+        if (relay.isUsable()) return store.saveRelayInto(relay, profileKey, editor) != null;
+        return store.bindProfileInto(profileKey, "", editor);
     }
 
     private void putVpsRelaySettings(SharedPreferences.Editor editor, VpsRelayConfig relay) {
@@ -3209,7 +3621,7 @@ public class MainActivity extends AppCompatActivity {
                 .putInt("vps_relay_port", relay.port())
                 .putBoolean("vps_relay_tls", relay.tls())
                 .putString("vps_relay_path", relay.path())
-                .putString("vps_relay_token", relay.token())
+                .remove("vps_relay_token")
                 .putString("vps_relay_profile_key", relay.profileKey());
     }
 
@@ -3217,6 +3629,15 @@ public class MainActivity extends AppCompatActivity {
         if (view != null) {
             view.setEnabled(enabled);
             view.setAlpha(enabled ? 1f : 0.55f);
+        }
+    }
+
+    private void setExpandableSection(View content, Button toggle, boolean visible,
+                                      int showText, int hideText) {
+        if (content != null) content.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (toggle != null) {
+            toggle.setText(visible ? hideText : showText);
+            toggle.setContentDescription(getString(visible ? hideText : showText));
         }
     }
 
@@ -3339,8 +3760,12 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences.Editor editor = prefs.edit()
                 .putString(NetworkProfileStore.KEY_PROFILES, staged.exportProfiles())
                 .remove(NetworkProfileStore.statsKeyForProfileKey(key));
-        VpsRelayStore relayStore = VpsRelayStore.fromPreferences(prefs);
-        relayStore.bindProfileInto(key, "", editor);
+        VpsRelayStore relayStore = VpsRelayStore.fromContext(this);
+        if (!relayStore.bindProfileInto(key, "", editor)) {
+            DiagnosticsLog.record("secure Relay profile unbind staging failed " + key);
+            Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
         if (!editor.commit()) {
             DiagnosticsLog.record("profile delete commit failed " + key);
             Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
@@ -3391,27 +3816,76 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void requestPermissions() {
+    private boolean requestNetworkIdentityPermissions() {
+        return requestNetworkIdentityPermissions(false);
+    }
+
+    private boolean requestNetworkIdentityPermissions(boolean userInitiated) {
         ArrayList<String> permissions = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
-        if (!permissions.isEmpty()) {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                    this, permissions.toArray(new String[0]), 100);
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES);
         }
+        if (!permissions.isEmpty()) {
+            BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
+            if (!userInitiated
+                    && !reliability.shouldRequestNetworkIdentityPermissions(BuildConfig.VERSION_CODE)) {
+                return false;
+            }
+            if (userInitiated && reliability.hasRequestedNetworkIdentityPermissions()) {
+                boolean canAskAgain = false;
+                for (String permission : permissions) {
+                    if (androidx.core.app.ActivityCompat
+                            .shouldShowRequestPermissionRationale(this, permission)) {
+                        canAskAgain = true;
+                        break;
+                    }
+                }
+                if (!canAskAgain) {
+                    BackgroundExecutionAssistant.openAppSettings(this);
+                    return true;
+                }
+            }
+            reliability.markNetworkIdentityPermissionsRequested(BuildConfig.VERSION_CODE);
+            androidx.core.app.ActivityCompat.requestPermissions(
+                    this, permissions.toArray(new String[0]),
+                    REQUEST_NETWORK_IDENTITY_PERMISSIONS);
+            return true;
+        }
+        return false;
     }
 
     private void showBackgroundSetupOnce() {
-        if (BackgroundExecutionAssistant.isBatteryOptimizationDisabled(this)) return;
-        if (prefs.getBoolean(KEY_BACKGROUND_SETUP_PROMPTED, false)) return;
-        prefs.edit().putBoolean(KEY_BACKGROUND_SETUP_PROMPTED, true).commit();
+        if (backgroundSetupDialogShowing || isFinishing()
+                || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+        BackgroundReliabilityStore store = new BackgroundReliabilityStore(this);
+        if (!store.shouldPrompt(BuildConfig.VERSION_CODE)) return;
         showBackgroundSetupDialog();
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            boolean requestedBefore = prefs.getBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false);
+            if (requestedBefore && !androidx.core.app.ActivityCompat
+                    .shouldShowRequestPermissionRationale(this,
+                            Manifest.permission.POST_NOTIFICATIONS)) {
+                BackgroundExecutionAssistant.openNotificationSettings(this);
+                return;
+            }
+            prefs.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true).apply();
+            androidx.core.app.ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_NOTIFICATION_PERMISSION);
+            return;
+        }
+        BackgroundExecutionAssistant.openNotificationSettings(this);
     }
 
     private void showBackgroundSetupDialog() {
@@ -3425,6 +3899,12 @@ public class MainActivity extends AppCompatActivity {
         text.setTextColor(getColorValue(R.color.text_secondary));
         text.setTextSize(13f);
         layout.addView(text);
+
+        CheckBox boot = new CheckBox(this);
+        boot.setText(R.string.background_enable_boot);
+        boot.setTextColor(getColorValue(R.color.text_primary));
+        boot.setChecked(prefs.getBoolean("autostart_boot", true));
+        layout.addView(boot);
 
         Button battery = exportActionButton(
                 BackgroundExecutionAssistant.isBatteryOptimizationDisabled(this)
@@ -3446,16 +3926,88 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(autostart, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        CheckBox autostartConfirmed = new CheckBox(this);
+        autostartConfirmed.setText(R.string.background_autostart_confirmed);
+        autostartConfirmed.setTextColor(getColorValue(R.color.text_primary));
+        BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
+        autostartConfirmed.setChecked(reliability.autostartConfirmed()
+                || !BackgroundExecutionAssistant.requiresManualAutostartConfirmation());
+        autostartConfirmed.setVisibility(BackgroundExecutionAssistant
+                .requiresManualAutostartConfirmation() ? View.VISIBLE : View.GONE);
+        layout.addView(autostartConfirmed);
+
+        if (!BackgroundExecutionAssistant.areNotificationsAllowed(this)) {
+            Button notifications = exportActionButton(R.string.background_allow_notifications);
+            notifications.setOnClickListener(v -> requestNotificationPermission());
+            layout.addView(notifications, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
+        if (!BackgroundExecutionAssistant.isLocationEnabled(this)) {
+            Button location = exportActionButton(R.string.background_enable_location_for_wifi);
+            location.setOnClickListener(v -> BackgroundExecutionAssistant.openLocationSettings(this));
+            layout.addView(location, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
+        if (hasMissingNetworkIdentityPermission()) {
+            Button networkIdentity = exportActionButton(
+                    R.string.background_allow_network_identity);
+            networkIdentity.setOnClickListener(v -> requestNetworkIdentityPermissions(true));
+            layout.addView(networkIdentity, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
         Button appSettings = exportActionButton(R.string.background_open_app_settings);
         appSettings.setOnClickListener(v -> BackgroundExecutionAssistant.openAppSettings(this));
         layout.addView(appSettings, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.background_setup_title)
                 .setView(layout)
-                .setPositiveButton(android.R.string.ok, null)
-                .show();
+                .setPositiveButton(R.string.background_check_ready, null)
+                .setNegativeButton(R.string.background_not_now, null)
+                .create();
+        backgroundSetupDialogShowing = true;
+        dialog.setOnDismissListener(ignored -> backgroundSetupDialogShowing = false);
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                prefs.edit().putBoolean("autostart_boot", boot.isChecked()).commit();
+                cbAutostartBoot.setChecked(boot.isChecked());
+                reliability.setAutostartConfirmed(autostartConfirmed.isChecked());
+                reliability.markPrompted(BuildConfig.VERSION_CODE);
+                refreshBackgroundExecutionStatus();
+                if (!reliability.status().ready()) {
+                    Toast.makeText(this, R.string.background_missing_warning,
+                            Toast.LENGTH_LONG).show();
+                }
+                dialog.dismiss();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
+                reliability.markPrompted(BuildConfig.VERSION_CODE);
+                refreshBackgroundExecutionStatus();
+                Toast.makeText(this, R.string.background_missing_warning,
+                        Toast.LENGTH_LONG).show();
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_NETWORK_IDENTITY_PERMISSIONS && handler != null) {
+            // Never compete with Android's runtime-permission window. The reliability dialog is
+            // shown only after the system has fully dismissed it, regardless of allow/deny.
+            refreshProfileControls(true);
+            refreshConnectionFields();
+            handler.postDelayed(this::showBackgroundSetupOnce, 350L);
+        } else if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
+            refreshBackgroundExecutionStatus();
+        }
     }
 
     private JschVpsSshClient createVpsSshClient() {
@@ -3523,18 +4075,39 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshBackgroundExecutionStatus() {
         if (tvBackgroundStatus == null || prefs == null) return;
-        boolean exempt = BackgroundExecutionAssistant.isBatteryOptimizationDisabled(this);
+        BackgroundReliabilityStore.Status reliability =
+                new BackgroundReliabilityStore(this).status();
+        boolean exempt = reliability.batteryUnrestricted;
         boolean desired = ProxyRunStateStore.fromPreferences(prefs).desiredRunning();
         boolean alive = ProxyService.getInstance() != null;
-        tvBackgroundStatus.setText(getString(R.string.background_status,
+        int serviceStatus = alive ? R.string.background_service_alive
+                : (desired ? R.string.background_service_waiting
+                : R.string.background_service_stopped);
+        tvBackgroundStatus.setText(getString(R.string.background_status_extended,
                 getString(exempt ? R.string.background_battery_ready_short
                         : R.string.background_battery_restricted_short),
+                getString(reliability.autostartConfirmed && reliability.bootEnabled
+                        ? R.string.background_autostart_ready_short
+                        : R.string.background_autostart_missing_short),
+                getString(reliability.notificationsAllowed
+                        ? R.string.background_notifications_ready_short
+                        : R.string.background_notifications_missing_short),
                 getString(desired ? R.string.background_desired_on
                         : R.string.background_desired_off),
-                getString(alive ? R.string.background_service_alive
-                        : R.string.background_service_waiting)));
+                getString(serviceStatus)));
         tvBackgroundStatus.setTextColor(getColorValue(
-                exempt ? R.color.text_secondary : R.color.red));
+                reliability.ready() ? R.color.text_secondary : R.color.red));
+    }
+
+    private boolean hasMissingNetworkIdentityPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        return Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+                != PackageManager.PERMISSION_GRANTED;
     }
 
     @Override protected void onResume() {

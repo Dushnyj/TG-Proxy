@@ -76,7 +76,7 @@ public class MainUiStateTest {
         assertEquals(1_000L, MainUiState.STATS_REFRESH_INTERVAL_MS);
         assertEquals(3_000L, MainUiState.WATCHDOG_INTERVAL_MS);
         assertEquals(60_000L, MainUiState.NOTIFICATION_REFRESH_INTERVAL_MS);
-        assertEquals(3_000L, MainUiState.AUTO_PING_INTERVAL_MS);
+        assertEquals(30_000L, MainUiState.AUTO_PING_INTERVAL_MS);
     }
 
     @Test

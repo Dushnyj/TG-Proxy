@@ -97,7 +97,14 @@ final class RouteProbeClient {
         } finally {
             if (deadlineAbort != null) deadlineAbort.cancel(false);
         }
-        throw new java.io.IOException("telegram dc response is invalid");
+        throw invalidResponseFailure(budget.hasTime());
+    }
+
+    static IOException invalidResponseFailure(boolean budgetHasTime) {
+        if (!budgetHasTime) {
+            return new SocketTimeoutException("telegram probe deadline exceeded");
+        }
+        return new IOException("telegram dc response is invalid");
     }
 
     static IOException normalizeReadFailure(IOException error, boolean budgetHasTime) {

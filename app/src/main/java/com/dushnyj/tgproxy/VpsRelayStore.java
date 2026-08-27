@@ -1,6 +1,9 @@
 package com.dushnyj.tgproxy;
 
 import android.content.SharedPreferences;
+import android.content.Context;
+
+import androidx.preference.PreferenceManager;
 
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -22,6 +25,14 @@ final class VpsRelayStore {
         String getString(String key, String fallback);
         boolean putString(String key, String value);
         boolean putStrings(Map<String, String> values);
+        default boolean putStringsInto(SharedPreferences.Editor editor,
+                                       Map<String, String> values) {
+            if (editor == null || values == null || values.isEmpty()) return false;
+            for (Map.Entry<String, String> entry : values.entrySet()) {
+                editor.putString(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+            }
+            return true;
+        }
     }
 
     private final KeyValueStore keyValueStore;
@@ -37,6 +48,13 @@ final class VpsRelayStore {
 
     static VpsRelayStore fromPreferences(SharedPreferences prefs) {
         return new VpsRelayStore(new SharedPreferencesKeyValueStore(prefs));
+    }
+
+    static VpsRelayStore fromContext(Context context) {
+        Context app = context == null ? null : context.getApplicationContext();
+        SharedPreferences prefs = app == null ? null
+                : PreferenceManager.getDefaultSharedPreferences(app);
+        return new VpsRelayStore(new SecureSharedPreferencesKeyValueStore(app, prefs));
     }
 
     static VpsRelayStore inMemory() {
@@ -66,8 +84,12 @@ final class VpsRelayStore {
                 profileBindings.putAll(previousBindings);
                 return null;
             }
-        } else {
-            writeAll(editor);
+        } else if (!writeAll(editor)) {
+            relays.clear();
+            relays.putAll(previousRelays);
+            profileBindings.clear();
+            profileBindings.putAll(previousBindings);
+            return null;
         }
         return record;
     }
@@ -100,8 +122,12 @@ final class VpsRelayStore {
                 profileBindings.putAll(previousBindings);
                 return false;
             }
-        } else {
-            writeAll(editor);
+        } else if (!writeAll(editor)) {
+            relays.clear();
+            relays.putAll(previousRelays);
+            profileBindings.clear();
+            profileBindings.putAll(previousBindings);
+            return false;
         }
         return true;
     }
@@ -125,7 +151,13 @@ final class VpsRelayStore {
                 return false;
             }
         } else {
-            editor.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+            LinkedHashMap<String, String> values = new LinkedHashMap<>();
+            values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+            if (!keyValueStore.putStringsInto(editor, values)) {
+                profileBindings.clear();
+                profileBindings.putAll(previousBindings);
+                return false;
+            }
         }
         return true;
     }
@@ -181,10 +213,12 @@ final class VpsRelayStore {
         return keyValueStore.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
     }
 
-    private void writeAll(SharedPreferences.Editor editor) {
-        if (editor == null) return;
-        editor.putString(KEY_RELAYS, serializeRelays(relays));
-        editor.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+    private boolean writeAll(SharedPreferences.Editor editor) {
+        if (editor == null) return false;
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        values.put(KEY_RELAYS, serializeRelays(relays));
+        values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        return keyValueStore.putStringsInto(editor, values);
     }
 
     private static String idFor(VpsRelayConfig relay) {
@@ -350,6 +384,16 @@ final class VpsRelayStore {
             }
             return editor.commit();
         }
+
+        @Override
+        public boolean putStringsInto(SharedPreferences.Editor editor,
+                                      Map<String, String> values) {
+            if (editor == null || values == null || values.isEmpty()) return false;
+            for (Map.Entry<String, String> entry : values.entrySet()) {
+                editor.putString(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+            }
+            return true;
+        }
     }
 
     private static final class MemoryKeyValueStore implements KeyValueStore {
@@ -374,6 +418,65 @@ final class VpsRelayStore {
                 putString(entry.getKey(), entry.getValue());
             }
             return true;
+        }
+
+        @Override
+        public boolean putStringsInto(SharedPreferences.Editor editor,
+                                      Map<String, String> updates) {
+            return putStrings(updates);
+        }
+    }
+
+    private static final class SecureSharedPreferencesKeyValueStore implements KeyValueStore {
+        private final SecureValueStore secure;
+
+        SecureSharedPreferencesKeyValueStore(Context context, SharedPreferences prefs) {
+            secure = new SecureValueStore(context, prefs);
+        }
+
+        @Override public String getString(String key, String fallback) {
+            return secure.get(key, fallback);
+        }
+
+        @Override public boolean putString(String key, String value) {
+            return secure.put(key, value);
+        }
+
+        @Override public boolean putStrings(Map<String, String> values) {
+            SharedPreferences prefs = secure.preferences();
+            if (prefs == null) return false;
+            try {
+                LinkedHashMap<String, String> encrypted = new LinkedHashMap<>();
+                for (Map.Entry<String, String> entry : values.entrySet()) {
+                    encrypted.put(entry.getKey(), secure.encryptStored(
+                            entry.getKey(), entry.getValue()));
+                }
+                SharedPreferences.Editor editor = prefs.edit();
+                for (Map.Entry<String, String> entry : encrypted.entrySet()) {
+                    editor.putString(entry.getKey(), entry.getValue());
+                }
+                return editor.commit();
+            } catch (Exception error) {
+                DiagnosticsLog.record("secure Relay store write failed "
+                        + error.getClass().getSimpleName());
+                return false;
+            }
+        }
+
+        @Override public boolean putStringsInto(SharedPreferences.Editor editor,
+                                                Map<String, String> values) {
+            if (editor == null || values == null || values.isEmpty()) return false;
+            try {
+                for (Map.Entry<String, String> entry : values.entrySet()) {
+                    editor.putString(entry.getKey(), secure.encryptStored(
+                            entry.getKey(), entry.getValue()));
+                }
+                return true;
+            } catch (Exception error) {
+                DiagnosticsLog.record("secure Relay transaction staging failed "
+                        + error.getClass().getSimpleName());
+                return false;
+            }
         }
     }
 

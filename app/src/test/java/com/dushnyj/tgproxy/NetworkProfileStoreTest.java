@@ -99,7 +99,7 @@ public class NetworkProfileStoreTest {
 
         assertEquals(null, store.profile("wifi:gw_192_168_1_1"));
         assertEquals(null, store.profile("wifi:default_wifi"));
-        assertEquals("Wi-Fi (имя скрыто)", store.profile("wifi:hidden").displayName());
+        assertEquals("Wi-Fi (имя недоступно)", store.profile("wifi:hidden").displayName());
     }
 
     @Test
@@ -163,6 +163,25 @@ public class NetworkProfileStoreTest {
 
         assertEquals(null, store.profile(home.key()));
         assertEquals(1, store.profilesSnapshot().size());
+    }
+
+    @Test
+    public void replacesLegacyOpaqueHashLabelWithHonestUnavailableName() {
+        String legacy = "wifi%3Aopaque%3A174dbeef\tWIFI\topaque_174dbeef\t"
+                + "Wi-Fi+%E2%80%A2+174D\tAUTO\t1\t2\t1";
+
+        NetworkProfileStore store = NetworkProfileStore.inMemory(legacy);
+
+        assertEquals("Wi-Fi (имя недоступно)",
+                store.profile("wifi:opaque:174dbeef").displayName());
+    }
+
+    @Test
+    public void recognizesLegacyHashLabelWithActiveSuffix() {
+        assertEquals(true, NetworkProfileRecord.isLegacyGeneratedWifiLabel(
+                "Wi-FI * 174D * активен"));
+        assertEquals(false, NetworkProfileRecord.isLegacyGeneratedWifiLabel(
+                "Wi-Fi • HOME"));
     }
 
     @Test

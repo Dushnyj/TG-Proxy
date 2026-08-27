@@ -664,20 +664,20 @@
             </HorizontalScrollView>
 
             <include
-                android:id="@+id/section_connection"
-                layout="@layout/view_connection" />
-            <include
                 android:id="@+id/section_profiles"
                 layout="@layout/view_profiles" />
             <include
                 android:id="@+id/section_route"
                 layout="@layout/view_route" />
             <include
-                android:id="@+id/section_optimization"
-                layout="@layout/view_optimization" />
-            <include
                 android:id="@+id/section_vps_relay"
                 layout="@layout/view_vps_relay" />
+            <include
+                android:id="@+id/section_connection"
+                layout="@layout/view_connection" />
+            <include
+                android:id="@+id/section_optimization"
+                layout="@layout/view_optimization" />
             <include
                 android:id="@+id/section_import_export"
                 layout="@layout/view_import_export" />

@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class ProxyService extends Service {
 
-    private static final String CHANNEL_ID = "proxy_channel";
+    static final String CHANNEL_ID = "proxy_channel";
     private static final int    NOTIF_ID   = 1;
     static final String ACTION_START = "com.dushnyj.tgproxy.action.START";
     static final String ACTION_STOP = "com.dushnyj.tgproxy.action.STOP";
@@ -76,6 +76,7 @@ public class ProxyService extends Service {
     private static final long RECONNECT_DEBOUNCE_MS = 2500;
     private static final long CONFIGURATION_RELOAD_DEBOUNCE_MS = 150;
     private static final long ENGINE_START_RETRY_MS = 5000;
+    private static final long WAKE_LOCK_LEASE_MS = 10 * 60_000L;
 
     public static ProxyService getInstance() { return instance; }
     public MtProtoProxyEngine getEngine()     { return engine; }
@@ -106,7 +107,10 @@ public class ProxyService extends Service {
         DiagnosticsLog.record("service created");
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TGProxy::ProxyWake");
+        if (pm != null) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TGProxy::ProxyWake");
+            wakeLock.setReferenceCounted(false);
+        }
 
         profileStore = NetworkProfileStore.fromPreferences(prefs);
         activateNetworkProfile(false);
@@ -266,7 +270,7 @@ public class ProxyService extends Service {
     private void resumeEngine() {
         paused = false;
         DiagnosticsLog.record("engine resume requested");
-        if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
+        ensureWakeLockHeld();
         if (engine != null) startEngineAsync();
         refreshNotification();
     }
@@ -333,7 +337,7 @@ public class ProxyService extends Service {
         startForeground(NOTIF_ID, buildNotification());
         DiagnosticsLog.record("service start requested " + boundIp + ":" + port);
 
-        if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
+        ensureWakeLockHeld();
 
         profileStore = NetworkProfileStore.fromPreferences(prefs);
         NetworkProfileRecord profileRecord = activateNetworkProfile(false);
@@ -505,7 +509,7 @@ public class ProxyService extends Service {
     }
 
     private VpsRelayConfig vpsRelayConfigFromPrefs(String profileKey) {
-        VpsRelayConfig selected = VpsRelayStore.fromPreferences(prefs).selectedRelay(profileKey);
+        VpsRelayConfig selected = VpsRelayStore.fromContext(ProxyService.this).selectedRelay(profileKey);
         return selected == null ? VpsRelayConfig.disabled() : selected;
     }
 
@@ -679,6 +683,7 @@ public class ProxyService extends Service {
     }
 
     private void watchdogTick() {
+        if (!paused) ensureWakeLockHeld();
         if (paused || engineStartInProgress || engineStartRetry != null) return;
         if (engineNeedsStart()) {
             DiagnosticsLog.record("watchdog detected inactive engine listener");
@@ -745,6 +750,14 @@ public class ProxyService extends Service {
         if (MtProtoConfig.isValidSecretHex(stored)) return;
         if (!prefs.edit().putString("mtproto_secret", fallbackSecretHex).commit()) {
             DiagnosticsLog.record("MTProto secret repair commit failed");
+        }
+    }
+
+    private void ensureWakeLockHeld() {
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            // Bounded lease protects against a leaked lock if lifecycle cleanup fails. The
+            // three-second watchdog reacquires it while the proxy is meant to keep running.
+            wakeLock.acquire(WAKE_LOCK_LEASE_MS);
         }
     }
 
