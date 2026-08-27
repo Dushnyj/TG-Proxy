@@ -78,6 +78,10 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("existing_relay"));
         assertTrue(script.contains("existing_relay_config"));
         assertTrue(script.contains("existing_relay_public_url"));
+        assertTrue(script.contains("existing_relay_token_ids_known"));
+        assertTrue(script.contains("existing_relay_token_ids"));
+        assertTrue(script.contains("addedTokens"));
+        assertTrue(script.contains("revokedHashes"));
         assertTrue(script.contains("nginx_safe_embed"));
         assertTrue(script.contains("nginx_path_exists"));
         assertTrue(script.contains("docker_caddy_domain_match_count"));

@@ -143,6 +143,23 @@ final class VpsSetupAudit {
         return Collections.unmodifiableList(out);
     }
 
+    boolean existingRelayTokenInventoryKnown() {
+        return isYes("existing_relay_token_ids_known");
+    }
+
+    List<String> existingRelayTokenIds() {
+        ArrayList<String> out = new ArrayList<>();
+        String raw = value("existing_relay_token_ids");
+        if (!raw.isEmpty()) {
+            for (String part : raw.split(",")) {
+                String id = part == null ? "" : part.trim();
+                if (id.isEmpty() || out.contains(id)) continue;
+                out.add(id);
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
     private boolean isYes(String key) {
         String value = value(key);
         return "yes".equalsIgnoreCase(value) || "true".equalsIgnoreCase(value) || "1".equals(value);

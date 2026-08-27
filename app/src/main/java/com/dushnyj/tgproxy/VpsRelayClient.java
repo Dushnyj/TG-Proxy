@@ -429,7 +429,7 @@ final class VpsRelayClient {
 
     static HttpResult requestOwner(VpsRelayConfig config, String adminToken, String method,
                                    String endpoint, String body) throws Exception {
-        if (config == null || !config.isUsable() || adminToken == null
+        if (config == null || !config.hasValidEndpoint() || adminToken == null
                 || !validBearer(adminToken.trim())) {
             throw new IOException("owner access is not configured");
         }

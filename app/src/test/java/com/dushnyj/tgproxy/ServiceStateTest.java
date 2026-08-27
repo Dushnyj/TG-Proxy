@@ -67,6 +67,16 @@ public class ServiceStateTest {
     }
 
     @Test
+    public void telegramSocketWithOnlyStaleRouteEvidenceIsConnecting() {
+        ServiceState state = ServiceState.from(true, true, true, false,
+                RouteState.active(RouteCandidate.directWs(2, false, "149.154.167.220"),
+                        "", 80, "stale", 1_000L), false, false,
+                1L, false, ServiceState.ROUTE_EVIDENCE_MAX_AGE_MS + 2_000L);
+
+        assertEquals(ServiceState.Status.CONNECTING_TELEGRAM, state.status());
+    }
+
+    @Test
     public void recentUpstreamFailureIsDegraded() {
         ServiceState state = ServiceState.from(true, true, true, false,
                 RouteState.inactive("route failed"), false, false,

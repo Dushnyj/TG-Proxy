@@ -13,6 +13,7 @@ import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -58,6 +59,7 @@ public final class VpsOwnerActivity extends AppCompatActivity {
     private VpsOwnerClient.Client selectedClient;
     private Page page = Page.OVERVIEW;
     private boolean loading;
+    private boolean refreshTokenAfterConnections;
 
     static Intent intent(Context context, String profileKey, String relayId) {
         return new Intent(context, VpsOwnerActivity.class)
@@ -83,12 +85,20 @@ public final class VpsOwnerActivity extends AppCompatActivity {
         VpsRelayStore.Record record = relayId.isEmpty() ? null : store.relay(relayId);
         relay = record == null ? store.selectedRelay(profileKey) : record.config().withProfileKey(profileKey);
         owner = new VpsOwnerStore(this).forRelay(relay);
-        if (relay == null || !relay.isUsable() || owner == null || !owner.canManage()) {
+        if (relay == null || !relay.hasValidEndpoint() || owner == null || !owner.canManage()) {
             renderUnavailable();
             return;
         }
         subtitle.setText(getString(R.string.vps_owner_page_subtitle, relay.host(), relay.port()));
         loadOverview();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (refreshTokenAfterConnections) {
+            refreshTokenAfterConnections = false;
+            if (page == Page.TOKEN) renderToken();
+        }
     }
 
     @SuppressLint("MissingSuperCall")
@@ -241,12 +251,33 @@ public final class VpsOwnerActivity extends AppCompatActivity {
         content.addView(details, topMargin(14));
 
         VpsOwnerRecord fresh = new VpsOwnerStore(this).forRelay(relay);
-        VpsOwnerRecord.ManagedToken local = fresh == null ? null : fresh.managedToken(selectedToken.id());
+        VpsOwnerRecord.ManagedToken local = findLocalToken(fresh, selectedToken);
         if (local != null && !local.secret().isEmpty()) {
+            VpsRelayStore store = VpsRelayStore.fromContext(this);
+            VpsRelayConfig localRelay = relay.withTokenAndName(local.secret(), name);
+            String localRelayId = store.relayIdFor(localRelay);
+            VpsRelayStore.Record localRecord = store.relay(localRelayId);
+            boolean primary = !localRelayId.isEmpty()
+                    && localRelayId.equals(clean(store.selectedRelayId(profileKey)))
+                    && localRecord != null && localRecord.config().isEnabled();
+            addAction(R.drawable.ic_link,
+                    primary ? R.string.vps_owner_token_primary_here
+                            : R.string.vps_owner_token_use_here,
+                    primary ? R.string.vps_owner_token_primary_here_note
+                            : R.string.vps_owner_token_use_here_note,
+                    false, primary
+                            ? this::openRelayConnections
+                            : () -> activateToken(local, name));
             addAction(R.drawable.ic_share, R.string.relay_share_title,
                     R.string.vps_owner_share_note_short, false,
                     () -> RelayShareSheet.show(this,
                             relay.withTokenAndName(local.secret(), name)));
+        } else {
+            addInfoCard(R.string.vps_owner_token_secret_missing_title,
+                    R.string.vps_owner_token_secret_missing_note, R.drawable.ic_shield);
+            addAction(R.drawable.ic_add, R.string.vps_owner_token_create_replacement,
+                    R.string.vps_owner_token_create_replacement_note, false,
+                    this::showCreateToken);
         }
         addAction(R.drawable.ic_devices, R.string.vps_owner_devices,
                 R.string.vps_owner_devices_note_short, false, () -> {
@@ -391,16 +422,23 @@ public final class VpsOwnerActivity extends AppCompatActivity {
         wrapper.setPadding(dp(20), dp(4), dp(20), 0);
         wrapper.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        CheckBox useHere = new CheckBox(this);
+        useHere.setText(R.string.vps_owner_create_use_here);
+        useHere.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        useHere.setTextSize(13f);
+        useHere.setChecked(true);
+        useHere.setButtonTintList(ContextCompat.getColorStateList(this, R.color.accent));
+        wrapper.addView(useHere, topMargin(8));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_owner_create_token)
                 .setView(wrapper)
                 .setPositiveButton(R.string.vps_owner_create_token, (dialog, which) ->
-                        createToken(clean(input.getText().toString())))
+                        createToken(clean(input.getText().toString()), useHere.isChecked()))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
-    private void createToken(String requestedName) {
+    private void createToken(String requestedName, boolean useHere) {
         String name = requestedName.isEmpty()
                 ? getString(R.string.vps_owner_token_default) : requestedName;
         setLoading(true);
@@ -410,8 +448,14 @@ public final class VpsOwnerActivity extends AppCompatActivity {
                 VpsOwnerClient.CreatedToken created = api.create(relay, owner.adminToken(), name);
                 boolean saved = new VpsOwnerStore(this).saveManagedToken(relay,
                         created.token().id(), created.token().name(), created.secret());
+                VpsRelayConfig shareRelay = relay.withTokenAndName(created.secret(), name);
+                if (saved && useHere) {
+                    saved = VpsRelayStore.fromContext(this)
+                            .activateConnection(shareRelay, profileKey) != null;
+                }
                 boolean rolledBack = false;
                 if (!saved) {
+                    new VpsOwnerStore(this).removeManagedToken(relay, created.token().id());
                     try {
                         api.delete(relay, owner.adminToken(), created.token().id());
                         rolledBack = true;
@@ -422,12 +466,16 @@ public final class VpsOwnerActivity extends AppCompatActivity {
                 }
                 boolean finalSaved = saved;
                 boolean finalRolledBack = rolledBack;
-                VpsRelayConfig shareRelay = relay.withTokenAndName(created.secret(), name);
                 handler.post(() -> {
                     if (isFinishing()) return;
                     setLoading(false);
                     if (finalSaved) {
-                        RelayShareSheet.show(this, shareRelay);
+                        if (useHere) {
+                            Toast.makeText(this, R.string.vps_owner_token_activated,
+                                    Toast.LENGTH_SHORT).show();
+                        } else {
+                            RelayShareSheet.show(this, shareRelay);
+                        }
                         loadOverview();
                     } else if (finalRolledBack) {
                         Toast.makeText(this, R.string.vps_owner_save_rolled_back,
@@ -466,15 +514,23 @@ public final class VpsOwnerActivity extends AppCompatActivity {
     private void deleteToken() {
         VpsOwnerClient.Token token = selectedToken;
         if (token == null) return;
+        VpsOwnerRecord.ManagedToken local = findLocalToken(
+                new VpsOwnerStore(this).forRelay(relay), token);
+        String localSecret = local == null ? "" : local.secret();
         setLoading(true);
         new Thread(() -> {
             try {
                 new VpsOwnerClient().delete(relay, owner.adminToken(), token.id());
                 boolean removed = new VpsOwnerStore(this).removeManagedToken(relay, token.id());
+                if (!localSecret.isEmpty()) {
+                    removed = VpsRelayStore.fromContext(this)
+                            .deleteConnection(relay, localSecret) && removed;
+                }
+                boolean finalRemoved = removed;
                 handler.post(() -> {
                     if (isFinishing()) return;
                     setLoading(false);
-                    Toast.makeText(this, removed ? R.string.vps_owner_token_deleted
+                    Toast.makeText(this, finalRemoved ? R.string.vps_owner_token_deleted
                             : R.string.vps_owner_token_deleted_local_failed, Toast.LENGTH_LONG).show();
                     loadOverview();
                 });
@@ -485,6 +541,50 @@ public final class VpsOwnerActivity extends AppCompatActivity {
                 });
             }
         }, "tg-vps-owner-page-delete").start();
+    }
+
+    private void activateToken(VpsOwnerRecord.ManagedToken local, String name) {
+        if (local == null || local.secret().isEmpty()) return;
+        VpsRelayConfig connection = relay.withTokenAndName(local.secret(), name);
+        VpsRelayStore.Record saved = VpsRelayStore.fromContext(this)
+                .activateConnection(connection, profileKey);
+        if (saved == null) {
+            Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+        relayId = saved.id();
+        relay = saved.config().withProfileKey(profileKey);
+        setResult(RESULT_OK);
+        Toast.makeText(this, R.string.vps_owner_token_activated, Toast.LENGTH_SHORT).show();
+        renderToken();
+    }
+
+    private void openRelayConnections() {
+        refreshTokenAfterConnections = true;
+        startActivity(VpsRelayConnectionsActivity.intent(this, profileKey));
+    }
+
+    private VpsOwnerRecord.ManagedToken findLocalToken(VpsOwnerRecord fresh,
+                                                       VpsOwnerClient.Token token) {
+        if (token == null) return null;
+        if (fresh != null) {
+            VpsOwnerRecord.ManagedToken direct = fresh.managedToken(token.id());
+            if (direct != null && !direct.secret().isEmpty()) return direct;
+            for (VpsOwnerRecord.ManagedToken candidate : fresh.managedTokens()) {
+                if (VpsOwnerRecord.clientTokenId(candidate.secret()).equals(token.id())) {
+                    return candidate;
+                }
+            }
+        }
+        for (VpsRelayStore.Record record : VpsRelayStore.fromContext(this).relays()) {
+            VpsRelayConfig candidate = record.config();
+            if (!candidate.sameEndpoint(relay) || !candidate.hasValidConnection()) continue;
+            if (VpsOwnerRecord.clientTokenId(candidate.token()).equals(token.id())) {
+                return new VpsOwnerRecord.ManagedToken(token.id(), candidate.name(),
+                        candidate.token());
+            }
+        }
+        return null;
     }
 
     private void confirmDeviceAction(int action) {

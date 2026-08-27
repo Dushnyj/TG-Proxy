@@ -41,10 +41,8 @@ import com.google.android.material.textfield.TextInputLayout;
 import java.io.File;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -182,7 +180,6 @@ public final class VpsSetupActivity extends AppCompatActivity {
                 ownDomain = selectedRelay.host();
             }
         }
-        if (relayToken.isEmpty()) relayToken = generateToken("tgpc_");
         if (adminToken.isEmpty()) adminToken = generateToken("tgpa_");
     }
 
@@ -285,6 +282,14 @@ public final class VpsSetupActivity extends AppCompatActivity {
             savedOwner = ownerForServer;
             ownerExisted = true;
             adminToken = ownerForServer.adminToken();
+        } else if (savedOwner != null && !savedOwner.matchesSsh(credentials)) {
+            // The user replaced the prefilled VPS credentials. Never carry owner secrets or
+            // client-token choices from the previously selected server into another VPS.
+            savedOwner = null;
+            ownerExisted = false;
+            adminToken = generateToken("tgpa_");
+            relayToken = "";
+            tokenChoiceEndpoint = "";
         }
         hideKeyboard();
         running = true;
@@ -506,13 +511,6 @@ public final class VpsSetupActivity extends AppCompatActivity {
         if (existingEndpoint != null && !existingEndpoint.sameEndpoint(endpoint)) {
             endpoints.add(existingEndpoint);
         }
-        LinkedHashMap<String, VpsRelayConfig> choices = new LinkedHashMap<>();
-        for (VpsRelayStore.Record record : VpsRelayStore.fromContext(this).relays()) {
-            VpsRelayConfig config = record.config();
-            if (!config.isUsable() || !matchesAnyEndpoint(config, endpoints)) continue;
-            choices.put(VpsOwnerRecord.clientTokenId(config.token()),
-                    config.withProfileKey(profileKey));
-        }
         VpsOwnerStore ownerStore = new VpsOwnerStore(this);
         VpsOwnerRecord reusableEndpointOwner = null;
         for (VpsRelayConfig candidateEndpoint : endpoints) {
@@ -521,26 +519,45 @@ public final class VpsSetupActivity extends AppCompatActivity {
             if (reusableEndpointOwner == null && endpointOwner.canManage()) {
                 reusableEndpointOwner = endpointOwner;
             }
-            for (VpsOwnerRecord.ManagedToken token : endpointOwner.managedTokens()) {
-                if (token.secret().isEmpty()) continue;
-                choices.put(token.id(), candidateEndpoint.withTokenAndName(token.secret(),
-                        token.name().isEmpty() ? "VPS Relay" : token.name()));
-            }
         }
-        final VpsOwnerRecord endpointOwnerForChoice = reusableEndpointOwner;
-        if (choices.isEmpty()) {
+        boolean existingRelay = preflightAudit != null
+                && "yes".equalsIgnoreCase(preflightAudit.value("existing_relay"));
+        boolean tokenInventoryKnown = preflightAudit != null
+                && preflightAudit.existingRelayTokenInventoryKnown();
+        List<String> activeTokenIds = preflightAudit == null
+                ? java.util.Collections.emptyList()
+                : preflightAudit.existingRelayTokenIds();
+        if (!relayToken.isEmpty() && !VpsTokenReusePolicy.isPresentOnAuditedServer(
+                relayToken, existingRelay, tokenInventoryKnown, activeTokenIds)) {
+            // The selected local connection was revoked or deleted on this VPS. Never carry its
+            // raw secret into the plan as if it were still a reusable server token.
+            relayToken = "";
+        }
+        final VpsOwnerRecord endpointOwnerForChoice = reusableEndpointOwner != null
+                ? reusableEndpointOwner : (existingRelay ? savedOwner : null);
+        List<VpsRelayConfig> reusable = VpsTokenReusePolicy.choices(
+                endpoints, VpsRelayStore.fromContext(this).relays(), ownerStore.records(),
+                savedOwner, existingRelay, tokenInventoryKnown, activeTokenIds, profileKey);
+        if (reusable.isEmpty()) {
             reuseEndpointOwner(endpointOwnerForChoice);
-            tokenChoiceEndpoint = endpointKey;
-            return false;
-        }
-        if (selectedRelay != null && selectedRelay.isUsable()
-                && selectedRelay.sameEndpoint(endpoint)
-                && choices.containsKey(VpsOwnerRecord.clientTokenId(relayToken))) {
+            if (existingRelay && relayToken.isEmpty()) {
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(R.string.vps_setup_token_missing_title)
+                        .setMessage(R.string.vps_setup_token_missing_note)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(R.string.vps_setup_token_create_new_short, (dialog, which) -> {
+                            relayToken = generateToken("tgpc_");
+                            tokenChoiceEndpoint = endpointKey;
+                            startEndpointPreparation(endpointHost);
+                        })
+                        .show();
+                return true;
+            }
+            if (relayToken.isEmpty()) relayToken = generateToken("tgpc_");
             tokenChoiceEndpoint = endpointKey;
             return false;
         }
 
-        ArrayList<VpsRelayConfig> reusable = new ArrayList<>(choices.values());
         ArrayList<String> labels = new ArrayList<>();
         for (VpsRelayConfig config : reusable) {
             labels.add(getString(R.string.vps_setup_token_existing_item,
@@ -549,7 +566,6 @@ public final class VpsSetupActivity extends AppCompatActivity {
         labels.add(getString(R.string.vps_setup_token_create_new));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vps_setup_token_choice_title)
-                .setMessage(R.string.vps_setup_token_choice_note)
                 .setItems(labels.toArray(new String[0]), (dialog, which) -> {
                     if (which >= 0 && which < reusable.size()) {
                         VpsRelayConfig chosen = reusable.get(which);
@@ -600,15 +616,6 @@ public final class VpsSetupActivity extends AppCompatActivity {
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    private static boolean matchesAnyEndpoint(VpsRelayConfig relay,
-                                              List<VpsRelayConfig> endpoints) {
-        if (relay == null || endpoints == null) return false;
-        for (VpsRelayConfig endpoint : endpoints) {
-            if (endpoint != null && relay.sameEndpoint(endpoint)) return true;
-        }
-        return false;
     }
 
     private void startEndpointPreparation(String endpointHost) {
@@ -772,15 +779,16 @@ public final class VpsSetupActivity extends AppCompatActivity {
                         ? (warnings.isEmpty() ? R.string.vps_setup_plan_ready_note
                                 : R.string.vps_setup_plan_ready_warning_note)
                         : R.string.vps_setup_plan_blocked_note)),
-                canApply ? R.drawable.status_success_bg : R.drawable.status_error_bg,
-                canApply ? R.color.green : R.color.red);
+                canApply ? R.drawable.vps_plan_success_card_bg
+                        : R.drawable.vps_plan_error_card_bg,
+                canApply ? R.color.vps_plan_success_text : R.color.vps_plan_error_text);
         if (!blockers.isEmpty()) {
             addPlanCard(getString(R.string.vps_setup_plan_fix_title), blockers,
-                    R.drawable.status_error_bg, R.color.red);
+                    R.drawable.vps_plan_error_card_bg, R.color.vps_plan_error_text);
         }
         if (!warnings.isEmpty()) {
             addPlanCard(getString(R.string.vps_setup_plan_warning_title), warnings,
-                    R.drawable.status_warning_bg, R.color.warning);
+                    R.drawable.vps_plan_warning_card_bg, R.color.vps_plan_warning_text);
         }
         if (plan != null) {
             addPlanCard(getString(R.string.vps_setup_plan_actions_title), plan.userActions(),
@@ -823,9 +831,20 @@ public final class VpsSetupActivity extends AppCompatActivity {
         if (items != null) {
             for (String item : items) {
                 if (item == null || item.trim().isEmpty()) continue;
-                TextView row = body("•  " + item.trim());
-                row.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
-                row.setLineSpacing(0f, 1.08f);
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.TOP);
+                TextView bullet = body("•");
+                bullet.setTextColor(ContextCompat.getColor(this, accentColorRes));
+                LinearLayout.LayoutParams bulletParams = new LinearLayout.LayoutParams(
+                        dp(14), ViewGroup.LayoutParams.WRAP_CONTENT);
+                row.addView(bullet, bulletParams);
+                TextView itemText = body(item.trim());
+                itemText.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+                itemText.setLineSpacing(0f, 1.08f);
+                LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                row.addView(itemText, itemParams);
                 card.addView(row, topMargin(9));
             }
         }
@@ -955,11 +974,11 @@ public final class VpsSetupActivity extends AppCompatActivity {
     private void addStatusCard(String headingText, String noteText) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.status_success_bg);
+        card.setBackgroundResource(R.drawable.vps_plan_success_card_bg);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
         TextView heading = heading(headingText);
         heading.setTextSize(15f);
-        heading.setTextColor(ContextCompat.getColor(this, R.color.green));
+        heading.setTextColor(ContextCompat.getColor(this, R.color.vps_plan_success_text));
         card.addView(heading);
         card.addView(body(noteText), topMargin(5));
         content.addView(card, topMargin(16));
@@ -1017,14 +1036,19 @@ public final class VpsSetupActivity extends AppCompatActivity {
         wrapper.setBoxStrokeColor(ContextCompat.getColor(this, R.color.accent));
 
         TextInputEditText edit = new TextInputEditText(wrapper.getContext());
+        edit.setId(View.generateViewId());
         edit.setSingleLine(true);
         edit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         edit.setHint(R.string.vps_endpoint_own_domain_placeholder);
         edit.setText(value == null ? "" : value);
         edit.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
-        edit.setHintTextColor(ContextCompat.getColor(this, R.color.text_secondary));
+        edit.setHintTextColor(ContextCompat.getColor(this, R.color.text_hint));
         edit.setTextSize(14f);
+        edit.setIncludeFontPadding(false);
+        edit.setGravity(Gravity.CENTER_VERTICAL);
+        edit.setPaddingRelative(dp(16), 0, dp(16), 0);
         edit.setMinHeight(dp(56));
+        label.setLabelFor(edit.getId());
         wrapper.addView(edit, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         parent.addView(wrapper, topMargin(7));

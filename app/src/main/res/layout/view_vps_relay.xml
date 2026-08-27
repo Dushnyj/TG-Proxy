@@ -46,6 +46,23 @@
         android:paddingStart="12dp"
         android:paddingEnd="12dp" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_vps_relay_connections"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:minHeight="48dp"
+        android:text="@string/vps_connections_title"
+        android:textAllCaps="false"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp"
+        app:cornerRadius="12dp"
+        app:icon="@drawable/ic_link"
+        app:iconGravity="textStart"
+        app:iconTint="@color/accent"
+        app:strokeColor="@color/input_border" />
+
     <CheckBox
         android:id="@+id/cb_vps_relay_enabled"
         android:layout_width="match_parent"

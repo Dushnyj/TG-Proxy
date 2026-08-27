@@ -23,4 +23,13 @@
     <color name="divider">#223140</color>
     <color name="power_idle">#172532</color>
     <color name="action_tile">#121D28</color>
+    <color name="vps_plan_success_surface">#10251A</color>
+    <color name="vps_plan_success_border">#28563A</color>
+    <color name="vps_plan_success_text">#66D17A</color>
+    <color name="vps_plan_error_surface">#27191C</color>
+    <color name="vps_plan_error_border">#63343A</color>
+    <color name="vps_plan_error_text">#FF756D</color>
+    <color name="vps_plan_warning_surface">#241E12</color>
+    <color name="vps_plan_warning_border">#675326</color>
+    <color name="vps_plan_warning_text">#FFC14D</color>
 </resources>

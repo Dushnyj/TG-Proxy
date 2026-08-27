@@ -66,6 +66,8 @@ final class ServiceState {
                              long activeConnections, boolean recentRouteFailure,
                              long nowMs) {
         Status status;
+        boolean hasFreshRoute = routeState != null && routeState.active()
+                && routeState.isFresh(nowMs, ROUTE_EVIDENCE_MAX_AGE_MS);
         if (!serviceStarted) {
             status = Status.STOPPED;
         } else if (paused) {
@@ -74,14 +76,13 @@ final class ServiceState {
             status = retrying ? Status.RETRYING : (starting ? Status.STARTING : Status.DEAD);
         } else if (!localPortListening) {
             status = Status.DEGRADED;
-        } else if (routeState != null && routeState.active()
-                && routeState.isFresh(nowMs, ROUTE_EVIDENCE_MAX_AGE_MS)) {
+        } else if (hasFreshRoute) {
             // A failed fallback candidate must not overwrite fresh evidence from the route
             // that is actually carrying Telegram traffic.
             status = Status.ACTIVE;
         } else if (recentRouteFailure && activeConnections > 0L) {
             status = Status.DEGRADED;
-        } else if (activeConnections > 0L && (routeState == null || !routeState.active())) {
+        } else if (activeConnections > 0L) {
             status = Status.CONNECTING_TELEGRAM;
         } else {
             // A healthy local listener is ready even when Telegram has not connected yet or

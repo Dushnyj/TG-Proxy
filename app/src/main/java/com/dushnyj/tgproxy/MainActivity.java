@@ -81,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_INSTALL_UPDATE = 1102;
     private static final int REQUEST_VPS_SETUP = 1103;
     private static final int REQUEST_VPS_OWNER = 1104;
+    private static final int REQUEST_VPS_CONNECTIONS = 1105;
     private static final int REQUEST_NETWORK_IDENTITY_PERMISSIONS = 100;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 101;
     private static final String STATE_SCREEN = "screen";
@@ -104,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnRouteDirectOnly;
     private Button btnVpsRelayTest;
     private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
-    private Button btnVpsOwnerManage;
+    private Button btnVpsOwnerManage, btnVpsRelayConnections;
     private Button btnVpsManualToggle, btnConnectionAdvancedToggle;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
@@ -303,7 +304,8 @@ public class MainActivity extends AppCompatActivity {
             }
         } else if (requestCode == REQUEST_INSTALL_UPDATE) {
             verifyPendingUpdateInstall();
-        } else if (requestCode == REQUEST_VPS_SETUP || requestCode == REQUEST_VPS_OWNER) {
+        } else if (requestCode == REQUEST_VPS_SETUP || requestCode == REQUEST_VPS_OWNER
+                || requestCode == REQUEST_VPS_CONNECTIONS) {
             refreshVpsRelaySelector();
             refreshConnectionFields();
             updateVpsRelayFieldsEnabled();
@@ -355,6 +357,7 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelayDelete = findViewById(R.id.btn_vps_relay_delete);
         btnVpsRelayAutoSetup = findViewById(R.id.btn_vps_relay_auto_setup);
         btnVpsOwnerManage = findViewById(R.id.btn_vps_owner_manage);
+        btnVpsRelayConnections = findViewById(R.id.btn_vps_relay_connections);
         btnVpsManualToggle = findViewById(R.id.btn_vps_manual_toggle);
         btnConnectionAdvancedToggle = findViewById(R.id.btn_connection_advanced_toggle);
         btnCfHelp = findViewById(R.id.btn_cf_help);
@@ -549,6 +552,9 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
         btnVpsRelayAutoSetup.setOnClickListener(v -> openVpsSetup(false));
         btnVpsOwnerManage.setOnClickListener(v -> openVpsOwnerManager());
+        btnVpsRelayConnections.setOnClickListener(v -> startActivityForResult(
+                VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi()),
+                REQUEST_VPS_CONNECTIONS));
         btnVpsManualToggle.setOnClickListener(v -> setExpandableSection(
                 vpsManualContent, btnVpsManualToggle,
                 vpsManualContent.getVisibility() != View.VISIBLE,
@@ -1159,45 +1165,24 @@ public class MainActivity extends AppCompatActivity {
         ProxyService svc = ProxyService.getInstance();
         if (svc != null) {
             DiagnosticsSnapshot snapshot = svc.diagnosticsSnapshot();
-            refreshConnectionFields(snapshot.serviceState().routeState(),
-                    snapshot.networkProfile());
+            refreshConnectionFields(snapshot.serviceState(), snapshot.networkProfile());
             return;
         }
-        refreshConnectionFields(null, null);
+        refreshConnectionFields(ServiceState.stopped(), null);
     }
 
-    private void refreshConnectionFields(RouteState routeState, NetworkProfile networkProfile) {
+    private void refreshConnectionFields(ServiceState serviceState, NetworkProfile networkProfile) {
         String ip = valueOrDefault(etCustomIp, MtProtoConfig.DEFAULT_HOST);
         int port = intOrDefault(etCustomPort, MtProtoConfig.DEFAULT_PORT);
         String secret = MtProtoConfig.normalizeSecretHex(etSecret.getText().toString());
         tvAddress.setText(ip + ":" + port);
-        tvRoute.setText(routeState == null ? currentRouteLabel() : routeLabel(routeState));
-        tvCfDomain.setText(routeState == null
-                ? currentCfDomainLabel() : cfDomainLabel(routeState));
+        tvRoute.setText(routeLabel(serviceState));
+        tvCfDomain.setText(serviceState != null
+                && serviceState.status() == ServiceState.Status.ACTIVE
+                ? cfDomainLabel(serviceState.routeState()) : "-");
         tvPort.setText(String.valueOf(port));
         tvMainProfile.setText(currentMainProfileLabel(networkProfile));
         tvTgLink.setText(MtProtoConfig.telegramProxyLink(ip, port, secret));
-    }
-
-    private String currentRouteLabel() {
-        ProxyService svc = ProxyService.getInstance();
-        if (svc != null) {
-            return routeLabel(svc.diagnosticsSnapshot().serviceState().routeState());
-        }
-        RoutePlan plan = new RouteEngine().plan(
-                routeSettingsFromControls(), firstDcId(), false, "",
-                java.util.Collections.emptyMap(), System.currentTimeMillis());
-        return plan.isEmpty() ? getString(R.string.route_searching) : routeLabel(plan.selected());
-    }
-
-    private String currentCfDomainLabel() {
-        if (MtProtoProxyEngine.CF_MODE_OFF.equals(selectedCfProxyMode())) return getString(R.string.route_off);
-        ProxyService svc = ProxyService.getInstance();
-        if (svc != null) {
-            return cfDomainLabel(svc.diagnosticsSnapshot().serviceState().routeState());
-        }
-        String active = CfProxyDomainState.shared().activeDomain(currentCfNetworkProfile());
-        return active.isEmpty() ? getString(R.string.route_searching) : active;
     }
 
     private String cfDomainLabel(RouteState route) {
@@ -1291,6 +1276,24 @@ public class MainActivity extends AppCompatActivity {
                 : routeLabel(state.candidate());
     }
 
+    private String routeLabel(ServiceState state) {
+        if (state == null || state.status() == ServiceState.Status.STOPPED
+                || state.status() == ServiceState.Status.SLEEP
+                || state.status() == ServiceState.Status.DEAD
+                || state.status() == ServiceState.Status.DEGRADED) {
+            return getString(R.string.route_not_selected);
+        }
+        if (state.status() == ServiceState.Status.READY_FOR_TELEGRAM) {
+            return getString(R.string.route_waiting_for_telegram);
+        }
+        if (state.status() == ServiceState.Status.CONNECTING_TELEGRAM
+                || state.status() == ServiceState.Status.STARTING
+                || state.status() == ServiceState.Status.RETRYING) {
+            return getString(R.string.route_selecting);
+        }
+        return routeLabel(state.routeState());
+    }
+
     private String routeLabel(RouteCandidate route) {
         if (route == null) return getString(R.string.route_searching);
         if (route.type() == RouteType.WORKER) return getString(R.string.route_cloudflare_worker);
@@ -1313,9 +1316,9 @@ public class MainActivity extends AppCompatActivity {
         updateRunningState(snapshot.serviceState(), false);
         MtProtoProxyEngine engine = svc.getEngine();
         RouteState routeState = snapshot.serviceState().routeState();
-        refreshConnectionFields(routeState, snapshot.networkProfile());
-        updateRouteQuality(routeState);
-        updateDisplayedPing(routeState);
+        refreshConnectionFields(snapshot.serviceState(), snapshot.networkProfile());
+        updateRouteQuality(snapshot.serviceState());
+        updateDisplayedPing(snapshot.serviceState());
         tvConnections.setText(MainUiState.connectionSummary(
                 engine == null ? 0 : engine.activeConnectionCount()));
         tvTraffic.setText(coloredTrafficSummary(
@@ -1326,21 +1329,18 @@ public class MainActivity extends AppCompatActivity {
         refreshDiagnosticsScreen(snapshot);
     }
 
-    private void updateDisplayedPing(RouteState routeState) {
+    private void updateDisplayedPing(ServiceState serviceState) {
         long nowMs = System.currentTimeMillis();
-        int ping;
-        if (routeState != null && routeState.active()) {
+        RouteState routeState = serviceState == null ? null : serviceState.routeState();
+        int ping = -1;
+        if (serviceState != null && serviceState.status() == ServiceState.Status.ACTIVE
+                && routeState != null && routeState.active()) {
             ping = MainUiState.displayedPing(routeState, lastMeasuredPingIdentity,
                     lastMeasuredPingMs, lastMeasuredPingAt, nowMs);
-        } else if (!bootstrapPingPlan.isEmpty()
-                && bootstrapPingPlan.identity().equals(lastMeasuredPingIdentity)
-                && (lastMeasuredPingMs >= 0 || lastMeasuredPingMs == MainUiState.PING_ERROR_MS)
-                && nowMs - lastMeasuredPingAt <= MainUiState.PING_MEASUREMENT_TTL_MS) {
-            ping = lastMeasuredPingMs;
-        } else {
-            ping = -1;
         }
-        tvPing.setText(MainUiState.pingSummary(ping));
+        tvPing.setText(ping == MainUiState.PING_ERROR_MS
+                ? getString(R.string.route_ping_no_response)
+                : MainUiState.pingSummary(ping));
         tvPing.setTextColor(pingColor(ping));
     }
 
@@ -1387,8 +1387,7 @@ public class MainActivity extends AppCompatActivity {
             lastMeasuredPingMs = ms;
             lastMeasuredPingAt = System.currentTimeMillis();
             DiagnosticsLog.record("auto ping " + lastMeasuredPingIdentity + " " + ms + "ms");
-            updateDisplayedPing(currentRoute == null
-                    ? currentServiceRouteState() : currentRoute);
+            updateDisplayedPing(currentServiceState(false));
         });
     }
 
@@ -1404,8 +1403,7 @@ public class MainActivity extends AppCompatActivity {
         lastMeasuredPingMs = MainUiState.PING_ERROR_MS;
         lastMeasuredPingAt = System.currentTimeMillis();
         DiagnosticsLog.record("supplementary MTProto probe failed " + routeIdentity);
-        updateDisplayedPing(currentRoute == null
-                ? currentServiceRouteState() : currentRoute);
+        updateDisplayedPing(currentServiceState(false));
     }
 
     private BootstrapPingPlanner.Plan currentBootstrapPingPlan() {
@@ -1439,18 +1437,22 @@ public class MainActivity extends AppCompatActivity {
         if (svc == null) return null;
         ServiceState state = svc.diagnosticsSnapshot().serviceState();
         RouteState route = state.routeState();
-        if (!state.serviceStarted() || route == null || !route.active()) return null;
+        if (state.status() != ServiceState.Status.ACTIVE || route == null || !route.active()) {
+            return null;
+        }
         return MainUiState.routeIdentity(route).equals(expectedIdentity) ? route : null;
     }
 
     private int pingColor(int ms) {
-        if (ms == MainUiState.PING_ERROR_MS) return 0xFFF44336;
+        if (ms == MainUiState.PING_ERROR_MS) return getColorValue(R.color.warning);
         if (ms < 0) return getColorValue(R.color.text_secondary);
         return ms < 100 ? 0xFF4CAF50 : ms < 300 ? 0xFFFFAB00 : 0xFFF44336;
     }
 
-    private void updateRouteQuality(RouteState routeState) {
-        if (routeState == null || !routeState.active()) {
+    private void updateRouteQuality(ServiceState serviceState) {
+        RouteState routeState = serviceState == null ? null : serviceState.routeState();
+        if (serviceState == null || serviceState.status() != ServiceState.Status.ACTIVE
+                || routeState == null || !routeState.active()) {
             tvQuality.setText(R.string.route_quality_unknown);
             tvQuality.setTextColor(getColorValue(R.color.text_secondary));
             return;
@@ -1939,6 +1941,10 @@ public class MainActivity extends AppCompatActivity {
         }
         String profileKey = vpsRelayProfileKeyForUi();
         String relayId = selectedVpsRelayId();
+        if (relayId.isEmpty()) {
+            String boundRelayId = VpsRelayStore.fromContext(this).selectedRelayId(profileKey);
+            relayId = boundRelayId == null ? "" : boundRelayId.trim();
+        }
         startActivityForResult(VpsSetupActivity.intent(
                 this, profileKey, relayId, updateExistingRelay), REQUEST_VPS_SETUP);
     }
@@ -1946,7 +1952,7 @@ public class MainActivity extends AppCompatActivity {
     private void openVpsOwnerManager() {
         VpsRelayConfig relay = selectedStoredVpsRelayConfig();
         VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(relay);
-        if (relay == null || !relay.isUsable() || owner == null || !owner.canManage()) {
+        if (relay == null || !relay.hasValidEndpoint() || owner == null || !owner.canManage()) {
             new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.vps_owner_manage)
                     .setMessage(R.string.vps_owner_not_available)
@@ -3925,7 +3931,7 @@ public class MainActivity extends AppCompatActivity {
         setEnabled(btnVpsRelayTest, enabled);
         setEnabled(btnVpsRelayAutoSetup, !vpsSetupRunning);
         VpsRelayConfig current = currentVpsRelayConfig();
-        VpsOwnerRecord owner = enabled && current.isUsable()
+        VpsOwnerRecord owner = current.hasValidEndpoint()
                 ? new VpsOwnerStore(this).forRelay(current) : null;
         boolean canManage = owner != null && owner.canManage();
         setVisible(btnVpsOwnerManage, canManage);

@@ -109,6 +109,51 @@ public class VpsRelayStoreTest {
     }
 
     @Test
+    public void disablingPrimaryPromotesEnabledBackup() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record primary = store.saveRelay(VpsRelayConfig.manual(true, "Primary",
+                "one.example.com", 443, true, "/apiws", "one", ""), "wifi:home");
+        VpsRelayStore.Record backup = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
+                "two.example.com", 443, true, "/apiws", "two", ""), "wifi:work");
+        store.bindProfile("wifi:home", primary.id());
+
+        assertTrue(store.setRelayEnabled(primary.id(), false));
+
+        assertEquals(backup.id(), store.selectedRelayId("wifi:home"));
+        assertEquals(1, store.relayPool("wifi:home").size());
+        assertEquals("Backup", store.relayPool("wifi:home").get(0).name());
+    }
+
+    @Test
+    public void knownOwnerTokenCanBeActivatedAsPrimary() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayConfig relay = VpsRelayConfig.manual(true, "Phone",
+                "relay.example.com", 443, true, "/apiws", "secret", "");
+
+        VpsRelayStore.Record saved = store.activateConnection(relay, "wifi:home");
+
+        assertEquals(saved.id(), store.selectedRelayId("wifi:home"));
+        assertEquals(saved.id(), store.relayIdFor(relay));
+        assertTrue(store.selectedRelay("wifi:home").isUsable());
+    }
+
+    @Test
+    public void revokedCredentialIsRemovedAndBindingFallsBack() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayConfig revoked = VpsRelayConfig.manual(true, "Revoked",
+                "relay.example.com", 443, true, "/apiws", "revoked", "");
+        VpsRelayStore.Record revokedRecord = store.saveRelay(revoked, "wifi:home");
+        VpsRelayStore.Record backup = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
+                "backup.example.com", 443, true, "/apiws", "backup", ""), "wifi:work");
+        store.bindProfile("wifi:home", revokedRecord.id());
+
+        assertTrue(store.deleteConnection(revoked, "revoked"));
+
+        assertNull(store.relay(revokedRecord.id()));
+        assertEquals(backup.id(), store.selectedRelayId("wifi:home"));
+    }
+
+    @Test
     public void relayAndBindingArePersistedInOneAtomicStoreOperation() {
         RecordingStore persistence = new RecordingStore();
         VpsRelayStore store = new VpsRelayStore(persistence);

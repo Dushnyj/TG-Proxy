@@ -52,12 +52,19 @@ final class VpsRelayConfig {
     }
 
     boolean isUsable() {
-        return enabled
-                && !host.isEmpty()
+        return enabled && hasValidConnection();
+    }
+
+    boolean hasValidEndpoint() {
+        return !host.isEmpty()
                 && isValidHost(host)
                 && port > 0
                 && port <= 65535
-                && isValidPath(path)
+                && isValidPath(path);
+    }
+
+    boolean hasValidConnection() {
+        return hasValidEndpoint()
                 && !token.isEmpty()
                 && token.length() <= 512
                 && !containsHeaderUnsafe(token);
@@ -102,6 +109,11 @@ final class VpsRelayConfig {
     boolean supportsRoute(int dc, boolean test) { return capabilities.supports(dc, test); }
 
     VpsRelayConfig withProfileKey(String profileKey) {
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
+                capabilities);
+    }
+
+    VpsRelayConfig withEnabled(boolean enabled) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
                 capabilities);
     }

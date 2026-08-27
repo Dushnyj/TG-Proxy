@@ -66,6 +66,11 @@ final class VpsOwnerRecord {
     String adminToken() { return adminToken; }
     long updatedAtMs() { return updatedAtMs; }
 
+    VpsRelayConfig relayConfig(String name, String token, String profileKey) {
+        return VpsRelayConfig.manual(true, name, relayHost, relayPort, relayTls, relayPath,
+                token, profileKey);
+    }
+
     boolean canManage() {
         return !adminToken.isEmpty() && adminToken.length() <= 512
                 && !containsHeaderUnsafe(adminToken);

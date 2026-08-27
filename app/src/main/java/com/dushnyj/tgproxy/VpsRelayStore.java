@@ -136,11 +136,7 @@ final class VpsRelayStore {
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
         relays.remove(id);
-        ArrayList<String> removeBindings = new ArrayList<>();
-        for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
-            if (id.equals(entry.getValue())) removeBindings.add(entry.getKey());
-        }
-        for (String key : removeBindings) profileBindings.remove(key);
+        repairBindings(id);
         if (editor == null) {
             if (!persist()) {
                 relays.clear();
@@ -157,6 +153,70 @@ final class VpsRelayStore {
             return false;
         }
         return true;
+    }
+
+    synchronized boolean setRelayEnabled(String relayId, boolean enabled) {
+        String id = normalize(relayId);
+        Record current = relays.get(id);
+        if (current == null) return false;
+        if (current.config().isEnabled() == enabled) return true;
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        relays.put(id, new Record(id, current.config().withEnabled(enabled)));
+        if (!enabled) repairBindings(id);
+        if (persist()) return true;
+        relays.clear();
+        relays.putAll(previousRelays);
+        profileBindings.clear();
+        profileBindings.putAll(previousBindings);
+        return false;
+    }
+
+    synchronized boolean makePrimary(String profileKey, String relayId) {
+        String id = normalize(relayId);
+        Record current = relays.get(id);
+        if (current == null || !current.config().hasValidConnection()) return false;
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        relays.put(id, new Record(id, current.config().withEnabled(true)));
+        profileBindings.put(bindingKey(profileKey), id);
+        if (persist()) return true;
+        relays.clear();
+        relays.putAll(previousRelays);
+        profileBindings.clear();
+        profileBindings.putAll(previousBindings);
+        return false;
+    }
+
+    synchronized Record activateConnection(VpsRelayConfig relay, String profileKey) {
+        if (relay == null || !relay.hasValidConnection()) return null;
+        return saveRelay(relay.withEnabled(true), profileKey);
+    }
+
+    synchronized String relayIdFor(VpsRelayConfig relay) {
+        return relay == null ? "" : existingEndpointId(relay);
+    }
+
+    synchronized boolean deleteConnection(VpsRelayConfig endpoint, String token) {
+        if (endpoint == null || normalize(token).isEmpty()) return false;
+        ArrayList<String> ids = new ArrayList<>();
+        for (Record record : relays.values()) {
+            if (record.config().sameEndpoint(endpoint)
+                    && record.config().token().equals(token)) ids.add(record.id());
+        }
+        if (ids.isEmpty()) return true;
+        LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        for (String id : ids) {
+            relays.remove(id);
+            repairBindings(id);
+        }
+        if (persist()) return true;
+        relays.clear();
+        relays.putAll(previousRelays);
+        profileBindings.clear();
+        profileBindings.putAll(previousBindings);
+        return false;
     }
 
     synchronized boolean bindProfile(String profileKey, String relayId) {
@@ -250,6 +310,25 @@ final class VpsRelayStore {
         values.put(KEY_RELAYS, serializeRelays(relays));
         values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
         return keyValueStore.putStrings(values);
+    }
+
+    private void repairBindings(String unavailableId) {
+        String fallback = firstUsableRelayId(unavailableId);
+        ArrayList<String> affected = new ArrayList<>();
+        for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
+            if (unavailableId.equals(entry.getValue())) affected.add(entry.getKey());
+        }
+        for (String key : affected) {
+            if (fallback.isEmpty()) profileBindings.remove(key);
+            else profileBindings.put(key, fallback);
+        }
+    }
+
+    private String firstUsableRelayId(String exceptId) {
+        for (Record record : relays.values()) {
+            if (!record.id().equals(exceptId) && record.config().isUsable()) return record.id();
+        }
+        return "";
     }
 
     private boolean persistBindings() {
