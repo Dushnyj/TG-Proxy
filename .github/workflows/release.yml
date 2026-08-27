@@ -62,7 +62,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6.1.0
+        uses: gradle/actions/setup-gradle@v6.3.0
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
@@ -88,7 +88,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6.1.0
+        uses: gradle/actions/setup-gradle@v6.3.0
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
