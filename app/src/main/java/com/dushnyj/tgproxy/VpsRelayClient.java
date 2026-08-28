@@ -47,6 +47,19 @@ final class VpsRelayClient {
         RouteValidation verify(VpsRelayConfig config, Map<Integer, String> dcRules) throws Exception;
     }
 
+    enum CheckStage {
+        CONNECTION,
+        AUTHORIZATION,
+        HEALTH,
+        SERVER_ROUTES,
+        TELEGRAM_ROUTES
+    }
+
+    interface ProgressListener {
+        /** completedSteps is in the range 0..5; currentStage is null after success. */
+        void onProgress(int completedSteps, CheckStage currentStage);
+    }
+
     static final class RouteValidation {
         final String blockingFailures;
         final String advisoryFailures;
@@ -89,12 +102,19 @@ final class VpsRelayClient {
     }
 
     VpsRelayCheckResult check(VpsRelayConfig config, Map<Integer, String> dcRules) {
+        return check(config, dcRules, null);
+    }
+
+    VpsRelayCheckResult check(VpsRelayConfig config, Map<Integer, String> dcRules,
+                              ProgressListener progress) {
         if (config == null || !config.isUsable()) {
             return VpsRelayCheckResult.of(VpsRelayCheckResult.Status.BAD_CONFIG,
                     "relay is not configured");
         }
         try {
+            report(progress, 0, CheckStage.CONNECTION);
             HttpResult version = requestManagementWithRetry(config, "GET", "/version", "");
+            report(progress, 1, CheckStage.AUTHORIZATION);
             if (isAuthFailure(version.code)) return wrongToken();
             if (!version.isSuccessful()) return unavailable("version failed: " + version.code);
             if (!isRelayVersionBody(version.body)) {
@@ -122,10 +142,12 @@ final class VpsRelayClient {
                 return unavailable("capabilities failed: " + capabilityResponse.code);
             }
 
+            report(progress, 2, CheckStage.HEALTH);
             HttpResult health = requestManagementWithRetry(config, "GET", "/healthz", "");
             if (isAuthFailure(health.code)) return wrongToken();
             if (!health.isSuccessful()) return unavailable("healthz failed: " + health.code);
 
+            report(progress, 3, CheckStage.SERVER_ROUTES);
             Map<Integer, String> relayRoutes = effectiveProductionRoutes(capabilities, dcRules);
             HttpResult routes = requestManagementWithRetry(config, "POST", "/test-routes",
                     testRoutesBody(relayRoutes));
@@ -138,6 +160,7 @@ final class VpsRelayClient {
                 return unavailable("test-routes reported unavailable routes"
                         + compactBody(routes.body));
             }
+            report(progress, 4, CheckStage.TELEGRAM_ROUTES);
             RouteValidation validation = routeVerifier.verify(config, relayRoutes);
             if (validation == null) validation = RouteValidation.ok();
             if (!validation.blockingFailures.isEmpty()) {
@@ -150,6 +173,7 @@ final class VpsRelayClient {
             }
             String instanceId = booleanJson(version.body, "identityPersistent", false)
                     ? stringJson(version.body, "instanceId", "") : "";
+            report(progress, 5, null);
             return VpsRelayCheckResult.ok(routes.body,
                     stringJson(version.body, "version", ""),
                     validation.advisoryFailures, capabilities,
@@ -159,6 +183,16 @@ final class VpsRelayClient {
                     "TLS handshake failed");
         } catch (Exception e) {
             return unavailable(e.getClass().getSimpleName());
+        }
+    }
+
+    private static void report(ProgressListener progress, int completedSteps,
+                               CheckStage currentStage) {
+        if (progress == null) return;
+        try {
+            progress.onProgress(completedSteps, currentStage);
+        } catch (RuntimeException ignored) {
+            // A UI progress listener must never change the network-check result.
         }
     }
 

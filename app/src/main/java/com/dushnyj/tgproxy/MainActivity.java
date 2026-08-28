@@ -2328,9 +2328,10 @@ public class MainActivity extends AppCompatActivity {
     private void scanImportQr() {
         new IntentIntegrator(this)
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                .setCaptureActivity(PortraitCaptureActivity.class)
                 .setPrompt(getString(R.string.scan_import_qr_prompt))
                 .setBeepEnabled(false)
-                .setOrientationLocked(false)
+                .setOrientationLocked(true)
                 .initiateScan();
     }
 
@@ -4428,32 +4429,17 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(14), 0, dp(14), dp(4));
-
-        TextView text = new TextView(this);
-        text.setText(R.string.background_setup_message);
-        text.setTextColor(getColorValue(R.color.text_secondary));
-        text.setTextSize(12.5f);
-        text.setLineSpacing(0f, 1.04f);
-        layout.addView(text);
-
-        backgroundSetupStatusList = new LinearLayout(this);
-        backgroundSetupStatusList.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        listParams.topMargin = dp(7);
-        layout.addView(backgroundSetupStatusList, listParams);
+        View layout = getLayoutInflater().inflate(R.layout.dialog_background_setup, null, false);
+        backgroundSetupStatusList = layout.findViewById(R.id.content_background_setup_status);
+        MaterialButton checkButton = layout.findViewById(R.id.btn_background_check);
+        MaterialButton notNowButton = layout.findViewById(R.id.btn_background_not_now);
 
         BackgroundReliabilityStore reliability = new BackgroundReliabilityStore(this);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.background_setup_title)
                 .setView(layout)
-                .setPositiveButton(R.string.background_check_ready, null)
-                .setNegativeButton(R.string.background_not_now, null)
                 .create();
+        dialog.setCanceledOnTouchOutside(false);
         backgroundSetupDialog = dialog;
         backgroundSetupDialogShowing = true;
         dialog.setOnDismissListener(ignored -> {
@@ -4464,31 +4450,29 @@ public class MainActivity extends AppCompatActivity {
                 backgroundAutostartSettingsOpened = false;
             }
         });
-        dialog.setOnShowListener(ignored -> {
+        checkButton.setOnClickListener(v -> {
+            reliability.markPrompted(BuildConfig.VERSION_CODE);
+            refreshBackgroundExecutionStatus();
             refreshBackgroundSetupDialog();
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                reliability.markPrompted(BuildConfig.VERSION_CODE);
-                refreshBackgroundExecutionStatus();
-                refreshBackgroundSetupDialog();
-                if (!reliability.status().ready()) {
-                    Toast.makeText(this, R.string.background_missing_warning,
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                Toast.makeText(this, R.string.background_all_ready, Toast.LENGTH_SHORT).show();
-                dialog.dismiss();
-            });
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
-                reliability.markPrompted(BuildConfig.VERSION_CODE);
-                refreshBackgroundExecutionStatus();
-                if (!reliability.status().ready()) {
-                    Toast.makeText(this, R.string.background_missing_warning,
-                            Toast.LENGTH_LONG).show();
-                }
-                dialog.dismiss();
-            });
+            if (!reliability.status().ready()) {
+                Toast.makeText(this, R.string.background_missing_warning,
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            Toast.makeText(this, R.string.background_all_ready, Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+        notNowButton.setOnClickListener(v -> {
+            reliability.markPrompted(BuildConfig.VERSION_CODE);
+            refreshBackgroundExecutionStatus();
+            if (!reliability.status().ready()) {
+                Toast.makeText(this, R.string.background_missing_warning,
+                        Toast.LENGTH_LONG).show();
+            }
+            dialog.dismiss();
         });
         dialog.show();
+        refreshBackgroundSetupDialog();
     }
 
     private void refreshBackgroundSetupDialog() {

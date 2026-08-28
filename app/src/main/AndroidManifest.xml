@@ -90,6 +90,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false" />
 
+        <activity
+            android:name=".PortraitCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true" />
+
         <service
             android:name=".ProxyService"
             android:exported="false"

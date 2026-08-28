@@ -37,6 +37,9 @@ public class MainActivityDialogPolicyTest {
         assertTrue(source.contains("R.string.background_condition_network_identity"));
         assertTrue(source.contains("R.string.background_condition_location"));
         assertTrue(source.contains("row.setOnClickListener(view -> missingAction.run())"));
+        assertTrue(source.contains("inflate(R.layout.dialog_background_setup"));
+        assertTrue(source.contains("R.id.btn_background_not_now"));
+        assertTrue(source.contains("R.id.btn_background_check"));
         assertTrue(source.contains(".setView(layout)"));
         assertFalse(source.contains("layout.addView(backgroundSetupBatteryAction"));
         assertTrue(source.contains("setExpandableSection(vpsManualContent, btnVpsManualToggle, false"));

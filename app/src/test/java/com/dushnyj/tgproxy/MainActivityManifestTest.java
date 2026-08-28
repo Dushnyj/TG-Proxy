@@ -58,14 +58,32 @@ public class MainActivityManifestTest {
         assertTrue(xml.contains("android:scheme=\"content\""));
     }
 
+    @Test
+    public void qrScannerActivityIsExplicitlyLockedToPortrait() throws Exception {
+        Document document = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(manifest().toFile());
+
+        Node scanner = activity(document, ".PortraitCaptureActivity");
+
+        assertTrue("portrait".equals(scanner.getAttributes()
+                .getNamedItem("android:screenOrientation").getNodeValue()));
+        assertTrue("false".equals(scanner.getAttributes()
+                .getNamedItem("android:exported").getNodeValue()));
+    }
+
     private static Node mainActivity(Document document) {
+        return activity(document, ".MainActivity");
+    }
+
+    private static Node activity(Document document, String activityName) {
         NodeList activities = document.getElementsByTagName("activity");
         for (int i = 0; i < activities.getLength(); i++) {
             Node node = activities.item(i);
             Node name = node.getAttributes().getNamedItem("android:name");
-            if (name != null && ".MainActivity".equals(name.getNodeValue())) return node;
+            if (name != null && activityName.equals(name.getNodeValue())) return node;
         }
-        throw new IllegalStateException("MainActivity not found");
+        throw new IllegalStateException(activityName + " not found");
     }
 
     private static Path manifest() {

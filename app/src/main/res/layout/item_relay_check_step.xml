@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:minHeight="54dp"
+    android:orientation="horizontal"
+    android:paddingTop="7dp"
+    android:paddingBottom="7dp">
+
+    <FrameLayout
+        android:layout_width="30dp"
+        android:layout_height="30dp">
+
+        <ImageView
+            android:id="@+id/iv_relay_check_state"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="@drawable/status_neutral_bg"
+            android:contentDescription="@null"
+            android:padding="6dp"
+            app:tint="@color/text_hint" />
+
+        <ProgressBar
+            android:id="@+id/progress_relay_check_state"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/accent"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_relay_check_step_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_relay_check_step_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:includeFontPadding="false"
+            android:text="@string/relay_check_waiting"
+            android:textColor="@color/text_hint"
+            android:textSize="10sp" />
+    </LinearLayout>
+</LinearLayout>

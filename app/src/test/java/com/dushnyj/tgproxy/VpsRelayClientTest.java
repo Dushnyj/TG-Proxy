@@ -10,7 +10,10 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -39,6 +42,38 @@ public class VpsRelayClientTest {
         }
         assertTrue(server.lastRoutesBody.contains(
                 "{\"dc\":2,\"ip\":\"149.154.167.220\"}"));
+    }
+
+    @Test
+    public void successfulCheckReportsEveryVisibleStageInOrder() throws Exception {
+        server = TinyRelayServer.start("token", 1, 1, 200);
+        List<String> progress = new ArrayList<>();
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules(),
+                (completed, stage) -> progress.add(completed + ":"
+                        + (stage == null ? "DONE" : stage.name())));
+
+        assertEquals(VpsRelayCheckResult.Status.OK, result.status());
+        assertEquals(Arrays.asList(
+                "0:CONNECTION",
+                "1:AUTHORIZATION",
+                "2:HEALTH",
+                "3:SERVER_ROUTES",
+                "4:TELEGRAM_ROUTES",
+                "5:DONE"), progress);
+    }
+
+    @Test
+    public void failedAuthorizationStopsProgressAtTheRelevantStage() throws Exception {
+        server = TinyRelayServer.start("expected", 1, 1, 200);
+        List<String> progress = new ArrayList<>();
+
+        VpsRelayCheckResult result = client().check(config("wrong", false), dcRules(),
+                (completed, stage) -> progress.add(completed + ":"
+                        + (stage == null ? "DONE" : stage.name())));
+
+        assertEquals(VpsRelayCheckResult.Status.WRONG_TOKEN, result.status());
+        assertEquals(Arrays.asList("0:CONNECTION", "1:AUTHORIZATION"), progress);
     }
 
     @Test

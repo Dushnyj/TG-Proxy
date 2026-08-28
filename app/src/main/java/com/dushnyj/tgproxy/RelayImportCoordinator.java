@@ -4,11 +4,18 @@ import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.LayoutInflater;
+import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 /** One validation-first import path for pasted text, files, QR codes and external intents. */
@@ -29,14 +36,21 @@ final class RelayImportCoordinator {
     }
 
     void showPasteDialog() {
-        EditText input = field(activity.getString(R.string.import_payload_hint), true);
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.vps_connections_add_text)
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.import_settings,
-                        (dialog, which) -> importRaw(input.getText().toString(), ""))
-                .show();
+        View root = LayoutInflater.from(activity).inflate(R.layout.dialog_relay_paste, null, false);
+        EditText input = root.findViewById(R.id.et_relay_import_payload);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setView(root).create();
+        dialog.setCanceledOnTouchOutside(false);
+        root.findViewById(R.id.btn_relay_paste_cancel).setOnClickListener(view -> dialog.dismiss());
+        root.findViewById(R.id.btn_relay_paste_import).setOnClickListener(view -> {
+            String value = clean(input.getText().toString());
+            if (value.isEmpty()) {
+                input.setError(activity.getString(R.string.import_error_invalid));
+                return;
+            }
+            dialog.dismiss();
+            importRaw(value, "");
+        });
+        dialog.show();
     }
 
     void importRaw(String raw, String password) {
@@ -70,23 +84,28 @@ final class RelayImportCoordinator {
         new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.import_password_hint)
                 .setView(password)
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.cancel, null)
                 .setPositiveButton(R.string.import_settings,
                         (dialog, which) -> importRaw(payload, password.getText().toString()))
                 .show();
     }
 
     private void confirm(VpsRelayConfig relay) {
-        String suffix = relay.path().isEmpty() ? "" : relay.path();
-        String message = activity.getString(R.string.vps_connection_import_preview,
-                relay.name(), relay.host(), relay.port(), suffix, relay.maskedToken());
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.import_relay_add_title)
-                .setMessage(message)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.import_settings,
-                        (dialog, which) -> chooseScope(relay))
-                .show();
+        View root = LayoutInflater.from(activity).inflate(R.layout.dialog_relay_preview, null, false);
+        ((TextView) root.findViewById(R.id.tv_relay_preview_name)).setText(relay.name());
+        ((TextView) root.findViewById(R.id.tv_relay_preview_endpoint)).setText(endpoint(relay));
+        ((TextView) root.findViewById(R.id.tv_relay_preview_security)).setText(
+                relay.tls() ? R.string.vps_connection_tls : R.string.vps_connection_plain);
+        ((TextView) root.findViewById(R.id.tv_relay_preview_token)).setText(
+                activity.getString(R.string.vps_connections_token, relay.maskedToken()));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setView(root).create();
+        dialog.setCanceledOnTouchOutside(false);
+        root.findViewById(R.id.btn_relay_preview_cancel).setOnClickListener(view -> dialog.dismiss());
+        root.findViewById(R.id.btn_relay_preview_continue).setOnClickListener(view -> {
+            dialog.dismiss();
+            chooseScope(relay);
+        });
+        dialog.show();
     }
 
     private void chooseScope(VpsRelayConfig relay) {
@@ -94,60 +113,169 @@ final class RelayImportCoordinator {
             validateAndSave(relay, "");
             return;
         }
-        String[] labels = {
-                activity.getString(R.string.vps_connection_import_current),
-                activity.getString(R.string.vps_connection_import_all)
-        };
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.vps_connection_import_scope_title)
-                .setItems(labels, (dialog, which) ->
-                        validateAndSave(relay, which == 0 ? profileKey : ""))
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        View root = LayoutInflater.from(activity).inflate(R.layout.dialog_relay_scope, null, false);
+        LinearLayout options = root.findViewById(R.id.content_relay_scope_options);
+        View current = addScopeOption(options, R.string.vps_connection_import_current,
+                R.string.relay_scope_current_note);
+        View all = addScopeOption(options, R.string.vps_connection_import_all,
+                R.string.relay_scope_all_note);
+        LinearLayout.LayoutParams allParams = (LinearLayout.LayoutParams) all.getLayoutParams();
+        allParams.topMargin = dp(10);
+        all.setLayoutParams(allParams);
+        final boolean[] currentSelected = {true};
+        setScopeSelected(current, true);
+        setScopeSelected(all, false);
+        current.setOnClickListener(view -> {
+            currentSelected[0] = true;
+            setScopeSelected(current, true);
+            setScopeSelected(all, false);
+        });
+        all.setOnClickListener(view -> {
+            currentSelected[0] = false;
+            setScopeSelected(current, false);
+            setScopeSelected(all, true);
+        });
+        AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setView(root).create();
+        dialog.setCanceledOnTouchOutside(false);
+        root.findViewById(R.id.btn_relay_scope_cancel).setOnClickListener(view -> dialog.dismiss());
+        root.findViewById(R.id.btn_relay_scope_continue).setOnClickListener(view -> {
+            String target = currentSelected[0] ? profileKey : "";
+            dialog.dismiss();
+            validateAndSave(relay, target);
+        });
+        dialog.show();
+    }
+
+    private View addScopeOption(LinearLayout parent, int titleRes, int noteRes) {
+        View row = LayoutInflater.from(activity).inflate(R.layout.item_relay_scope, parent, false);
+        ((TextView) row.findViewById(R.id.tv_relay_scope_title)).setText(titleRes);
+        ((TextView) row.findViewById(R.id.tv_relay_scope_note)).setText(noteRes);
+        row.setContentDescription(activity.getString(titleRes) + ". " + activity.getString(noteRes));
+        parent.addView(row);
+        return row;
+    }
+
+    private void setScopeSelected(View row, boolean selected) {
+        row.setSelected(selected);
+        ImageView icon = row.findViewById(R.id.iv_relay_scope_icon);
+        if (selected) {
+            icon.setImageResource(R.drawable.ic_status_check);
+            icon.setImageTintList(ContextCompat.getColorStateList(activity, R.color.accent));
+            icon.setBackgroundResource(R.drawable.dialog_icon_bg);
+        } else {
+            icon.setImageDrawable(null);
+            icon.setBackgroundResource(R.drawable.status_neutral_bg);
+        }
     }
 
     private void validateAndSave(VpsRelayConfig relay, String targetProfile) {
-        AlertDialog progress = new MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.import_relay_checking)
-                .setMessage(activity.getString(R.string.vps_connection_test_note))
-                .setCancelable(false)
-                .create();
+        RelayCheckProgressDialog progress = new RelayCheckProgressDialog(activity,
+                () -> saveUnchecked(relay, targetProfile));
         progress.show();
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
-                    relay.withEnabled(true), MtProtoConfig.relayDcRules());
+                    relay.withEnabled(true), MtProtoConfig.relayDcRules(), progress::update);
             main.post(() -> {
-                if (activity.isFinishing()) return;
-                progress.dismiss();
+                if (activity.isFinishing() || progress.isAbandoned()) return;
+                progress.dismissForResult();
                 if (result.status() != VpsRelayCheckResult.Status.OK) {
-                    showCheckResult(result);
+                    showCheckResult(result, () -> saveUnchecked(relay, targetProfile));
                     return;
                 }
-                VpsRelayConfig verified = relay.withEnabled(true)
-                        .withCapabilities(result.capabilities())
-                        .withInstanceId(result.instanceId());
-                VpsRelayStore.Record saved = VpsRelayStore.fromContext(activity)
-                        .saveUsableRelay(verified, targetProfile);
-                if (saved == null) {
-                    showParseError(activity.getString(R.string.settings_save_failed));
-                    return;
-                }
-                Toast.makeText(activity, R.string.vps_connection_import_success,
-                        Toast.LENGTH_SHORT).show();
-                if (callback != null) callback.onImported(saved);
+                saveVerified(relay, targetProfile, result);
             });
         }, "tg-relay-import").start();
     }
 
+    private void saveVerified(VpsRelayConfig relay, String targetProfile,
+                              VpsRelayCheckResult result) {
+        VpsRelayConfig verified = relay.withEnabled(true)
+                .withCapabilities(result.capabilities())
+                .withInstanceId(result.instanceId());
+        VpsRelayStore.Record saved = VpsRelayStore.fromContext(activity)
+                .saveUsableRelay(verified, targetProfile);
+        if (saved == null) {
+            showParseError(activity.getString(R.string.settings_save_failed));
+            return;
+        }
+        Toast.makeText(activity, R.string.vps_connection_import_success, Toast.LENGTH_SHORT).show();
+        if (callback != null) callback.onImported(saved);
+    }
+
+    private void saveUnchecked(VpsRelayConfig relay, String targetProfile) {
+        VpsRelayStore.Record saved = VpsRelayStore.fromContext(activity)
+                .saveUsableRelay(relay.withEnabled(true), targetProfile);
+        if (saved == null) {
+            showParseError(activity.getString(R.string.settings_save_failed));
+            return;
+        }
+        Toast.makeText(activity, R.string.relay_added_without_check, Toast.LENGTH_LONG).show();
+        if (callback != null) callback.onImported(saved);
+    }
+
     void showCheckResult(VpsRelayCheckResult result) {
+        showCheckResult(result, null);
+    }
+
+    void showCheckResult(VpsRelayCheckResult result, Runnable addWithoutCheck) {
         boolean ok = result != null && result.status() == VpsRelayCheckResult.Status.OK;
-        int message = ok ? R.string.vps_connection_check_ok : messageFor(result);
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle(ok ? R.string.vps_connection_check_title_ok
-                        : R.string.vps_connection_check_title_error)
-                .setMessage(message)
-                .setPositiveButton(android.R.string.ok, null)
-                .show();
+        int title = ok ? R.string.relay_check_success_title
+                : R.string.vps_connection_check_title_error;
+        int message = ok ? R.string.relay_check_success_message : messageFor(result);
+        showResult(ok, activity.getString(title), activity.getString(message),
+                ok, addWithoutCheck);
+    }
+
+    private void showParseError(String message) {
+        showResult(false, activity.getString(R.string.import_failed_title), message,
+                false, null);
+    }
+
+    private void showResult(boolean ok, String titleText, String messageText,
+                            boolean showTelegramNote, Runnable secondaryAction) {
+        View root = LayoutInflater.from(activity).inflate(R.layout.dialog_relay_result, null, false);
+        ImageView icon = root.findViewById(R.id.iv_relay_result_icon);
+        icon.setImageResource(ok ? R.drawable.ic_status_check : R.drawable.ic_status_error);
+        icon.setImageTintList(ContextCompat.getColorStateList(activity,
+                ok ? R.color.green : R.color.red));
+        icon.setBackgroundResource(ok ? R.drawable.status_success_bg : R.drawable.status_error_bg);
+        ((TextView) root.findViewById(R.id.tv_relay_result_title)).setText(titleText);
+        ((TextView) root.findViewById(R.id.tv_relay_result_message)).setText(messageText);
+        LinearLayout details = root.findViewById(R.id.content_relay_result_details);
+        if (showTelegramNote) {
+            TextView note = new TextView(activity);
+            note.setText(R.string.relay_check_telegram_note);
+            note.setTextColor(ContextCompat.getColor(activity, R.color.text_secondary));
+            note.setTextSize(11f);
+            note.setLineSpacing(0f, 1.08f);
+            details.addView(note);
+        } else if (secondaryAction != null) {
+            TextView hint = new TextView(activity);
+            hint.setText(R.string.relay_check_error_hint);
+            hint.setTextColor(ContextCompat.getColor(activity, R.color.text_secondary));
+            hint.setTextSize(11f);
+            hint.setLineSpacing(0f, 1.08f);
+            details.addView(hint);
+        } else {
+            details.setVisibility(View.GONE);
+        }
+        MaterialButton secondary = root.findViewById(R.id.btn_relay_result_secondary);
+        MaterialButton primary = root.findViewById(R.id.btn_relay_result_primary);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(activity).setView(root).create();
+        dialog.setCanceledOnTouchOutside(false);
+        if (secondaryAction != null) {
+            secondary.setVisibility(View.VISIBLE);
+            secondary.setOnClickListener(view -> {
+                dialog.dismiss();
+                secondaryAction.run();
+            });
+        } else {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) primary.getLayoutParams();
+            params.setMarginStart(0);
+            primary.setLayoutParams(params);
+        }
+        primary.setOnClickListener(view -> dialog.dismiss());
+        dialog.show();
     }
 
     private int messageFor(VpsRelayCheckResult result) {
@@ -162,35 +290,29 @@ final class RelayImportCoordinator {
         }
     }
 
-    private void showParseError(String message) {
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.import_failed_title)
-                .setMessage(message)
-                .setPositiveButton(android.R.string.ok, null)
-                .show();
-    }
-
     private EditText field(String hint, boolean multiline) {
         EditText input = new EditText(activity);
         input.setHint(hint);
-        input.setTextColor(androidx.core.content.ContextCompat.getColor(
-                activity, R.color.text_primary));
-        input.setHintTextColor(androidx.core.content.ContextCompat.getColor(
-                activity, R.color.text_hint));
+        input.setTextColor(ContextCompat.getColor(activity, R.color.text_primary));
+        input.setHintTextColor(ContextCompat.getColor(activity, R.color.text_hint));
         input.setBackgroundResource(R.drawable.edit_bg);
-        int horizontal = Math.round(14 * activity.getResources().getDisplayMetrics().density);
-        input.setPadding(horizontal, 0, horizontal, 0);
+        int horizontal = dp(14);
+        input.setPadding(horizontal, multiline ? dp(12) : 0, horizontal,
+                multiline ? dp(12) : 0);
         input.setSingleLine(!multiline);
-        input.setMinHeight(Math.round((multiline ? 112 : 54)
-                * activity.getResources().getDisplayMetrics().density));
+        input.setMinHeight(dp(multiline ? 112 : 54));
         if (multiline) input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         return input;
     }
 
-    private static String firstLine(String value) {
-        String clean = clean(value);
-        int newline = clean.indexOf('\n');
-        return newline < 0 ? clean : clean.substring(0, newline);
+    private static String endpoint(VpsRelayConfig relay) {
+        String authority = relay.host().contains(":") ? "[" + relay.host() + "]" : relay.host();
+        return (relay.tls() ? "https://" : "http://") + authority + ":"
+                + relay.port() + relay.path();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 
     private static String clean(String value) {

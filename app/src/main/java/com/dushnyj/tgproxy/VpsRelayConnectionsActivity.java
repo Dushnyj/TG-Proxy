@@ -308,14 +308,15 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
     }
 
     private void testConnection(VpsRelayStore.Record record) {
-        AlertDialog progress = progressDialog();
+        RelayCheckProgressDialog progress = new RelayCheckProgressDialog(this, null);
         progress.show();
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
-                    record.config().withEnabled(true), MtProtoConfig.relayDcRules());
+                    record.config().withEnabled(true), MtProtoConfig.relayDcRules(),
+                    progress::update);
             runOnUiThread(() -> {
-                if (isFinishing()) return;
-                progress.dismiss();
+                if (isFinishing() || progress.isAbandoned()) return;
+                progress.dismissForResult();
                 if (result.status() == VpsRelayCheckResult.Status.OK) {
                     VpsRelayConfig verified = record.config()
                             .withCapabilities(result.capabilities())
@@ -374,8 +375,11 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
                     dialog.dismiss();
                     new IntentIntegrator(this)
                             .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                            .setPrompt(getString(R.string.scan_import_qr))
-                            .setBeepEnabled(false).initiateScan();
+                            .setCaptureActivity(PortraitCaptureActivity.class)
+                            .setOrientationLocked(true)
+                            .setPrompt(getString(R.string.scan_import_qr_prompt))
+                            .setBeepEnabled(false)
+                            .initiateScan();
                 });
         addSheetAction(actions, R.drawable.ic_settings, R.string.vps_connections_add_manual,
                 R.string.vps_connections_add_manual_note, () -> {
@@ -472,45 +476,50 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
     }
 
     private void validateManual(VpsRelayStore.Record existing, VpsRelayConfig candidate) {
-        AlertDialog progress = progressDialog();
+        RelayCheckProgressDialog progress = new RelayCheckProgressDialog(this,
+                () -> saveManual(existing, candidate, null));
         progress.show();
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
-                    candidate, MtProtoConfig.relayDcRules());
+                    candidate, MtProtoConfig.relayDcRules(), progress::update);
             runOnUiThread(() -> {
-                if (isFinishing()) return;
-                progress.dismiss();
+                if (isFinishing() || progress.isAbandoned()) return;
+                progress.dismissForResult();
                 if (result.status() != VpsRelayCheckResult.Status.OK) {
-                    importer.showCheckResult(result);
+                    importer.showCheckResult(result,
+                            () -> saveManual(existing, candidate, null));
                     return;
                 }
-                VpsRelayConfig verified = candidate.withCapabilities(result.capabilities())
-                        .withInstanceId(result.instanceId());
-                VpsRelayStore store = VpsRelayStore.fromContext(this);
-                VpsRelayStore.Record saved = existing == null
-                        ? store.saveUsableRelay(verified, profileKey)
-                        : store.updateConnection(existing.id(), verified);
-                if (saved == null) {
-                    showSaveError();
-                    return;
-                }
-                markChanged();
-                selectedRelayId = saved.id();
-                page = Page.CONNECTION;
-                Toast.makeText(this, existing == null
-                                ? R.string.vps_connection_import_success
-                                : R.string.vps_connection_edit_saved,
-                        Toast.LENGTH_SHORT).show();
-                render();
+                saveManual(existing, candidate, result);
             });
         }, "tg-relay-manual-check").start();
     }
 
-    private AlertDialog progressDialog() {
-        return new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.import_relay_checking)
-                .setMessage(R.string.vps_connection_test_note)
-                .setCancelable(false).create();
+    private void saveManual(VpsRelayStore.Record existing, VpsRelayConfig candidate,
+                            VpsRelayCheckResult result) {
+        boolean verified = result != null && result.status() == VpsRelayCheckResult.Status.OK;
+        VpsRelayConfig savedConfig = verified
+                ? candidate.withCapabilities(result.capabilities())
+                .withInstanceId(result.instanceId())
+                : candidate;
+        VpsRelayStore store = VpsRelayStore.fromContext(this);
+        VpsRelayStore.Record saved = existing == null
+                ? store.saveUsableRelay(savedConfig, profileKey)
+                : store.updateConnection(existing.id(), savedConfig);
+        if (saved == null) {
+            showSaveError();
+            return;
+        }
+        markChanged();
+        selectedRelayId = saved.id();
+        page = Page.CONNECTION;
+        Toast.makeText(this, verified
+                        ? (existing == null ? R.string.vps_connection_import_success
+                        : R.string.vps_connection_edit_saved)
+                        : (existing == null ? R.string.relay_added_without_check
+                        : R.string.relay_updated_without_check),
+                verified ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
+        render();
     }
 
     private void openRelayFile() {
