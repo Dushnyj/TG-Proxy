@@ -37,7 +37,7 @@ final class MainUiState {
         PROFILES,
         VPS_RELAY,
         CLOUDFLARE_WORKER,
-        IMPORT_EXPORT,
+        PROFILE_TRANSFER,
         DIAGNOSTICS_LOGS,
         BEHAVIOR,
         INTERFACE,
@@ -61,6 +61,7 @@ final class MainUiState {
     private static final List<SettingsContent> CONNECTION_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
                     SettingsContent.PROFILES,
+                    SettingsContent.PROFILE_TRANSFER,
                     SettingsContent.CONNECTION));
     private static final List<SettingsContent> ROUTES_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
@@ -71,7 +72,6 @@ final class MainUiState {
                     SettingsContent.VPS_RELAY));
     private static final List<SettingsContent> SYSTEM_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
-                    SettingsContent.IMPORT_EXPORT,
                     SettingsContent.INTERFACE,
                     SettingsContent.BEHAVIOR,
                     SettingsContent.DIAGNOSTICS_LOGS,

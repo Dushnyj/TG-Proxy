@@ -141,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
     private View mainScreen, settingsScreen, diagnosticsScreen, btnBackDiagnostics;
     private View navConnection, navRoutes, navRelay, navSystem, navAbout;
     private View sectionConnection, sectionRoute, sectionProfiles, sectionOptimization, sectionVpsRelay;
-    private View sectionImportExport, sectionDiagnosticsLogs, sectionBehavior;
+    private View sectionProfileTransfer, sectionDiagnosticsLogs, sectionBehavior;
     private View sectionInterface, sectionUpdates, sectionAdvanced, sectionAbout;
     private View vpsManualContent, connectionAdvancedContent;
 
@@ -462,7 +462,7 @@ public class MainActivity extends AppCompatActivity {
         sectionProfiles = findViewById(R.id.section_profiles);
         sectionOptimization = findViewById(R.id.section_optimization);
         sectionVpsRelay = findViewById(R.id.section_vps_relay);
-        sectionImportExport = findViewById(R.id.section_import_export);
+        sectionProfileTransfer = findViewById(R.id.section_profile_transfer);
         sectionDiagnosticsLogs = findViewById(R.id.section_diagnostics_logs);
         sectionBehavior = findViewById(R.id.section_behavior);
         sectionInterface = findViewById(R.id.section_interface);
@@ -1037,7 +1037,7 @@ public class MainActivity extends AppCompatActivity {
         setVisible(sectionRoute, routes);
         setVisible(sectionOptimization, routes);
         setVisible(sectionVpsRelay, relay);
-        setVisible(sectionImportExport, system);
+        setVisible(sectionProfileTransfer, connection);
         setVisible(sectionDiagnosticsLogs, system);
         setVisible(sectionBehavior, system);
         setVisible(sectionAdvanced, system);
@@ -2329,7 +2329,7 @@ public class MainActivity extends AppCompatActivity {
         new IntentIntegrator(this)
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
                 .setCaptureActivity(PortraitCaptureActivity.class)
-                .setPrompt(getString(R.string.scan_import_qr_prompt))
+                .setPrompt(getString(R.string.scan_profile_qr_prompt))
                 .setBeepEnabled(false)
                 .setOrientationLocked(true)
                 .initiateScan();

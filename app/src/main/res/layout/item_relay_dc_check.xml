@@ -4,29 +4,31 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
-    android:minHeight="62dp"
+    android:minHeight="44dp"
     android:orientation="horizontal"
-    android:paddingTop="7dp"
-    android:paddingBottom="7dp">
+    android:paddingStart="8dp"
+    android:paddingTop="5dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="5dp">
 
     <FrameLayout
-        android:layout_width="40dp"
-        android:layout_height="40dp">
+        android:layout_width="34dp"
+        android:layout_height="34dp">
 
         <ImageView
-            android:id="@+id/iv_relay_check_state"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:id="@+id/iv_relay_dc_state"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
             android:background="@drawable/status_neutral_bg"
             android:contentDescription="@null"
             android:padding="5dp"
             app:tint="@color/text_hint" />
 
         <ProgressBar
-            android:id="@+id/progress_relay_check_state"
+            android:id="@+id/progress_relay_dc_state"
             style="?android:attr/progressBarStyleSmall"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:layout_gravity="center"
             android:indeterminateTint="@color/accent"
             android:visibility="gone" />
@@ -35,26 +37,27 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="14dp"
+        android:layout_marginStart="10dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/tv_relay_check_step_title"
+            android:id="@+id/tv_relay_dc_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:includeFontPadding="false"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
+            android:textColor="@color/text_primary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tv_relay_check_step_state"
+            android:id="@+id/tv_relay_dc_state"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="1dp"
             android:includeFontPadding="false"
             android:text="@string/relay_check_waiting"
             android:textColor="@color/text_hint"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 </LinearLayout>

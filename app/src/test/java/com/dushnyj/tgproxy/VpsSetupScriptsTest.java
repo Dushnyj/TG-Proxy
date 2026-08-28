@@ -555,7 +555,7 @@ public class VpsSetupScriptsTest {
         assertTrue(script.contains("caddy validate --config /tmp/tgproxy-caddy-validate"));
         assertTrue(script.contains("caddy reload --config /etc/caddy/Caddyfile"));
         assertFalse(script.contains("install -m 0644 \"$CADDY_TMP\" \"$DOCKER_CADDY_TARGET\""));
-        assertFalse(script.contains("/etc/nginx/conf.d/tgproxy-relay-slovofon_duckdns_org.conf"));
+        assertFalse(script.contains("/etc/nginx/conf.d/tgproxy-relay-example_duckdns_org.conf"));
         assertFalse(script.contains("\nnginx_service_reload\n"));
         assertFalse(script.contains("ssh-secret"));
     }
@@ -721,4 +721,3 @@ public class VpsSetupScriptsTest {
         assertFalse(backup.contains("track_mutation '/etc/nginx/conf.d/tgproxy-relay-*.conf'"));
     }
 }
-

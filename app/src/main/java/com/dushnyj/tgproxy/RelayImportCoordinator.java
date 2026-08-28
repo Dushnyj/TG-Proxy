@@ -174,7 +174,7 @@ final class RelayImportCoordinator {
         progress.show();
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
-                    relay.withEnabled(true), MtProtoConfig.relayDcRules(), progress::update);
+                    relay.withEnabled(true), MtProtoConfig.relayDcRules(), progress);
             main.post(() -> {
                 if (activity.isFinishing() || progress.isAbandoned()) return;
                 progress.dismissForResult();
@@ -221,7 +221,11 @@ final class RelayImportCoordinator {
         boolean ok = result != null && result.status() == VpsRelayCheckResult.Status.OK;
         int title = ok ? R.string.relay_check_success_title
                 : R.string.vps_connection_check_title_error;
-        int message = ok ? R.string.relay_check_success_message : messageFor(result);
+        int message = ok
+                ? (result.warning().isEmpty()
+                    ? R.string.relay_check_success_message
+                    : R.string.vps_relay_test_message_test_warning)
+                : messageFor(result);
         showResult(ok, activity.getString(title), activity.getString(message),
                 ok, addWithoutCheck);
     }

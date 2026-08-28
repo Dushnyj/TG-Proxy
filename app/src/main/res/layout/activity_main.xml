@@ -708,6 +708,9 @@
                 android:id="@+id/section_profiles"
                 layout="@layout/view_profiles" />
             <include
+                android:id="@+id/section_profile_transfer"
+                layout="@layout/view_profile_transfer" />
+            <include
                 android:id="@+id/section_route"
                 layout="@layout/view_route" />
             <include
@@ -719,9 +722,6 @@
             <include
                 android:id="@+id/section_optimization"
                 layout="@layout/view_optimization" />
-            <include
-                android:id="@+id/section_import_export"
-                layout="@layout/view_import_export" />
             <include
                 android:id="@+id/section_interface"
                 layout="@layout/view_interface" />

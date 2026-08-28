@@ -13,6 +13,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,6 +62,22 @@ public class VpsRelayClientTest {
                 "3:SERVER_ROUTES",
                 "4:TELEGRAM_ROUTES",
                 "5:DONE"), progress);
+    }
+
+    @Test
+    public void detailedPlanContainsMainAndMediaForEveryProductionAndTestDc() {
+        LinkedHashSet<Integer> production = new LinkedHashSet<>(
+                Arrays.asList(1, 2, 3, 4, 5, 203));
+        LinkedHashSet<Integer> test = new LinkedHashSet<>(Arrays.asList(1, 2, 3));
+
+        List<VpsRelayClient.RouteTarget> plan = VpsRelayClient.routePlan(production, test);
+
+        assertEquals(18, plan.size());
+        assertEquals("production:1:main", plan.get(0).key());
+        assertEquals("production:1:media", plan.get(1).key());
+        assertEquals("production:203:media", plan.get(11).key());
+        assertEquals("test:1:main", plan.get(12).key());
+        assertEquals("test:3:media", plan.get(17).key());
     }
 
     @Test
@@ -143,7 +160,7 @@ public class VpsRelayClientTest {
     @Test
     public void successfulNonRelayVersionBodyIsReportedAsWrongEndpoint() throws Exception {
         server = TinyRelayServer.startWithVersionBody("token",
-                "Slovofon service is online.", 200);
+                "Example service is online.", 200);
         VpsRelayConfig config = config("token", false);
 
         VpsRelayCheckResult result = client().check(config, dcRules());
@@ -230,7 +247,7 @@ public class VpsRelayClientTest {
         VpsRelayCheckResult result = client().check(config("token", false), dcRules());
 
         assertEquals(VpsRelayCheckResult.Status.UNAVAILABLE, result.status());
-        assertTrue(result.message().contains("unavailable routes"));
+        assertTrue(result.message().contains("incomplete or unavailable"));
     }
 
     @Test
@@ -307,7 +324,7 @@ public class VpsRelayClientTest {
         private final int routeStatus;
         private String rawVersionBody;
         private String capabilitiesBody = "";
-        private String routeBody = "DC2 main OK\nDC2 media OK";
+        private String routeBody = "";
         private String pathPrefix = "";
         private volatile String lastRoutesBody = "";
         private volatile boolean running = true;
@@ -415,7 +432,8 @@ public class VpsRelayClientTest {
                     respond(accepted, 200, body);
                 } else if ((pathPrefix + "/test-routes").equals(path)) {
                     lastRoutesBody = requestBody.toString();
-                    respond(accepted, routeStatus, routeBody);
+                    respond(accepted, routeStatus, routeBody.isEmpty()
+                            ? completeRouteReport(requestBody.toString()) : routeBody);
                 } else if ((pathPrefix + "/capabilities").equals(path)
                         && !capabilitiesBody.isEmpty()) {
                     respond(accepted, 200, capabilitiesBody);
@@ -444,6 +462,25 @@ public class VpsRelayClientTest {
             } catch (NumberFormatException ignored) {
                 return 0;
             }
+        }
+
+        private static String completeRouteReport(String requestBody) {
+            String source = requestBody == null ? "" : requestBody;
+            StringBuilder report = new StringBuilder();
+            int cursor = 0;
+            while (true) {
+                int marker = source.indexOf("\"dc\":", cursor);
+                if (marker < 0) break;
+                int start = marker + 5;
+                int end = start;
+                while (end < source.length() && Character.isDigit(source.charAt(end))) end++;
+                if (end == start) break;
+                int dc = Integer.parseInt(source.substring(start, end));
+                report.append("DC").append(dc).append(" main OK TCP_ONLY\n")
+                        .append("DC").append(dc).append(" media OK TCP_ONLY\n");
+                cursor = end;
+            }
+            return report.toString();
         }
 
         @Override

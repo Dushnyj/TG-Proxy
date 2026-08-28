@@ -56,6 +56,7 @@ public class MainUiStateTest {
     public void settingsContentIsGroupedUnderFocusedTabs() {
         assertEquals(Arrays.asList(
                 MainUiState.SettingsContent.PROFILES,
+                MainUiState.SettingsContent.PROFILE_TRANSFER,
                 MainUiState.SettingsContent.CONNECTION),
                 MainUiState.settingsContent(MainUiState.SettingsSection.CONNECTION));
         assertEquals(Arrays.asList(
@@ -66,7 +67,6 @@ public class MainUiStateTest {
                 MainUiState.SettingsContent.VPS_RELAY),
                 MainUiState.settingsContent(MainUiState.SettingsSection.RELAY));
         assertEquals(Arrays.asList(
-                MainUiState.SettingsContent.IMPORT_EXPORT,
                 MainUiState.SettingsContent.INTERFACE,
                 MainUiState.SettingsContent.BEHAVIOR,
                 MainUiState.SettingsContent.DIAGNOSTICS_LOGS,

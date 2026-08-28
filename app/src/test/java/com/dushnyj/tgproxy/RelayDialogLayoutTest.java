@@ -50,6 +50,28 @@ public class RelayDialogLayoutTest {
     }
 
     @Test
+    public void checkDialogShowsEveryDcRouteWithReadableStatusIcons() throws Exception {
+        String dialog = source("RelayCheckProgressDialog.java");
+        String client = source("VpsRelayClient.java");
+        String checkLayout = new String(Files.readAllBytes(
+                layout("dialog_relay_check.xml")), StandardCharsets.UTF_8);
+        Document step = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(layout("item_relay_check_step.xml").toFile());
+        Document dc = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(layout("item_relay_dc_check.xml").toFile());
+
+        assertTrue(dialog.contains("onRoutePlan"));
+        assertTrue(dialog.contains("onRouteProgress"));
+        assertTrue(client.contains("RouteCheckState"));
+        assertTrue(client.contains("effectiveTestDcs"));
+        assertTrue(checkLayout.contains("content_relay_dc_checks"));
+        assertEquals("40dp", attribute(node(step, "iv_relay_check_state"),
+                "android:layout_width"));
+        assertEquals("34dp", attribute(node(dc, "iv_relay_dc_state"),
+                "android:layout_width"));
+    }
+
+    @Test
     public void everyQrEntryPointUsesThePortraitScanner() throws Exception {
         for (String name : new String[]{"MainActivity.java", "VpsRelayConnectionsActivity.java"}) {
             String source = source(name);

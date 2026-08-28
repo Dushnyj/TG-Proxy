@@ -13,10 +13,14 @@ import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,6 +62,69 @@ final class VpsRelayClient {
     interface ProgressListener {
         /** completedSteps is in the range 0..5; currentStage is null after success. */
         void onProgress(int completedSteps, CheckStage currentStage);
+
+        /** Full negotiated Telegram route matrix, in stable display order. */
+        default void onRoutePlan(List<RouteTarget> targets) {}
+
+        /** Incremental end-to-end MTProto result. May be called by parallel worker threads. */
+        default void onRouteProgress(RouteProgress update) {}
+    }
+
+    enum RouteCheckState {
+        RUNNING,
+        PASSED,
+        FAILED,
+        WARNING,
+        TIMEOUT
+    }
+
+    static final class RouteTarget {
+        private final int dc;
+        private final boolean media;
+        private final boolean test;
+
+        RouteTarget(int dc, boolean media, boolean test) {
+            this.dc = dc;
+            this.media = media;
+            this.test = test;
+        }
+
+        int dc() { return dc; }
+        boolean media() { return media; }
+        boolean test() { return test; }
+
+        String key() {
+            return (test ? "test:" : "production:") + dc + (media ? ":media" : ":main");
+        }
+    }
+
+    static final class RouteProgress {
+        private final RouteTarget target;
+        private final RouteCheckState state;
+        private final int completed;
+        private final int total;
+        private final int attempt;
+        private final int attempts;
+        private final String detail;
+
+        RouteProgress(RouteTarget target, RouteCheckState state, int completed, int total,
+                      int attempt, int attempts, String detail) {
+            this.target = target;
+            this.state = state;
+            this.completed = Math.max(0, completed);
+            this.total = Math.max(0, total);
+            this.attempt = Math.max(0, attempt);
+            this.attempts = Math.max(0, attempts);
+            this.detail = detail == null ? "" : detail.trim();
+        }
+
+        RouteTarget target() { return target; }
+        RouteCheckState state() { return state; }
+        int completed() { return completed; }
+        int total() { return total; }
+        int attempt() { return attempt; }
+        int attempts() { return attempts; }
+        String detail() { return detail; }
     }
 
     static final class RouteValidation {
@@ -93,12 +160,11 @@ final class VpsRelayClient {
     private final RouteVerifier routeVerifier;
 
     VpsRelayClient() {
-        this(VpsRelayClient::verifyEndToEndRoutes);
+        this(null);
     }
 
     VpsRelayClient(RouteVerifier routeVerifier) {
-        this.routeVerifier = routeVerifier == null
-                ? VpsRelayClient::verifyEndToEndRoutes : routeVerifier;
+        this.routeVerifier = routeVerifier;
     }
 
     VpsRelayCheckResult check(VpsRelayConfig config, Map<Integer, String> dcRules) {
@@ -152,20 +218,23 @@ final class VpsRelayClient {
             HttpResult routes = requestManagementWithRetry(config, "POST", "/test-routes",
                     testRoutesBody(relayRoutes));
             if (isAuthFailure(routes.code)) return wrongToken();
-            if (!routes.isSuccessful()) {
-                return unavailable("test-routes failed: " + routes.code
-                        + compactBody(routes.body));
-            }
-            if (routes.body.toUpperCase(Locale.US).contains(" ERROR")) {
-                return unavailable("test-routes reported unavailable routes"
-                        + compactBody(routes.body));
-            }
+            ServerRouteReport serverRoutes = ServerRouteReport.parse(routes, relayRoutes.keySet());
+            String serverRouteFailure = serverRoutes.failure;
             report(progress, 4, CheckStage.TELEGRAM_ROUTES);
-            RouteValidation validation = routeVerifier.verify(config, relayRoutes);
+            Set<Integer> testDcs = effectiveTestDcs(capabilities);
+            RouteValidation validation = routeVerifier == null
+                    ? verifyEndToEndRoutes(config, relayRoutes, testDcs, progress)
+                    : routeVerifier.verify(config, relayRoutes);
             if (validation == null) validation = RouteValidation.ok();
-            if (!validation.blockingFailures.isEmpty()) {
-                return unavailable("end-to-end production routes failed: "
-                        + validation.blockingFailures);
+            if (!serverRouteFailure.isEmpty() || !validation.blockingFailures.isEmpty()) {
+                StringBuilder failure = new StringBuilder();
+                if (!serverRouteFailure.isEmpty()) failure.append(serverRouteFailure);
+                if (!validation.blockingFailures.isEmpty()) {
+                    if (failure.length() > 0) failure.append("; ");
+                    failure.append("end-to-end production routes failed: ")
+                            .append(validation.blockingFailures);
+                }
+                return unavailable(failure.toString());
             }
             if (!validation.advisoryFailures.isEmpty()) {
                 DiagnosticsLog.record("Telegram test environment advisory: "
@@ -193,6 +262,24 @@ final class VpsRelayClient {
             progress.onProgress(completedSteps, currentStage);
         } catch (RuntimeException ignored) {
             // A UI progress listener must never change the network-check result.
+        }
+    }
+
+    private static void reportRoutePlan(ProgressListener progress, List<RouteTarget> targets) {
+        if (progress == null) return;
+        try {
+            progress.onRoutePlan(Collections.unmodifiableList(new ArrayList<>(targets)));
+        } catch (RuntimeException ignored) {
+            // Route progress is informational and must not affect verification.
+        }
+    }
+
+    private static void reportRouteProgress(ProgressListener progress, RouteProgress update) {
+        if (progress == null || update == null) return;
+        try {
+            progress.onRouteProgress(update);
+        } catch (RuntimeException ignored) {
+            // Route progress is informational and must not affect verification.
         }
     }
 
@@ -612,8 +699,94 @@ final class VpsRelayClient {
         return routes;
     }
 
+    private static Set<Integer> effectiveTestDcs(VpsRelayCapabilities capabilities) {
+        LinkedHashSet<Integer> dcs = new LinkedHashSet<>();
+        if (capabilities != null && capabilities.known()) {
+            dcs.addAll(capabilities.testDcs());
+        } else {
+            dcs.addAll(MtProtoConfig.testDcRules().keySet());
+        }
+        return dcs;
+    }
+
+    /** Strictly validates the complete TCP preflight matrix returned by /test-routes. */
+    private static final class ServerRouteReport {
+        final String failure;
+
+        private ServerRouteReport(String failure) {
+            this.failure = failure == null ? "" : failure.trim();
+        }
+
+        static ServerRouteReport parse(HttpResult response, Set<Integer> expectedDcs) {
+            if (response == null) return new ServerRouteReport("test-routes returned no response");
+            if (response.code != 200 && response.code != 502) {
+                return new ServerRouteReport("test-routes failed: " + response.code
+                        + compactBody(response.body));
+            }
+            LinkedHashSet<String> expected = new LinkedHashSet<>();
+            if (expectedDcs != null) {
+                for (Integer dc : expectedDcs) {
+                    if (dc == null || dc <= 0) continue;
+                    expected.add(dc + ":main");
+                    expected.add(dc + ":media");
+                }
+            }
+            LinkedHashSet<String> seen = new LinkedHashSet<>();
+            ArrayList<String> failures = new ArrayList<>();
+            String body = response.body == null ? "" : response.body.trim();
+            if (body.isEmpty()) failures.add("empty route report");
+            for (String raw : body.split("\\r?\\n")) {
+                String line = raw.trim();
+                if (line.isEmpty()) continue;
+                String[] parts = line.split("\\s+", 4);
+                if (parts.length < 3 || !parts[0].startsWith("DC")) {
+                    failures.add("malformed route report");
+                    continue;
+                }
+                int dc;
+                try {
+                    dc = Integer.parseInt(parts[0].substring(2));
+                } catch (Exception error) {
+                    failures.add("malformed route report");
+                    continue;
+                }
+                String scope = parts[1].toLowerCase(Locale.US);
+                String key = dc + ":" + scope;
+                if ((!"main".equals(scope) && !"media".equals(scope))
+                        || !expected.contains(key)) {
+                    failures.add("unexpected " + parts[0] + " " + parts[1]);
+                    continue;
+                }
+                if (!seen.add(key)) {
+                    failures.add("duplicate " + parts[0] + " " + scope);
+                    continue;
+                }
+                String status = parts[2].toUpperCase(Locale.US);
+                if ("ERROR".equals(status)) {
+                    failures.add(line);
+                } else if (!"OK".equals(status)) {
+                    failures.add("malformed " + parts[0] + " " + scope);
+                }
+            }
+            for (String key : expected) {
+                if (!seen.contains(key)) failures.add("missing DC" + key.replace(':', ' '));
+            }
+            String details = joinFailures(failures);
+            if (!details.isEmpty()) {
+                return new ServerRouteReport("test-routes reported an incomplete or unavailable "
+                        + "TCP matrix: " + details);
+            }
+            if (response.code != 200) {
+                return new ServerRouteReport("test-routes failed: " + response.code);
+            }
+            return new ServerRouteReport("");
+        }
+    }
+
     private static RouteValidation verifyEndToEndRoutes(VpsRelayConfig config,
-                                                        Map<Integer, String> dcRules)
+                                                        Map<Integer, String> dcRules,
+                                                        Set<Integer> testDcs,
+                                                        ProgressListener progress)
             throws Exception {
         LinkedHashMap<Integer, String> required = new LinkedHashMap<>();
         if (dcRules != null) {
@@ -628,33 +801,64 @@ final class VpsRelayClient {
             if (dc == null || dc <= 0) continue;
             productionGroups.add(new RelayDcGroup(dc, false));
         }
+        ArrayList<RelayDcGroup> testGroups = new ArrayList<>();
+        if (testDcs != null) {
+            for (Integer dc : testDcs) {
+                if (dc == null || dc <= 0) continue;
+                testGroups.add(new RelayDcGroup(dc, true));
+            }
+        }
+        List<RouteTarget> plan = routePlan(required.keySet(), testDcs);
+        RouteTracker tracker = new RouteTracker(progress, plan);
+        reportRoutePlan(progress, plan);
+
         RouteBatchResult production = verifyRelayGroups(config, productionGroups,
                 PRODUCTION_VERIFY_THREADS, PRODUCTION_END_TO_END_TIMEOUT_MS,
-                MAX_SCOPE_ATTEMPTS);
+                MAX_SCOPE_ATTEMPTS, tracker);
         if (production.incomplete) {
             production.failures.add("production route verification timeout");
         }
         String blockingFailures = joinFailures(production.failures);
-        if (!blockingFailures.isEmpty()) return RouteValidation.blocking(blockingFailures);
-
-        ArrayList<RelayDcGroup> testGroups = new ArrayList<>();
-        for (Integer dc : MtProtoConfig.testDcRules().keySet()) {
-            if (dc == null || dc <= 0) continue;
-            testGroups.add(new RelayDcGroup(dc, true));
-        }
         RouteBatchResult test = verifyRelayGroups(config, testGroups, 1,
-                TEST_END_TO_END_TIMEOUT_MS, 1);
+                TEST_END_TO_END_TIMEOUT_MS, 1, tracker);
         if (test.incomplete) {
             test.failures.add("test environment verification timeout");
         }
-        return RouteValidation.advisory(joinFailures(test.failures));
+        return RouteValidation.of(blockingFailures, joinFailures(test.failures));
+    }
+
+    static List<RouteTarget> routePlan(Set<Integer> productionDcs, Set<Integer> testDcs) {
+        ArrayList<RouteTarget> plan = new ArrayList<>();
+        addDcTargets(plan, productionDcs, false);
+        addDcTargets(plan, testDcs, true);
+        return Collections.unmodifiableList(plan);
+    }
+
+    private static void addDcTargets(List<RouteTarget> out, Set<Integer> dcs, boolean test) {
+        if (out == null || dcs == null) return;
+        LinkedHashSet<Integer> unique = new LinkedHashSet<>(dcs);
+        for (Integer dc : unique) {
+            if (dc == null || dc <= 0) continue;
+            out.add(new RouteTarget(dc, false, test));
+            out.add(new RouteTarget(dc, true, test));
+        }
+    }
+
+    private static void addTargets(List<RouteTarget> out, List<RelayDcGroup> groups) {
+        if (out == null || groups == null) return;
+        for (RelayDcGroup group : groups) {
+            if (group == null) continue;
+            out.add(new RouteTarget(group.dc, false, group.test));
+            out.add(new RouteTarget(group.dc, true, group.test));
+        }
     }
 
     private static RouteBatchResult verifyRelayGroups(VpsRelayConfig config,
                                                        List<RelayDcGroup> groups,
                                                        int maxThreads,
                                                        long timeoutMs,
-                                                       int attempts) {
+                                                       int attempts,
+                                                       RouteTracker tracker) {
         RouteBatchResult result = new RouteBatchResult();
         if (groups == null || groups.isEmpty()) return result;
         ThreadFactory threadFactory = runnable -> {
@@ -668,7 +872,7 @@ final class VpsRelayClient {
         ArrayList<Future<List<String>>> futures = new ArrayList<>();
         for (RelayDcGroup group : groups) {
             futures.add(executor.submit((Callable<List<String>>) () ->
-                    verifyRelayGroup(config, group, attempts)));
+                    verifyRelayGroup(config, group, attempts, tracker)));
         }
         long deadlineNanos = System.nanoTime()
                 + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, timeoutMs));
@@ -690,23 +894,28 @@ final class VpsRelayClient {
                 }
             }
         } catch (Exception error) {
+            result.incomplete = true;
             String message = error.getMessage();
             result.failures.add(message == null || message.trim().isEmpty()
                     ? error.getClass().getSimpleName() : message.trim());
         } finally {
             for (Future<List<String>> future : futures) future.cancel(true);
             executor.shutdownNow();
+            if (result.incomplete && tracker != null) tracker.timeoutRemaining(groups);
         }
         return result;
     }
 
     private static List<String> verifyRelayGroup(VpsRelayConfig config,
-                                                 RelayDcGroup group,
-                                                 int attempts) {
+                                                  RelayDcGroup group,
+                                                  int attempts,
+                                                  RouteTracker tracker) {
         ArrayList<String> failures = new ArrayList<>();
         for (boolean media : new boolean[]{false, true}) {
             RelayScope scope = new RelayScope(group.dc, media, group.test);
-            String failure = verifyRelayScopeWithRetry(config, scope, attempts);
+            RouteTarget target = new RouteTarget(group.dc, media, group.test);
+            String failure = verifyRelayScopeWithRetry(config, scope, attempts, tracker, target);
+            if (tracker != null) tracker.finished(target, failure);
             if (!failure.isEmpty()) failures.add(failure);
             if (Thread.currentThread().isInterrupted()) break;
         }
@@ -714,10 +923,12 @@ final class VpsRelayClient {
     }
 
     private static String verifyRelayScopeWithRetry(VpsRelayConfig config, RelayScope scope,
-                                                    int attempts) {
+                                                    int attempts, RouteTracker tracker,
+                                                    RouteTarget target) {
         String failure = "";
         int count = Math.max(1, attempts);
         for (int attempt = 1; attempt <= count; attempt++) {
+            if (tracker != null) tracker.running(target, attempt, count);
             failure = verifyRelayScope(config, scope);
             if (failure.isEmpty() || attempt == count) return failure;
             try {
@@ -728,6 +939,48 @@ final class VpsRelayClient {
             }
         }
         return failure;
+    }
+
+    private static final class RouteTracker {
+        private final ProgressListener progress;
+        private final List<RouteTarget> plan;
+        private final Set<String> terminal = Collections.newSetFromMap(
+                new ConcurrentHashMap<String, Boolean>());
+        private final AtomicInteger completed = new AtomicInteger();
+
+        RouteTracker(ProgressListener progress, List<RouteTarget> plan) {
+            this.progress = progress;
+            this.plan = plan == null ? Collections.emptyList() : new ArrayList<>(plan);
+        }
+
+        void running(RouteTarget target, int attempt, int attempts) {
+            if (target == null || terminal.contains(target.key())) return;
+            reportRouteProgress(progress, new RouteProgress(target, RouteCheckState.RUNNING,
+                    completed.get(), plan.size(), attempt, attempts, ""));
+        }
+
+        void finished(RouteTarget target, String failure) {
+            if (target == null || !terminal.add(target.key())) return;
+            int done = completed.incrementAndGet();
+            String detail = failure == null ? "" : failure.trim();
+            RouteCheckState state = detail.isEmpty() ? RouteCheckState.PASSED
+                    : target.test() ? RouteCheckState.WARNING : RouteCheckState.FAILED;
+            reportRouteProgress(progress, new RouteProgress(target, state, done, plan.size(),
+                    0, 0, detail));
+        }
+
+        void timeoutRemaining(List<RelayDcGroup> groups) {
+            ArrayList<RouteTarget> targets = new ArrayList<>();
+            addTargets(targets, groups);
+            for (RouteTarget target : targets) {
+                if (!terminal.add(target.key())) continue;
+                int done = completed.incrementAndGet();
+                RouteCheckState state = target.test()
+                        ? RouteCheckState.WARNING : RouteCheckState.TIMEOUT;
+                reportRouteProgress(progress, new RouteProgress(target, state, done, plan.size(),
+                        0, 0, "timeout"));
+            }
+        }
     }
 
     private static String verifyRelayScope(VpsRelayConfig config, RelayScope scope) {

@@ -313,7 +313,7 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
                     record.config().withEnabled(true), MtProtoConfig.relayDcRules(),
-                    progress::update);
+                    progress);
             runOnUiThread(() -> {
                 if (isFinishing() || progress.isAbandoned()) return;
                 progress.dismissForResult();
@@ -377,7 +377,7 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
                             .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
                             .setCaptureActivity(PortraitCaptureActivity.class)
                             .setOrientationLocked(true)
-                            .setPrompt(getString(R.string.scan_import_qr_prompt))
+                            .setPrompt(getString(R.string.scan_relay_qr_prompt))
                             .setBeepEnabled(false)
                             .initiateScan();
                 });
@@ -481,7 +481,7 @@ public final class VpsRelayConnectionsActivity extends AppCompatActivity {
         progress.show();
         new Thread(() -> {
             VpsRelayCheckResult result = new VpsRelayClient().check(
-                    candidate, MtProtoConfig.relayDcRules(), progress::update);
+                    candidate, MtProtoConfig.relayDcRules(), progress);
             runOnUiThread(() -> {
                 if (isFinishing() || progress.isAbandoned()) return;
                 progress.dismissForResult();

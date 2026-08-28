@@ -13,9 +13,9 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
-public class ImportExportSettingsLayoutTest {
+public class ProfileTransferSettingsLayoutTest {
     @Test
-    public void importExportSectionExposesStageElevenActions() throws Exception {
+    public void profileTransferSectionExposesOnlySelectedProfileActions() throws Exception {
         Document document = DocumentBuilderFactory.newInstance()
                 .newDocumentBuilder()
                 .parse(layout().toFile());
@@ -51,8 +51,8 @@ public class ImportExportSettingsLayoutTest {
     }
 
     private static Path layout() {
-        Path path = Paths.get("app/src/main/res/layout/view_import_export.xml");
+        Path path = Paths.get("app/src/main/res/layout/view_profile_transfer.xml");
         if (Files.exists(path)) return path;
-        return Paths.get("src/main/res/layout/view_import_export.xml");
+        return Paths.get("src/main/res/layout/view_profile_transfer.xml");
     }
 }

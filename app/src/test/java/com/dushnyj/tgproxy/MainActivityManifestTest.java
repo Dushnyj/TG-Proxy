@@ -12,6 +12,7 @@ import java.nio.file.Paths;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 public class MainActivityManifestTest {
     @Test
@@ -72,8 +73,35 @@ public class MainActivityManifestTest {
                 .getNamedItem("android:exported").getNodeValue()));
     }
 
+    @Test
+    public void appCannotChangeTheDeviceWideRotationLock() throws Exception {
+        String manifestXml = new String(Files.readAllBytes(manifest()), "UTF-8");
+
+        assertFalse(manifestXml.contains("android.permission.WRITE_SETTINGS"));
+        try (java.util.stream.Stream<Path> sources = Files.walk(sourceRoot())) {
+            assertFalse(sources.filter(path -> path.toString().endsWith(".java"))
+                    .map(MainActivityManifestTest::read)
+                    .anyMatch(text -> text.contains("Settings.System.put")
+                            || text.contains("accelerometer_rotation")));
+        }
+    }
+
     private static Node mainActivity(Document document) {
         return activity(document, ".MainActivity");
+    }
+
+    private static Path sourceRoot() {
+        Path path = Paths.get("app/src/main/java/com/dushnyj/tgproxy");
+        if (Files.exists(path)) return path;
+        return Paths.get("src/main/java/com/dushnyj/tgproxy");
+    }
+
+    private static String read(Path path) {
+        try {
+            return new String(Files.readAllBytes(path), "UTF-8");
+        } catch (Exception error) {
+            throw new IllegalStateException(error);
+        }
     }
 
     private static Node activity(Document document, String activityName) {
