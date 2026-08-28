@@ -105,12 +105,12 @@ public class MainActivity extends AppCompatActivity {
     private Button btnRouteDirectOnly;
     private Button btnVpsRelayTest;
     private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
-    private Button btnVpsOwnerManage, btnVpsRelayConnections;
+    private Button btnVpsRelayConnections;
     private Button btnVpsManualToggle, btnConnectionAdvancedToggle;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
     private Button btnCreateProfile, btnSaveProfile, btnDeleteProfile;
-    private Button btnExportSafeProfile, btnExportVpsRelay, btnExportEncryptedProfile, btnImportSettings;
+    private Button btnExportSafeProfile, btnExportEncryptedProfile, btnImportSettings;
     private Button btnScanQr;
     private Button btnSettingsDiagnostics;
     private Button btnBackgroundSetup;
@@ -121,7 +121,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvActiveProfile, tvProfileKey, tvProfilesList;
     private TextView tvRoutePreferenceExplanation;
     private TextView tvUpdateStatus, tvUpdateProgress, tvVersion;
-    private TextView tvVpsSetupStatus;
+    private TextView tvVpsSetupStatus, tvVpsRelaySummary;
     private TextView tvBackgroundStatus;
     private TextView tvDiagnosticsNetwork, tvDiagnosticsProfile, tvDiagnosticsRoute;
     private TextView tvDiagnosticsRouteChecks, tvDiagnosticsHistory, tvDiagnosticsErrors;
@@ -356,7 +356,6 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelaySave = findViewById(R.id.btn_vps_relay_save);
         btnVpsRelayDelete = findViewById(R.id.btn_vps_relay_delete);
         btnVpsRelayAutoSetup = findViewById(R.id.btn_vps_relay_auto_setup);
-        btnVpsOwnerManage = findViewById(R.id.btn_vps_owner_manage);
         btnVpsRelayConnections = findViewById(R.id.btn_vps_relay_connections);
         btnVpsManualToggle = findViewById(R.id.btn_vps_manual_toggle);
         btnConnectionAdvancedToggle = findViewById(R.id.btn_connection_advanced_toggle);
@@ -369,7 +368,6 @@ public class MainActivity extends AppCompatActivity {
         btnSaveProfile = findViewById(R.id.btn_save_profile);
         btnDeleteProfile = findViewById(R.id.btn_delete_profile);
         btnExportSafeProfile = findViewById(R.id.btn_export_safe_profile);
-        btnExportVpsRelay = findViewById(R.id.btn_export_vps_relay);
         btnExportEncryptedProfile = findViewById(R.id.btn_export_encrypted_profile);
         btnImportSettings = findViewById(R.id.btn_import_settings);
         btnScanQr = findViewById(R.id.btn_scan_qr);
@@ -397,6 +395,7 @@ public class MainActivity extends AppCompatActivity {
         tvUpdateProgress = findViewById(R.id.tv_update_progress);
         tvVersion = findViewById(R.id.tv_version);
         tvVpsSetupStatus = findViewById(R.id.tv_vps_setup_status);
+        tvVpsRelaySummary = findViewById(R.id.tv_vps_relay_summary);
         tvBackgroundStatus = findViewById(R.id.tv_background_status);
         tvGithub = findViewById(R.id.tv_github);
         tvActiveProfile = findViewById(R.id.tv_active_profile);
@@ -550,8 +549,9 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
-        btnVpsRelayAutoSetup.setOnClickListener(v -> openVpsSetup(false));
-        btnVpsOwnerManage.setOnClickListener(v -> openVpsOwnerManager());
+        btnVpsRelayAutoSetup.setOnClickListener(v -> startActivityForResult(
+                VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi(), true),
+                REQUEST_VPS_CONNECTIONS));
         btnVpsRelayConnections.setOnClickListener(v -> startActivityForResult(
                 VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi()),
                 REQUEST_VPS_CONNECTIONS));
@@ -572,7 +572,6 @@ public class MainActivity extends AppCompatActivity {
         btnSaveProfile.setOnClickListener(v -> saveDisplayedProfile());
         btnDeleteProfile.setOnClickListener(v -> confirmDeleteDisplayedProfile());
         btnExportSafeProfile.setOnClickListener(v -> exportSafeProfile());
-        btnExportVpsRelay.setOnClickListener(v -> exportVpsRelay());
         btnExportEncryptedProfile.setOnClickListener(v -> showEncryptedExportDialog());
         btnImportSettings.setOnClickListener(v -> showImportSettingsDialog());
         btnScanQr.setOnClickListener(v -> scanImportQr());
@@ -1039,7 +1038,7 @@ public class MainActivity extends AppCompatActivity {
         setVisible(sectionRoute, routes);
         setVisible(sectionOptimization, routes);
         setVisible(sectionVpsRelay, relay);
-        setVisible(sectionImportExport, relay);
+        setVisible(sectionImportExport, system);
         setVisible(sectionDiagnosticsLogs, system);
         setVisible(sectionBehavior, system);
         setVisible(sectionAdvanced, system);
@@ -1992,20 +1991,17 @@ public class MainActivity extends AppCompatActivity {
                 .setCancelable(false)
                 .create();
         loading.show();
-        setEnabled(btnVpsOwnerManage, false);
         new Thread(() -> {
             try {
                 VpsOwnerClient.Overview overview = new VpsOwnerClient()
                         .load(relay, owner.adminToken());
                 handler.post(() -> {
                     loading.dismiss();
-                    setEnabled(btnVpsOwnerManage, true);
                     showVpsOwnerOverview(relay, owner, overview);
                 });
             } catch (Exception error) {
                 handler.post(() -> {
                     loading.dismiss();
-                    setEnabled(btnVpsOwnerManage, true);
                     new MaterialAlertDialogBuilder(this)
                             .setTitle(R.string.vps_owner_manage)
                             .setMessage(getString(R.string.vps_owner_failed,
@@ -2614,28 +2610,103 @@ public class MainActivity extends AppCompatActivity {
             if (message.contains("password") && (password == null || password.trim().isEmpty())) {
                 showImportSettingsDialog(payload, confirmExternalAfterDecrypt);
             } else {
-                Toast.makeText(this, getString(R.string.import_failed,
-                        e.getMessage()), Toast.LENGTH_LONG).show();
+                showImportFailure(SettingsTransferErrorText.messageRes(e),
+                        confirmExternalAfterDecrypt);
             }
         } catch (Exception e) {
-            Toast.makeText(this, getString(R.string.import_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            showImportFailure(SettingsTransferErrorText.messageRes(e),
+                    confirmExternalAfterDecrypt);
         }
     }
 
-    private boolean handleImportIntent(Intent intent) {
-        if (intent == null || intent.getData() == null) return false;
-        String raw = intent.getData().toString();
-        if (!SettingsTransfer.isImportLink(raw)) return false;
-        // Consume the external URI exactly once. Otherwise an Activity recreation can display a
-        // second import confirmation for the same token-bearing link.
-        intent.setData(null);
-        try {
-            SettingsTransfer.Imported imported = SettingsTransfer.parseDeepLink(raw, "");
-            confirmExternalImport(imported);
-        } catch (SettingsTransferException e) {
-            showImportSettingsDialog(raw, true);
+    private void showImportFailure(@androidx.annotation.StringRes int messageRes,
+                                   boolean externalIntent) {
+        if (!externalIntent) {
+            Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show();
+            return;
         }
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.import_failed_title)
+                .setMessage(messageRes)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    private boolean handleImportIntent(Intent intent) {
+        if (intent == null) return false;
+        String action = intent.getAction();
+        String raw = "";
+        Uri stream = null;
+        if (Intent.ACTION_VIEW.equals(action)) {
+            Uri data = intent.getData();
+            if (data != null && SettingsTransfer.isImportLink(data.toString())) {
+                raw = data.toString();
+            } else if (data != null && "content".equalsIgnoreCase(data.getScheme())) {
+                stream = data;
+            }
+        } else if (Intent.ACTION_SEND.equals(action)) {
+            Object extraStream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (extraStream instanceof Uri
+                    && "content".equalsIgnoreCase(((Uri) extraStream).getScheme())) {
+                stream = (Uri) extraStream;
+            }
+            if (stream == null && intent.getClipData() != null
+                    && intent.getClipData().getItemCount() > 0) {
+                ClipData.Item item = intent.getClipData().getItemAt(0);
+                if (item.getUri() != null
+                        && "content".equalsIgnoreCase(item.getUri().getScheme())) {
+                    stream = item.getUri();
+                } else if (item.getText() != null) raw = item.getText().toString();
+            }
+            if (stream == null && raw.isEmpty()) {
+                CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+                if (text != null) raw = text.toString();
+            }
+        }
+        if (raw.trim().isEmpty() && stream == null) return false;
+
+        // Consume every carrier exactly once. singleTop, rotation and process recreation must not
+        // display a second confirmation for the same token-bearing payload.
+        intent.setAction(null);
+        intent.setData(null);
+        intent.setClipData(null);
+        intent.removeExtra(Intent.EXTRA_TEXT);
+        intent.removeExtra(Intent.EXTRA_STREAM);
+
+        if (stream != null) {
+            final Uri source = stream;
+            String type = getContentResolver().getType(source);
+            boolean image = type != null && type.toLowerCase(Locale.US).startsWith("image/");
+            if (image) {
+                new Thread(() -> {
+                    try {
+                        String decoded = QrCodePayloadDecoder.decode(getContentResolver(), source);
+                        handler.post(() -> {
+                            if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                            if (decoded.isEmpty()) {
+                                Toast.makeText(this, R.string.vps_connection_qr_empty,
+                                        Toast.LENGTH_LONG).show();
+                            } else importSettingsPayload(decoded, "", true);
+                        });
+                    } catch (Exception error) {
+                        handler.post(() -> {
+                            if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                            Toast.makeText(this, R.string.vps_connection_qr_empty,
+                                    Toast.LENGTH_LONG).show();
+                        });
+                    }
+                }, "tg-import-qr-image").start();
+            } else {
+                try {
+                    importSettingsPayload(readTextFromUri(source), "", true);
+                } catch (Exception error) {
+                    Toast.makeText(this, getString(R.string.import_failed,
+                            error.getMessage()), Toast.LENGTH_LONG).show();
+                }
+            }
+            return true;
+        }
+        importSettingsPayload(raw, "", true);
         return true;
     }
 
@@ -2764,29 +2835,31 @@ public class MainActivity extends AppCompatActivity {
                 if (progressDialog.isShowing()) progressDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
                 if (result.status() == VpsRelayCheckResult.Status.OK) {
-                    commitImportedSettings(imported, boundRelay.profileKey(), result.capabilities());
+                    commitImportedSettings(imported, boundRelay.profileKey(),
+                            result.capabilities(), result.instanceId());
                     return;
                 }
                 DiagnosticsLog.record("vps relay import rejected "
                         + boundRelay.host() + " " + result.status().name());
-                new MaterialAlertDialogBuilder(this)
-                        .setTitle(R.string.import_failed_title)
-                        .setMessage(getString(R.string.import_relay_rejected,
-                                result.status().name(), result.message()))
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
+                // Technical details stay in diagnostics. The import UI explains the actionable
+                // category (address, token, TLS, update or temporary network failure) instead of
+                // exposing UnknownHostException/HTTP internals to the user.
+                new RelayImportCoordinator(this, boundRelay.profileKey(), null)
+                        .showCheckResult(result);
             });
         }, "tg-vps-relay-import-check").start();
     }
 
     private void commitImportedSettings(SettingsTransfer.Imported imported,
                                         String relayProfileKey) {
-        commitImportedSettings(imported, relayProfileKey, VpsRelayCapabilities.unknown());
+        commitImportedSettings(imported, relayProfileKey,
+                VpsRelayCapabilities.unknown(), "");
     }
 
     private void commitImportedSettings(SettingsTransfer.Imported imported,
-                                        String relayProfileKey,
-                                        VpsRelayCapabilities capabilities) {
+                                         String relayProfileKey,
+                                         VpsRelayCapabilities capabilities,
+                                         String instanceId) {
         if (imported == null) return;
         SettingsTransfer.Data data = imported.data();
         if (imported.kind() != SettingsTransfer.Kind.VPS_RELAY) {
@@ -2811,7 +2884,7 @@ public class MainActivity extends AppCompatActivity {
         VpsRelayConfig relay = data.relayConfig();
         VpsRelayConfig relayToCommit = null;
         if (relay != null && relay.isUsable()) {
-            relay = relay.withCapabilities(capabilities);
+            relay = relay.withCapabilities(capabilities).withInstanceId(instanceId);
             String targetProfileKey = relayProfileKey == null ? "" : relayProfileKey.trim();
             relayToCommit = relay.withProfileKey(targetProfileKey);
             fillVpsRelayForm(relayToCommit);
@@ -3450,6 +3523,23 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         setEnabled(btnVpsRelayDelete, index > 0);
+        refreshVpsRelaySummary(store, relays);
+    }
+
+    private void refreshVpsRelaySummary(VpsRelayStore store,
+                                        List<VpsRelayStore.Record> relays) {
+        if (tvVpsRelaySummary == null || store == null) return;
+        int total = relays == null ? 0 : relays.size();
+        if (total == 0) {
+            tvVpsRelaySummary.setText(R.string.vps_relay_summary_empty);
+            return;
+        }
+        String key = vpsRelayProfileKeyForUi();
+        VpsRelayConfig primary = store.selectedRelay(key);
+        int enabled = store.relayPool(key).size();
+        String primaryName = primary == null ? getString(R.string.vps_relay_none) : primary.name();
+        tvVpsRelaySummary.setText(getString(R.string.vps_relay_summary,
+                primaryName, enabled, total));
     }
 
     private void fillVpsRelayForm(VpsRelayConfig relay) {
@@ -3930,12 +4020,6 @@ public class MainActivity extends AppCompatActivity {
         setEnabled(cbVpsRelayBindProfile, enabled);
         setEnabled(btnVpsRelayTest, enabled);
         setEnabled(btnVpsRelayAutoSetup, !vpsSetupRunning);
-        VpsRelayConfig current = currentVpsRelayConfig();
-        VpsOwnerRecord owner = current.hasValidEndpoint()
-                ? new VpsOwnerStore(this).forRelay(current) : null;
-        boolean canManage = owner != null && owner.canManage();
-        setVisible(btnVpsOwnerManage, canManage);
-        setEnabled(btnVpsOwnerManage, canManage);
     }
 
     private boolean saveVpsRelaySettings(VpsRelayConfig relay) {

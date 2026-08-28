@@ -16,16 +16,23 @@ final class VpsRelayCheckResult {
     private final String relayVersion;
     private final String warning;
     private final VpsRelayCapabilities capabilities;
+    private final String instanceId;
 
     private VpsRelayCheckResult(Status status, String message, String routeReport,
                                 String relayVersion, String warning) {
         this(status, message, routeReport, relayVersion, warning,
-                VpsRelayCapabilities.unknown());
+                VpsRelayCapabilities.unknown(), "");
     }
 
     private VpsRelayCheckResult(Status status, String message, String routeReport,
                                 String relayVersion, String warning,
                                 VpsRelayCapabilities capabilities) {
+        this(status, message, routeReport, relayVersion, warning, capabilities, "");
+    }
+
+    private VpsRelayCheckResult(Status status, String message, String routeReport,
+                                String relayVersion, String warning,
+                                VpsRelayCapabilities capabilities, String instanceId) {
         this.status = status == null ? Status.UNAVAILABLE : status;
         this.message = message == null ? "" : message;
         this.routeReport = routeReport == null ? "" : routeReport;
@@ -33,6 +40,7 @@ final class VpsRelayCheckResult {
         this.warning = warning == null ? "" : warning.trim();
         this.capabilities = capabilities == null
                 ? VpsRelayCapabilities.unknown() : capabilities;
+        this.instanceId = VpsRelayConfig.validInstanceId(instanceId) ? instanceId.trim() : "";
     }
 
     static VpsRelayCheckResult of(Status status, String message) {
@@ -54,8 +62,13 @@ final class VpsRelayCheckResult {
 
     static VpsRelayCheckResult ok(String routeReport, String relayVersion, String warning,
                                   VpsRelayCapabilities capabilities) {
+        return ok(routeReport, relayVersion, warning, capabilities, "");
+    }
+
+    static VpsRelayCheckResult ok(String routeReport, String relayVersion, String warning,
+                                  VpsRelayCapabilities capabilities, String instanceId) {
         return new VpsRelayCheckResult(Status.OK, "relay is available", routeReport,
-                relayVersion, warning, capabilities);
+                relayVersion, warning, capabilities, instanceId);
     }
 
     Status status() {
@@ -79,4 +92,6 @@ final class VpsRelayCheckResult {
     }
 
     VpsRelayCapabilities capabilities() { return capabilities; }
+
+    String instanceId() { return instanceId; }
 }

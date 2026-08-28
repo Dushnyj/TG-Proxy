@@ -152,9 +152,55 @@ final class RelayShareSheet {
                     .setTitle(R.string.relay_share_qr_title)
                     .setView(content)
                     .setPositiveButton(android.R.string.ok, null)
-                    .setNeutralButton(R.string.relay_share_copy_link, (ignored, which) -> copy(activity, link))
+                    .setNegativeButton(R.string.relay_share_copy_link,
+                            (ignored, which) -> copy(activity, link))
+                    .setNeutralButton(R.string.share_qr,
+                            (ignored, which) -> shareQrImage(activity, link))
                     .create();
+            dialog.setOnDismissListener(ignored -> {
+                if (!bitmap.isRecycled()) bitmap.recycle();
+            });
             dialog.show();
+        } catch (Exception error) {
+            Toast.makeText(activity, activity.getString(R.string.qr_failed,
+                    firstLine(error.getMessage())), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static void shareQrImage(Activity activity, String link) {
+        try {
+            File dir = new File(activity.getCacheDir(), "exports");
+            if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("export directory");
+            File[] old = dir.listFiles((ignored, name) ->
+                    name != null && name.startsWith("tgproxy-relay-qr-") && name.endsWith(".png"));
+            if (old != null) {
+                long cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
+                for (File file : old) if (file.lastModified() < cutoff) file.delete();
+            }
+            File file = new File(dir, "tgproxy-relay-qr-" + System.currentTimeMillis() + ".png");
+            Bitmap bitmap = QrCodeBitmap.create(link, 768);
+            try {
+                try (FileOutputStream output = new FileOutputStream(file, false)) {
+                    if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                        throw new IllegalStateException("QR encode failed");
+                    }
+                    output.flush();
+                    output.getFD().sync();
+                }
+            } finally {
+                bitmap.recycle();
+            }
+            Uri uri = FileProvider.getUriForFile(activity,
+                    BuildConfig.APPLICATION_ID + ".provider", file);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("image/png");
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.putExtra(Intent.EXTRA_TEXT, link);
+            intent.putExtra(Intent.EXTRA_SUBJECT, activity.getString(R.string.relay_share_title));
+            intent.setClipData(ClipData.newUri(activity.getContentResolver(), file.getName(), uri));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            activity.startActivity(Intent.createChooser(intent,
+                    activity.getString(R.string.relay_share_choose_app)));
         } catch (Exception error) {
             Toast.makeText(activity, activity.getString(R.string.qr_failed,
                     firstLine(error.getMessage())), Toast.LENGTH_LONG).show();

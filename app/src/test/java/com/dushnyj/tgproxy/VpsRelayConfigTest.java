@@ -81,6 +81,8 @@ public class VpsRelayConfigTest {
                 true, "/apiws/admin/v1/tokens", "token", "").isUsable());
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/apiws/connect", "token", "").isUsable());
+        assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
+                true, "/apiws/identity", "token", "").isUsable());
         assertTrue(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,
                 true, "/private-relay/v1", "token", "").isUsable());
         assertFalse(VpsRelayConfig.manual(true, "Relay", "relay.example.com", 443,

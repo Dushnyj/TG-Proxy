@@ -256,10 +256,10 @@ public final class VpsOwnerActivity extends AppCompatActivity {
             VpsRelayStore store = VpsRelayStore.fromContext(this);
             VpsRelayConfig localRelay = relay.withTokenAndName(local.secret(), name);
             String localRelayId = store.relayIdFor(localRelay);
-            VpsRelayStore.Record localRecord = store.relay(localRelayId);
             boolean primary = !localRelayId.isEmpty()
                     && localRelayId.equals(clean(store.selectedRelayId(profileKey)))
-                    && localRecord != null && localRecord.config().isEnabled();
+                    && store.relay(localRelayId) != null
+                    && store.relayEnabledForProfile(profileKey, localRelayId);
             addAction(R.drawable.ic_link,
                     primary ? R.string.vps_owner_token_primary_here
                             : R.string.vps_owner_token_use_here,
@@ -418,7 +418,9 @@ public final class VpsOwnerActivity extends AppCompatActivity {
         input.setHintTextColor(ContextCompat.getColor(this, R.color.text_hint));
         input.setBackgroundResource(R.drawable.edit_bg);
         input.setPadding(dp(14), 0, dp(14), 0);
+        input.setGravity(android.view.Gravity.CENTER_VERTICAL);
         LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setPadding(dp(20), dp(4), dp(20), 0);
         wrapper.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
@@ -445,7 +447,11 @@ public final class VpsOwnerActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 VpsOwnerClient api = new VpsOwnerClient();
-                VpsOwnerClient.CreatedToken created = api.create(relay, owner.adminToken(), name);
+                VpsTokenCreationDraftStore draftStore = new VpsTokenCreationDraftStore(this);
+                VpsTokenCreationDraftStore.Draft draft = draftStore.loadOrCreate(relay, name);
+                if (draft == null) throw new Exception("token request could not be saved");
+                VpsOwnerClient.CreatedToken created = api.create(
+                        relay, owner.adminToken(), name, draft);
                 boolean saved = new VpsOwnerStore(this).saveManagedToken(relay,
                         created.token().id(), created.token().name(), created.secret());
                 VpsRelayConfig shareRelay = relay.withTokenAndName(created.secret(), name);
@@ -462,6 +468,15 @@ public final class VpsOwnerActivity extends AppCompatActivity {
                     } catch (Exception rollbackError) {
                         DiagnosticsLog.record("VPS owner token rollback failed: "
                                 + firstLine(rollbackError.getMessage()));
+                    }
+                }
+                // Keep the encrypted draft while a confirmed server token has not been saved
+                // locally and could not be rolled back. Repeating Create will then replay the
+                // same idempotent request and recover the same secret instead of adding another
+                // token whose secret the phone no longer knows.
+                if (saved || rolledBack) {
+                    if (!draftStore.clear()) {
+                        DiagnosticsLog.record("VPS owner token draft cleanup failed");
                     }
                 }
                 boolean finalSaved = saved;
@@ -819,7 +834,8 @@ public final class VpsOwnerActivity extends AppCompatActivity {
     }
 
     private String friendlyDeviceLabel(VpsOwnerClient.Client client) {
-        String hardware = clean(client.manufacturer() + " " + client.model());
+        if (client == null) return "—";
+        String hardware = clean(client.deviceLabel());
         return hardware.isEmpty() ? shortId(client.deviceId()) : hardware;
     }
 

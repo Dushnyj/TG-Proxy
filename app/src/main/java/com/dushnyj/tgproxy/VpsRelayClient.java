@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -93,7 +94,7 @@ final class VpsRelayClient {
                     "relay is not configured");
         }
         try {
-            HttpResult version = requestManagement(config, "GET", "/version", "");
+            HttpResult version = requestManagementWithRetry(config, "GET", "/version", "");
             if (isAuthFailure(version.code)) return wrongToken();
             if (!version.isSuccessful()) return unavailable("version failed: " + version.code);
             if (!isRelayVersionBody(version.body)) {
@@ -108,7 +109,8 @@ final class VpsRelayClient {
             }
 
             VpsRelayCapabilities capabilities = VpsRelayCapabilities.unknown();
-            HttpResult capabilityResponse = requestManagement(config, "GET", "/capabilities", "");
+            HttpResult capabilityResponse = requestManagementWithRetry(
+                    config, "GET", "/capabilities", "");
             if (isAuthFailure(capabilityResponse.code)) return wrongToken();
             if (capabilityResponse.isSuccessful()) {
                 capabilities = VpsRelayCapabilities.parse(capabilityResponse.body);
@@ -120,12 +122,12 @@ final class VpsRelayClient {
                 return unavailable("capabilities failed: " + capabilityResponse.code);
             }
 
-            HttpResult health = requestManagement(config, "GET", "/healthz", "");
+            HttpResult health = requestManagementWithRetry(config, "GET", "/healthz", "");
             if (isAuthFailure(health.code)) return wrongToken();
             if (!health.isSuccessful()) return unavailable("healthz failed: " + health.code);
 
             Map<Integer, String> relayRoutes = effectiveProductionRoutes(capabilities, dcRules);
-            HttpResult routes = requestManagement(config, "POST", "/test-routes",
+            HttpResult routes = requestManagementWithRetry(config, "POST", "/test-routes",
                     testRoutesBody(relayRoutes));
             if (isAuthFailure(routes.code)) return wrongToken();
             if (!routes.isSuccessful()) {
@@ -146,9 +148,12 @@ final class VpsRelayClient {
                 DiagnosticsLog.record("Telegram test environment advisory: "
                         + validation.advisoryFailures);
             }
+            String instanceId = booleanJson(version.body, "identityPersistent", false)
+                    ? stringJson(version.body, "instanceId", "") : "";
             return VpsRelayCheckResult.ok(routes.body,
                     stringJson(version.body, "version", ""),
-                    validation.advisoryFailures, capabilities);
+                    validation.advisoryFailures, capabilities,
+                    instanceId);
         } catch (SSLException e) {
             return VpsRelayCheckResult.of(VpsRelayCheckResult.Status.TLS_ERROR,
                     "TLS handshake failed");
@@ -163,7 +168,7 @@ final class VpsRelayClient {
                     "relay is not configured", "", targetVersion, 0, 0);
         }
         try {
-            HttpResult version = requestManagement(config, "GET", "/version", "");
+            HttpResult version = requestManagementWithRetry(config, "GET", "/version", "");
             if (isAuthFailure(version.code)) {
                 return VpsRelayInfo.of(VpsRelayCheckResult.Status.WRONG_TOKEN,
                         "relay token was rejected", "", targetVersion, 0, 0);
@@ -188,7 +193,8 @@ final class VpsRelayClient {
             }
             VpsRelayCapabilities capabilities = VpsRelayCapabilities.unknown();
             if (status == VpsRelayCheckResult.Status.OK) {
-                HttpResult response = requestManagement(config, "GET", "/capabilities", "");
+                HttpResult response = requestManagementWithRetry(
+                        config, "GET", "/capabilities", "");
                 if (isAuthFailure(response.code)) {
                     return VpsRelayInfo.of(VpsRelayCheckResult.Status.WRONG_TOKEN,
                             "relay token was rejected", relayVersion, targetVersion,
@@ -235,7 +241,8 @@ final class VpsRelayClient {
         if (!validBearer(bearer)) throw new IOException("invalid bearer credential");
         if (!config.tls()) return requestPlain(config, bearer, method, path, body);
         URL url = new URL(config.baseUrl() + path);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        RelayNetworkBinding.Binding network = RelayNetworkBinding.capture();
+        HttpURLConnection connection = (HttpURLConnection) network.openConnection(url);
         connection.setConnectTimeout(TIMEOUT_MS);
         connection.setReadTimeout(MANAGEMENT_READ_TIMEOUT_MS);
         connection.setInstanceFollowRedirects(false);
@@ -263,8 +270,8 @@ final class VpsRelayClient {
     private static HttpResult requestPlain(VpsRelayConfig config, String bearer, String method,
                                            String path, String body) throws Exception {
         byte[] requestBody = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(config.host(), config.port()), TIMEOUT_MS);
+        RelayNetworkBinding.Binding network = RelayNetworkBinding.capture();
+        try (Socket socket = connectPlainSocket(network, config.host(), config.port())) {
             socket.setSoTimeout(MANAGEMENT_READ_TIMEOUT_MS);
             socket.setTcpNoDelay(true);
             BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
@@ -316,6 +323,25 @@ final class VpsRelayClient {
             }
             return new HttpResult(status, new String(responseBody, StandardCharsets.UTF_8));
         }
+    }
+
+    private static Socket connectPlainSocket(RelayNetworkBinding.Binding network, String host,
+                                             int port) throws Exception {
+        Exception last = null;
+        InetAddress[] addresses = network.resolveAll(host);
+        if (addresses == null || addresses.length == 0) throw new IOException("DNS returned no address");
+        for (InetAddress address : addresses) {
+            Socket socket = network.newSocket();
+            try {
+                socket.connect(new InetSocketAddress(address, port), TIMEOUT_MS);
+                return socket;
+            } catch (Exception error) {
+                last = error;
+                try { socket.close(); } catch (Exception ignored) {}
+            }
+        }
+        if (last != null) throw last;
+        throw new IOException("connection failed");
     }
 
     private static String httpHost(String host, int port, boolean tls) {
@@ -425,6 +451,39 @@ final class VpsRelayClient {
     private static HttpResult requestManagement(VpsRelayConfig config, String method,
                                                 String endpoint, String body) throws Exception {
         return requestManagement(config, config.token(), method, endpoint, body);
+    }
+
+    private static HttpResult requestManagementWithRetry(VpsRelayConfig config, String method,
+                                                          String endpoint, String body)
+            throws Exception {
+        Exception last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return requestManagement(config, method, endpoint, body);
+            } catch (Exception error) {
+                last = error;
+                if (attempt > 0 || !transientNetworkError(error)) throw error;
+                try {
+                    Thread.sleep(RETRY_DELAY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Relay check interrupted", interrupted);
+                }
+            }
+        }
+        throw last == null ? new IOException("Relay check failed") : last;
+    }
+
+    private static boolean transientNetworkError(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof java.net.UnknownHostException
+                    || current instanceof java.net.SocketTimeoutException
+                    || current instanceof java.net.ConnectException
+                    || current instanceof java.net.NoRouteToHostException) return true;
+            current = current.getCause();
+        }
+        return false;
     }
 
     static HttpResult requestOwner(VpsRelayConfig config, String adminToken, String method,
@@ -721,6 +780,20 @@ final class VpsRelayClient {
         } catch (NumberFormatException ignored) {
             return fallback;
         }
+    }
+
+    private static boolean booleanJson(String json, String key, boolean fallback) {
+        if (json == null || key == null) return fallback;
+        String marker = "\"" + key + "\"";
+        int index = json.indexOf(marker);
+        if (index < 0) return fallback;
+        int colon = json.indexOf(':', index + marker.length());
+        if (colon < 0) return fallback;
+        int start = colon + 1;
+        while (start < json.length() && Character.isWhitespace(json.charAt(start))) start++;
+        if (json.regionMatches(start, "true", 0, 4)) return true;
+        if (json.regionMatches(start, "false", 0, 5)) return false;
+        return fallback;
     }
 
     private static String stringJson(String json, String key, String fallback) {

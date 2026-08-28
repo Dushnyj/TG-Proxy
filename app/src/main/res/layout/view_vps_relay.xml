@@ -28,6 +28,20 @@
         android:textSize="12sp" />
 
     <TextView
+        android:id="@+id/tv_vps_relay_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/owner_card_bg"
+        android:includeFontPadding="false"
+        android:lineSpacingExtra="2dp"
+        android:minHeight="64dp"
+        android:padding="14dp"
+        android:text="@string/vps_relay_summary_empty"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+    <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
@@ -35,7 +49,8 @@
         android:text="@string/vps_relay_saved"
         android:textColor="@color/text_secondary"
         android:textSize="11sp"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <Spinner
         android:id="@+id/sp_vps_relay_saved"
@@ -44,7 +59,8 @@
         android:layout_marginTop="5dp"
         android:background="@drawable/edit_bg"
         android:paddingStart="12dp"
-        android:paddingEnd="12dp" />
+        android:paddingEnd="12dp"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_vps_relay_connections"
@@ -72,7 +88,8 @@
         android:includeFontPadding="false"
         android:text="@string/vps_relay_enabled"
         android:textColor="@color/text_primary"
-        android:textSize="14sp" />
+        android:textSize="14sp"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_vps_relay_auto_setup"
@@ -81,7 +98,7 @@
         android:layout_height="52dp"
         android:layout_marginTop="8dp"
         android:minHeight="52dp"
-        android:text="@string/vps_relay_auto_setup"
+        android:text="@string/vps_connections_add"
         android:textAllCaps="false"
         android:textColor="@color/button_text"
         android:textSize="14sp"
@@ -90,23 +107,6 @@
         app:icon="@drawable/ic_server"
         app:iconGravity="textStart"
         app:iconTint="@color/button_text" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_vps_owner_manage"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_marginTop="8dp"
-        android:minHeight="52dp"
-        android:text="@string/vps_owner_manage"
-        android:textAllCaps="false"
-        android:textColor="@color/text_primary"
-        android:textSize="13sp"
-        app:cornerRadius="12dp"
-        app:icon="@drawable/ic_shield"
-        app:iconGravity="textStart"
-        app:iconTint="@color/accent"
-        app:strokeColor="@color/accent" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_vps_relay_test"
@@ -123,7 +123,8 @@
         app:icon="@drawable/ic_refresh"
         app:iconGravity="textStart"
         app:iconTint="@color/accent"
-        app:strokeColor="@color/divider" />
+        app:strokeColor="@color/divider"
+        android:visibility="gone" />
 
     <ProgressBar
         android:id="@+id/progress_vps_setup"
@@ -133,7 +134,8 @@
         android:layout_marginTop="12dp"
         android:max="100"
         android:progress="0"
-        android:progressTint="@color/accent" />
+        android:progressTint="@color/accent"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/tv_vps_setup_status"
@@ -144,19 +146,22 @@
         android:lineSpacingExtra="2dp"
         android:text="@string/vps_setup_idle"
         android:textColor="@color/text_secondary"
-        android:textSize="11sp" />
+        android:textSize="11sp"
+        android:visibility="gone" />
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="16dp"
-        android:background="@color/divider" />
+        android:background="@color/divider"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:layout_marginTop="12dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:visibility="gone">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_vps_relay_new"
@@ -204,7 +209,8 @@
         android:textSize="12sp"
         app:icon="@drawable/ic_delete"
         app:iconGravity="textStart"
-        app:iconTint="@color/red" />
+        app:iconTint="@color/red"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_vps_manual_toggle"
@@ -218,7 +224,8 @@
         android:textColor="@color/text_primary"
         android:textSize="13sp"
         app:cornerRadius="12dp"
-        app:strokeColor="@color/divider" />
+        app:strokeColor="@color/divider"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/vps_manual_content"

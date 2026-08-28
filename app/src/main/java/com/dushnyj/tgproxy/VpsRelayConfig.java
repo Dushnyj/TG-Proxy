@@ -16,16 +16,23 @@ final class VpsRelayConfig {
     private final String token;
     private final String profileKey;
     private final VpsRelayCapabilities capabilities;
+    private final String instanceId;
 
     private VpsRelayConfig(boolean enabled, String name, String host, int port,
                            boolean tls, String path, String token, String profileKey) {
         this(enabled, name, host, port, tls, path, token, profileKey,
-                VpsRelayCapabilities.unknown());
+                VpsRelayCapabilities.unknown(), "");
     }
 
     private VpsRelayConfig(boolean enabled, String name, String host, int port,
                            boolean tls, String path, String token, String profileKey,
                            VpsRelayCapabilities capabilities) {
+        this(enabled, name, host, port, tls, path, token, profileKey, capabilities, "");
+    }
+
+    private VpsRelayConfig(boolean enabled, String name, String host, int port,
+                           boolean tls, String path, String token, String profileKey,
+                           VpsRelayCapabilities capabilities, String instanceId) {
         this.enabled = enabled;
         this.name = valueOr(name, "VPS Relay");
         this.host = normalizeHost(host);
@@ -36,6 +43,7 @@ final class VpsRelayConfig {
         this.profileKey = valueOr(profileKey, "");
         this.capabilities = capabilities == null
                 ? VpsRelayCapabilities.unknown() : capabilities;
+        this.instanceId = validInstanceId(instanceId) ? instanceId.trim() : "";
     }
 
     static VpsRelayConfig manual(boolean enabled, String name, String host, int port,
@@ -106,30 +114,38 @@ final class VpsRelayConfig {
 
     VpsRelayCapabilities capabilities() { return capabilities; }
 
+    String instanceId() { return instanceId; }
+
     boolean supportsRoute(int dc, boolean test) { return capabilities.supports(dc, test); }
 
     VpsRelayConfig withProfileKey(String profileKey) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
-                capabilities);
+                capabilities, instanceId);
     }
 
     VpsRelayConfig withEnabled(boolean enabled) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
-                capabilities);
+                capabilities, instanceId);
     }
 
     VpsRelayConfig withTokenAndName(String token, String name) {
         return new VpsRelayConfig(true, name, host, port, tls, path, token, profileKey,
-                capabilities);
+                capabilities, instanceId);
     }
 
     VpsRelayConfig withName(String name) {
         return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
-                capabilities);
+                capabilities, instanceId);
     }
 
     VpsRelayConfig withCapabilities(VpsRelayCapabilities value) {
-        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey, value);
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
+                value, instanceId);
+    }
+
+    VpsRelayConfig withInstanceId(String value) {
+        return new VpsRelayConfig(enabled, name, host, port, tls, path, token, profileKey,
+                capabilities, value);
     }
 
     boolean sameRoutingIdentity(VpsRelayConfig other) {
@@ -141,7 +157,8 @@ final class VpsRelayConfig {
                 && path.equals(other.path)
                 && token.equals(other.token)
                 && profileKey.equals(other.profileKey)
-                && capabilities.equals(other.capabilities);
+                && capabilities.equals(other.capabilities)
+                && instanceId.equals(other.instanceId);
     }
 
     /**
@@ -166,6 +183,20 @@ final class VpsRelayConfig {
                 && tls == other.tls
                 && host.equals(other.host)
                 && path.equals(other.path);
+    }
+
+    boolean sameServer(VpsRelayConfig other) {
+        if (other == null) return false;
+        if (!instanceId.isEmpty() && !other.instanceId.isEmpty()) {
+            return instanceId.equals(other.instanceId);
+        }
+        return sameEndpoint(other);
+    }
+
+    String serverIdentityKey() {
+        return instanceId.isEmpty()
+                ? (tls ? "tls" : "plain") + "|" + host + "|" + port + "|" + path
+                : instanceId;
     }
 
     /** Stable non-secret identity used to keep failover statistics separate per Relay token. */
@@ -285,10 +316,12 @@ final class VpsRelayConfig {
             return false;
         }
         if ("/healthz".equals(value) || "/version".equals(value)
+                || "/identity".equals(value)
                 || "/capabilities".equals(value)
                 || "/test-routes".equals(value) || "/connect".equals(value)
                 || "/admin".equals(value) || value.startsWith("/admin/")
                 || "/apiws/connect".equals(value)
+                || "/apiws/identity".equals(value)
                 || "/apiws/admin".equals(value)
                 || value.startsWith("/apiws/admin/")) {
             return false;
@@ -316,5 +349,10 @@ final class VpsRelayConfig {
             if (c < 0x21 || c > 0x7e) return true;
         }
         return false;
+    }
+
+    static boolean validInstanceId(String value) {
+        String clean = value == null ? "" : value.trim();
+        return clean.matches("ri_[0-9a-f]{32,64}");
     }
 }

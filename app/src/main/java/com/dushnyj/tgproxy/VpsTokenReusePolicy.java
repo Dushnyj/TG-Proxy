@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Pure token-choice policy used after the read-only VPS audit. */
@@ -33,6 +34,7 @@ final class VpsTokenReusePolicy {
         Set<String> allowedTokenIds = new LinkedHashSet<>();
         if (activeTokenIds != null) allowedTokenIds.addAll(activeTokenIds);
         boolean filterServerTokens = existingRelay && tokenInventoryKnown;
+        LinkedHashMap<String, String> serverIdsBySecret = managedTokenIds(owners, sshOwner);
 
         if (savedRelays != null) {
             for (VpsRelayStore.Record record : savedRelays) {
@@ -40,7 +42,8 @@ final class VpsTokenReusePolicy {
                 if (relay == null || !relay.hasValidConnection()
                         || !matchesAnyEndpoint(relay, endpoints)) continue;
                 put(result, relay.withEnabled(true).withProfileKey(profileKey),
-                        filterServerTokens, allowedTokenIds);
+                        filterServerTokens, allowedTokenIds,
+                        serverIdsBySecret.get(relay.token()));
             }
         }
 
@@ -77,17 +80,43 @@ final class VpsTokenReusePolicy {
             String name = token.name().isEmpty() ? "VPS Relay" : token.name();
             put(result, endpoint.withTokenAndName(token.secret(), name)
                             .withProfileKey(profileKey),
-                    filterServerTokens, allowedTokenIds);
+                    filterServerTokens, allowedTokenIds, token.id());
         }
     }
 
     private static void put(LinkedHashMap<String, VpsRelayConfig> result,
                             VpsRelayConfig relay,
                             boolean filterServerTokens,
-                            Set<String> allowedTokenIds) {
-        String tokenId = relay == null ? "" : VpsOwnerRecord.clientTokenId(relay.token());
-        if (filterServerTokens && !allowedTokenIds.contains(tokenId)) return;
-        if (!tokenId.isEmpty() && !result.containsKey(tokenId)) result.put(tokenId, relay);
+                            Set<String> allowedTokenIds,
+                            String knownServerTokenId) {
+        String localId = relay == null ? "" : VpsOwnerRecord.clientTokenId(relay.token());
+        String serverId = clean(knownServerTokenId);
+        if (serverId.isEmpty()) serverId = localId;
+        if (filterServerTokens && !allowedTokenIds.contains(serverId)) return;
+        if (!localId.isEmpty() && !result.containsKey(localId)) result.put(localId, relay);
+    }
+
+    private static LinkedHashMap<String, String> managedTokenIds(List<VpsOwnerRecord> owners,
+                                                                  VpsOwnerRecord sshOwner) {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        if (owners != null) {
+            for (VpsOwnerRecord owner : owners) addManagedTokenIds(result, owner);
+        }
+        addManagedTokenIds(result, sshOwner);
+        return result;
+    }
+
+    private static void addManagedTokenIds(Map<String, String> target, VpsOwnerRecord owner) {
+        if (owner == null) return;
+        for (VpsOwnerRecord.ManagedToken token : owner.managedTokens()) {
+            if (token != null && !token.secret().isEmpty() && !token.id().isEmpty()) {
+                target.put(token.secret(), token.id());
+            }
+        }
+    }
+
+    private static String clean(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static boolean matchesAnyEndpoint(VpsRelayConfig relay,

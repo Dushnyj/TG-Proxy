@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Dushnyj/TG-Proxy/releases"><img alt="release" src="https://img.shields.io/badge/release-1.2.0-3390EC?style=for-the-badge"></a>
+  <a href="https://github.com/Dushnyj/TG-Proxy/releases"><img alt="release" src="https://img.shields.io/badge/release-1.3.0-3390EC?style=for-the-badge"></a>
   <img alt="Android 5.0+" src="https://img.shields.io/badge/Android-5.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <a href="https://github.com/Dushnyj/TG-Proxy/actions/workflows/ci.yml"><img alt="Android CI" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/TG-Proxy/ci.yml?branch=main&style=for-the-badge&label=CI"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-111827?style=for-the-badge"></a>
@@ -76,11 +76,12 @@ Telegram Android
 - настоящий `req_pq/resPQ` probe, не зависящий от открытого окна Telegram;
 - route health, MTProto RTT, аптайм, трафик и история переключений;
 - foreground service, boot restore, watchdog и помощник батареи/OEM-автозапуска;
+- единый список VPS Relay: серверы, независимые токены, основное и резервы для каждого профиля;
 - несколько VPS Relay с автоматическим failover;
 - автонастройка Linux VPS по SSH с read-only планом, backup, проверкой и rollback;
 - публичный IP, бесплатный DuckDNS или любой принадлежащий пользователю домен/поддомен;
 - owner-панель: client tokens, устройства, sessions, block/unblock и примерный GeoIP;
-- одна кнопка передачи Relay: HTTPS-ссылка, QR, системный Share или файл;
+- одна кнопка передачи Relay: HTTPS-ссылка, QR, PNG через системный Share или файл;
 - импорт с preview и выбором сетевых профилей;
 - signed dynamic Relay topology с atomic last-known-good;
 - полный TXT/ZIP диагностический отчёт для issue;

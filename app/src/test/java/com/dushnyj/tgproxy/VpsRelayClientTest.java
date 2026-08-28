@@ -118,6 +118,35 @@ public class VpsRelayClientTest {
     }
 
     @Test
+    public void persistentRelayIdentityIsReturnedForStableServerGrouping() throws Exception {
+        String instanceId = "ri_0123456789abcdef0123456789abcdef";
+        server = TinyRelayServer.startWithVersionBody("token",
+                "{\"name\":\"tgproxy-relay\",\"version\":\"1.3.0\","
+                        + "\"protocol\":1,\"minAppProtocol\":1,"
+                        + "\"instanceId\":\"" + instanceId + "\","
+                        + "\"identityPersistent\":true}", 200);
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.OK, result.status());
+        assertEquals(instanceId, result.instanceId());
+    }
+
+    @Test
+    public void volatileRelayIdentityIsNotPersistedInClientConfiguration() throws Exception {
+        server = TinyRelayServer.startWithVersionBody("token",
+                "{\"name\":\"tgproxy-relay\",\"version\":\"1.3.0\","
+                        + "\"protocol\":1,\"minAppProtocol\":1,"
+                        + "\"instanceId\":\"ri_0123456789abcdef0123456789abcdef\","
+                        + "\"identityPersistent\":false}", 200);
+
+        VpsRelayCheckResult result = client().check(config("token", false), dcRules());
+
+        assertEquals(VpsRelayCheckResult.Status.OK, result.status());
+        assertEquals("", result.instanceId());
+    }
+
+    @Test
     public void inspectReportsOutdatedServerVersion() throws Exception {
         server = TinyRelayServer.start("token", "1.0.0", 1, 1, 200);
         VpsRelayConfig config = config("token", false);

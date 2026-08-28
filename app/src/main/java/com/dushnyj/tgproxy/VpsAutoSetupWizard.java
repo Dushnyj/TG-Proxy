@@ -76,6 +76,8 @@ final class VpsAutoSetupWizard {
             if (check.status() != VpsRelayCheckResult.Status.OK) {
                 throw new VpsSetupException(check.message());
             }
+            relay = relay.withCapabilities(check.capabilities())
+                    .withInstanceId(check.instanceId());
             if (plan.installMode() != VpsSetupPlan.InstallMode.EXISTING_RELAY_ADD_TOKEN) {
                 String expectedVersion = request.releaseVersion().isEmpty()
                         ? VpsSetupScripts.RELAY_VERSION : request.releaseVersion();

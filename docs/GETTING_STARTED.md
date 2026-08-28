@@ -21,7 +21,7 @@ VPS, домен и Cloudflare не обязательны для первого 
 3. При желании сравните SHA-256 файла с `SHA256SUMS.txt`:
 
    ```powershell
-   Get-FileHash .\TG-Proxy-v1.2.0-android-universal-release.apk -Algorithm SHA256
+   Get-FileHash .\TG-Proxy-v1.3.0-android-universal-release.apk -Algorithm SHA256
    ```
 
 4. Разрешите установку приложений из этого источника и установите APK.

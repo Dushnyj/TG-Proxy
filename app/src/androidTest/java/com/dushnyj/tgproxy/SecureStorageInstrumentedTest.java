@@ -32,6 +32,7 @@ public class SecureStorageInstrumentedTest {
         defaults.edit()
                 .remove(VpsRelayStore.KEY_RELAYS)
                 .remove(VpsRelayStore.KEY_PROFILE_BINDINGS)
+                .remove(VpsRelayStore.KEY_PROFILE_POOLS)
                 .remove(VpsOwnerStore.KEY_OWNERS)
                 .remove(VpsSshDraftStore.KEY_DRAFT)
                 .commit();
@@ -43,6 +44,7 @@ public class SecureStorageInstrumentedTest {
         defaults.edit()
                 .remove(VpsRelayStore.KEY_RELAYS)
                 .remove(VpsRelayStore.KEY_PROFILE_BINDINGS)
+                .remove(VpsRelayStore.KEY_PROFILE_POOLS)
                 .remove(VpsOwnerStore.KEY_OWNERS)
                 .remove(VpsSshDraftStore.KEY_DRAFT)
                 .commit();

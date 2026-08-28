@@ -81,10 +81,10 @@ minimumSupportedProtocol
 features
 ```
 
-TG Proxy Android `1.2.0` устанавливает `TG Proxy VPS Relay 1.2.0`. Совместимость определяется
+TG Proxy Android `1.3.0` устанавливает `TG Proxy VPS Relay 1.3.0`. Совместимость определяется
 не сравнением строк версии, а диапазоном protocol и features из `/capabilities`.
 
-Relay 1.2.0 хранит несколько IPv4/IPv6 endpoints на DC с точным port и ролями
+Relay 1.3.0 хранит несколько IPv4/IPv6 endpoints на DC с точным port и ролями
 `regular/media/cdn/static`. Опциональная signed topology обновляется только после Ed25519,
 schema, generation, time-window, address и size validation; запись выполняется атомарно. При
 сбое источника продолжает использоваться last-known-good, затем embedded/static bootstrap.

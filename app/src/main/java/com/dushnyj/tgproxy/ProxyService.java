@@ -880,6 +880,7 @@ public class ProxyService extends Service {
                 || "smart_sleep".equals(key)
                 || VpsRelayStore.KEY_RELAYS.equals(key)
                 || VpsRelayStore.KEY_PROFILE_BINDINGS.equals(key)
+                || VpsRelayStore.KEY_PROFILE_POOLS.equals(key)
                 || NetworkProfileStore.KEY_PROFILES.equals(key);
     }
 

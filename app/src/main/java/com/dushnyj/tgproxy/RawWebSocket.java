@@ -427,7 +427,8 @@ public class RawWebSocket {
     private static Socket connectTcp(String host, int port, ConnectBudget budget,
                                      int perPhaseTimeoutMs, SocketObserver observer)
             throws Exception {
-        InetAddress[] resolved = resolveAll(host, budget, perPhaseTimeoutMs);
+        RelayNetworkBinding.Binding network = RelayNetworkBinding.capture();
+        InetAddress[] resolved = resolveAll(host, budget, perPhaseTimeoutMs, network);
         List<InetAddress> addresses = happyEyeballsOrder(resolved);
         if (addresses.isEmpty()) throw new UnknownHostException(host);
         AtomicReference<Exception> lastError = new AtomicReference<>();
@@ -435,7 +436,7 @@ public class RawWebSocket {
         for (InetAddress address : addresses) {
             attempts.add(new ConnectionRacer.Candidate<>(cancellation -> {
                 if (cancellation.isCancelled() || isCancelled(observer)) return null;
-                Socket socket = new Socket();
+                Socket socket = network.newSocket();
                 observe(observer, socket);
                 cancellation.onCancel(() -> closeSocket(socket));
                 if (cancellation.isCancelled() || isCancelled(observer)) {
@@ -467,10 +468,11 @@ public class RawWebSocket {
     }
 
     private static InetAddress[] resolveAll(String host, ConnectBudget budget,
-                                            int perPhaseTimeoutMs) throws Exception {
+                                            int perPhaseTimeoutMs,
+                                            RelayNetworkBinding.Binding network) throws Exception {
         Future<InetAddress[]> future;
         try {
-            future = dnsExecutor.submit(() -> InetAddress.getAllByName(host));
+            future = dnsExecutor.submit(() -> network.resolveAll(host));
         } catch (RejectedExecutionException saturated) {
             throw new IOException("DNS resolver queue is saturated", saturated);
         }

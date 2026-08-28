@@ -32,7 +32,10 @@ final class VpsOwnerClient {
                 JSONObject item = clientArray.optJSONObject(i);
                 if (item == null) continue;
                 clients.add(new Client(item.optString("tokenId"), item.optString("deviceId"),
-                        item.optString("manufacturer"), item.optString("model"),
+                        item.optString("identityVersion"), item.optString("manufacturer"),
+                        item.optString("brand"), item.optString("canonicalBrand"),
+                        item.optString("model"), item.optString("marketingName"),
+                        item.optString("device"), item.optString("product"),
                         item.optString("appVersion"), item.optString("appCode"),
                         item.optString("android"), item.optString("country"),
                         item.optString("city"), item.optString("remoteIp"),
@@ -49,6 +52,54 @@ final class VpsOwnerClient {
         request.put("name", name == null ? "" : name.trim());
         VpsRelayClient.HttpResult result = VpsRelayClient.requestOwner(relay, adminToken,
                 "POST", "/admin/v1/tokens", request.toString());
+        return parseCreated(result);
+    }
+
+    CreatedToken create(VpsRelayConfig relay, String adminToken, String name,
+                        VpsTokenCreationDraftStore.Draft draft) throws Exception {
+        if (draft == null || !draft.valid()) throw new Exception("token request is unavailable");
+        JSONObject request = new JSONObject();
+        request.put("name", name == null ? "" : name.trim());
+        request.put("secret", draft.secret);
+        request.put("idempotencyKey", draft.idempotencyKey);
+        VpsRelayClient.HttpResult result = null;
+        Exception failure = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                result = VpsRelayClient.requestOwner(relay, adminToken,
+                        "POST", "/admin/v1/tokens", request.toString());
+                failure = null;
+                break;
+            } catch (Exception error) {
+                failure = error;
+                if (attempt == 0) {
+                    try { Thread.sleep(250L); }
+                    catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw interrupted;
+                    }
+                }
+            }
+        }
+        if (failure != null) throw failure;
+        if (legacyCreateRejectedUnknownFields(result)) {
+            // Owner protocol 1 rejects the additional fields before creating anything. Keep old
+            // Relay installations usable; protocol 2 is used after the next VPS update.
+            return create(relay, adminToken, name);
+        }
+        CreatedToken created = parseCreated(result);
+        if (!created.secret().equals(draft.secret)) {
+            throw new Exception("owner response returned another token secret");
+        }
+        return created;
+    }
+
+    static boolean legacyCreateRejectedUnknownFields(VpsRelayClient.HttpResult result) {
+        return result != null && result.code == 400
+                && "invalid json".equalsIgnoreCase(clean(result.body));
+    }
+
+    private static CreatedToken parseCreated(VpsRelayClient.HttpResult result) throws Exception {
         requireSuccess(result, 201);
         JSONObject root = new JSONObject(result.body);
         JSONObject item = root.getJSONObject("token");
@@ -147,18 +198,25 @@ final class VpsOwnerClient {
     }
 
     static final class Client {
-        private final String tokenId, deviceId, manufacturer, model, appVersion, appCode;
+        private final String tokenId, deviceId, identityVersion, manufacturer, brand;
+        private final String canonicalBrand, model, marketingName, device, product;
+        private final String appVersion, appCode;
         private final String android, country, city, remoteIp, firstSeen, lastSeen;
         private final int activeSessions;
         private final boolean blocked;
         private final String blockedAt;
 
-        Client(String tokenId, String deviceId, String manufacturer, String model,
-               String appVersion, String appCode, String android, String country, String city,
-               String remoteIp, String firstSeen, String lastSeen, int activeSessions,
-               boolean blocked, String blockedAt) {
+        Client(String tokenId, String deviceId, String identityVersion, String manufacturer,
+               String brand, String canonicalBrand, String model, String marketingName,
+               String device, String product, String appVersion, String appCode, String android,
+               String country, String city, String remoteIp, String firstSeen, String lastSeen,
+               int activeSessions, boolean blocked, String blockedAt) {
             this.tokenId = clean(tokenId); this.deviceId = clean(deviceId);
-            this.manufacturer = clean(manufacturer); this.model = clean(model);
+            this.identityVersion = clean(identityVersion);
+            this.manufacturer = clean(manufacturer); this.brand = clean(brand);
+            this.canonicalBrand = clean(canonicalBrand); this.model = clean(model);
+            this.marketingName = clean(marketingName); this.device = clean(device);
+            this.product = clean(product);
             this.appVersion = clean(appVersion); this.appCode = clean(appCode);
             this.android = clean(android); this.country = clean(country); this.city = clean(city);
             this.remoteIp = clean(remoteIp); this.firstSeen = clean(firstSeen);
@@ -168,8 +226,14 @@ final class VpsOwnerClient {
 
         String tokenId() { return tokenId; }
         String deviceId() { return deviceId; }
+        String identityVersion() { return identityVersion; }
         String manufacturer() { return manufacturer; }
+        String brand() { return brand; }
+        String canonicalBrand() { return canonicalBrand; }
         String model() { return model; }
+        String marketingName() { return marketingName; }
+        String device() { return device; }
+        String product() { return product; }
         String appVersion() { return appVersion; }
         String appCode() { return appCode; }
         String android() { return android; }
@@ -183,7 +247,9 @@ final class VpsOwnerClient {
         String blockedAt() { return blockedAt; }
 
         String deviceLabel() {
-            String hardware = (manufacturer + " " + model).trim();
+            String hardware = DeviceDisplayName.format(
+                    manufacturer, canonicalBrand.isEmpty() ? brand : canonicalBrand,
+                    model, marketingName);
             return hardware.isEmpty() ? deviceId : hardware;
         }
 

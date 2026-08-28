@@ -116,8 +116,9 @@ public class VpsRelayStoreTest {
         VpsRelayStore.Record backup = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
                 "two.example.com", 443, true, "/apiws", "two", ""), "wifi:work");
         store.bindProfile("wifi:home", primary.id());
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", backup.id(), true));
 
-        assertTrue(store.setRelayEnabled(primary.id(), false));
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", primary.id(), false));
 
         assertEquals(backup.id(), store.selectedRelayId("wifi:home"));
         assertEquals(1, store.relayPool("wifi:home").size());
@@ -146,6 +147,7 @@ public class VpsRelayStoreTest {
         VpsRelayStore.Record backup = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
                 "backup.example.com", 443, true, "/apiws", "backup", ""), "wifi:work");
         store.bindProfile("wifi:home", revokedRecord.id());
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", backup.id(), true));
 
         assertTrue(store.deleteConnection(revoked, "revoked"));
 
@@ -240,6 +242,7 @@ public class VpsRelayStoreTest {
         VpsRelayStore.Record second = store.saveRelay(VpsRelayConfig.manual(true, "Backup",
                 "two.example.com", 443, true, "/apiws", "two", ""), "wifi:work");
         store.bindProfile("wifi:home", first.id());
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", second.id(), true));
 
         List<VpsRelayConfig> pool = store.relayPool("wifi:home");
 
@@ -247,7 +250,57 @@ public class VpsRelayStoreTest {
         assertEquals("Primary", pool.get(0).name());
         assertEquals("Backup", pool.get(1).name());
         assertEquals("wifi:home", pool.get(0).profileKey());
-        assertEquals("", pool.get(1).profileKey());
+        assertEquals("wifi:home", pool.get(1).profileKey());
+    }
+
+    @Test
+    public void relaySavedForAnotherProfileDoesNotLeakIntoCurrentPool() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record home = store.saveRelay(VpsRelayConfig.manual(true, "Home",
+                "home.example.com", 443, true, "/apiws", "home", ""), "wifi:home");
+        store.saveRelay(VpsRelayConfig.manual(true, "Work",
+                "work.example.com", 443, true, "/apiws", "work", ""), "wifi:work");
+
+        List<VpsRelayConfig> pool = store.relayPool("wifi:home");
+
+        assertEquals(1, pool.size());
+        assertEquals(home.id(), store.selectedRelayId("wifi:home"));
+        assertEquals("Home", pool.get(0).name());
+    }
+
+    @Test
+    public void disablingInheritedGlobalPrimaryKeepsExplicitEmptyProfileOverride() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record global = store.saveRelay(VpsRelayConfig.manual(true, "Global",
+                "global.example.com", 443, true, "/apiws", "global", ""), "");
+
+        assertEquals(global.id(), store.selectedRelayId("wifi:home"));
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", global.id(), false));
+
+        assertEquals("", store.selectedRelayId("wifi:home"));
+        assertTrue(store.relayPool("wifi:home").isEmpty());
+        assertEquals(global.id(), store.selectedRelayId("wifi:work"));
+    }
+
+    @Test
+    public void enablingProfileBackupKeepsInheritedGlobalFallbackPolicy() {
+        VpsRelayStore store = VpsRelayStore.inMemory();
+        VpsRelayStore.Record global = store.saveRelay(VpsRelayConfig.manual(true, "Global",
+                "global.example.com", 443, true, "/apiws", "global", ""), "");
+        VpsRelayStore.Record backup = store.saveRelay(VpsRelayConfig.manual(false, "Backup",
+                "backup.example.com", 443, true, "/apiws", "backup", ""), "wifi:work");
+
+        assertTrue(store.setRelayEnabledForProfile("wifi:home", backup.id(), true));
+
+        List<VpsRelayConfig> pool = store.relayPool("wifi:home");
+        assertEquals(2, pool.size());
+        assertEquals(global.id(), store.selectedRelayId("wifi:home"));
+        assertEquals("Global", pool.get(0).name());
+        assertEquals("Backup", pool.get(1).name());
+
+        store.saveRelay(VpsRelayConfig.manual(true, "New global",
+                "global-two.example.com", 443, true, "/apiws", "global-two", ""), "");
+        assertEquals(global.id(), store.selectedRelayId("wifi:home"));
     }
 
     @Test

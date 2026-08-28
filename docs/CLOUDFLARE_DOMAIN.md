@@ -32,7 +32,7 @@ Cloudflare proxy status управляет тем, идет ли HTTP/HTTPS тр
 
 Telegram Web K сейчас публикует явные WebSocket ingress только для DC1-5. Не создавайте
 `kws203`, `kws204` или wildcard с предположением, что новый DC автоматически поддержит тот же
-контракт: TG Proxy 1.2.0 не строит для них ложный Cloudflare candidate.
+контракт: TG Proxy 1.3.0 не строит для них ложный Cloudflare candidate.
 
 В интерфейсе Cloudflare `Proxied` обычно отображается оранжевым облаком.
 

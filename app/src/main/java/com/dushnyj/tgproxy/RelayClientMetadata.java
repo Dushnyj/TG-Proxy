@@ -1,16 +1,10 @@
 package com.dushnyj.tgproxy;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.os.Build;
 
-import androidx.preference.PreferenceManager;
-
-import java.util.UUID;
-
 final class RelayClientMetadata {
-    private static final String KEY_DEVICE_ID = "relay_device_id.v1";
     private static volatile Headers current = Headers.empty();
 
     private RelayClientMetadata() {}
@@ -18,14 +12,7 @@ final class RelayClientMetadata {
     static void initialize(Context context) {
         if (context == null) return;
         Context app = context.getApplicationContext();
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(app);
-        String deviceId = safeIdentifier(prefs.getString(KEY_DEVICE_ID, ""));
-        if (deviceId.isEmpty()) {
-            deviceId = "dev_" + UUID.randomUUID().toString().replace("-", "");
-            if (!prefs.edit().putString(KEY_DEVICE_ID, deviceId).commit()) {
-                DiagnosticsLog.record("relay device id persist failed");
-            }
-        }
+        AndroidDeviceIdentity.Value identity = AndroidDeviceIdentity.load(app);
         String versionName = BuildConfig.VERSION_NAME;
         long versionCode = BuildConfig.VERSION_CODE;
         try {
@@ -34,7 +21,11 @@ final class RelayClientMetadata {
             versionCode = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
         } catch (Exception ignored) {
         }
-        current = new Headers(deviceId, ascii(Build.MANUFACTURER), ascii(Build.MODEL),
+        current = new Headers(
+                ascii(identity.deviceId), ascii(identity.previousDeviceId),
+                ascii(identity.manufacturer), ascii(identity.brand), ascii(identity.model),
+                ascii(identity.device), ascii(identity.product),
+                ascii(identity.canonicalBrand), ascii(identity.marketingName),
                 ascii(versionName), String.valueOf(versionCode), ascii(Build.VERSION.RELEASE));
     }
 
@@ -42,8 +33,15 @@ final class RelayClientMetadata {
         if (request == null) return;
         Headers value = current;
         append(request, "X-TGProxy-Device-ID", value.deviceId);
+        append(request, "X-TGProxy-Previous-Device-ID", value.previousDeviceId);
+        append(request, "X-TGProxy-Identity-Version", "2");
         append(request, "X-TGProxy-Manufacturer", value.manufacturer);
+        append(request, "X-TGProxy-Brand", value.brand);
         append(request, "X-TGProxy-Model", value.model);
+        append(request, "X-TGProxy-Device-Code", value.device);
+        append(request, "X-TGProxy-Product", value.product);
+        append(request, "X-TGProxy-Canonical-Brand", value.canonicalBrand);
+        append(request, "X-TGProxy-Device-Name", value.marketingName);
         append(request, "X-TGProxy-App-Version", value.appVersion);
         append(request, "X-TGProxy-App-Code", value.appCode);
         append(request, "X-TGProxy-Android", value.android);
@@ -65,20 +63,29 @@ final class RelayClientMetadata {
         return out.toString().trim();
     }
 
-    private static String safeIdentifier(String value) {
-        String clean = value == null ? "" : value.trim();
-        return clean.matches("[A-Za-z0-9._-]{8,96}") ? clean : "";
-    }
-
     private static final class Headers {
-        final String deviceId, manufacturer, model, appVersion, appCode, android;
+        final String deviceId, previousDeviceId, manufacturer, brand, model, device, product;
+        final String canonicalBrand, marketingName, appVersion, appCode, android;
 
-        Headers(String deviceId, String manufacturer, String model, String appVersion,
-                String appCode, String android) {
-            this.deviceId = deviceId; this.manufacturer = manufacturer; this.model = model;
-            this.appVersion = appVersion; this.appCode = appCode; this.android = android;
+        Headers(String deviceId, String previousDeviceId, String manufacturer, String brand,
+                String model, String device, String product, String canonicalBrand,
+                String marketingName, String appVersion, String appCode, String android) {
+            this.deviceId = deviceId;
+            this.previousDeviceId = previousDeviceId;
+            this.manufacturer = manufacturer;
+            this.brand = brand;
+            this.model = model;
+            this.device = device;
+            this.product = product;
+            this.canonicalBrand = canonicalBrand;
+            this.marketingName = marketingName;
+            this.appVersion = appVersion;
+            this.appCode = appCode;
+            this.android = android;
         }
 
-        static Headers empty() { return new Headers("", "", "", "", "", ""); }
+        static Headers empty() {
+            return new Headers("", "", "", "", "", "", "", "", "", "", "", "");
+        }
     }
 }

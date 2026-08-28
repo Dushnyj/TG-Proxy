@@ -31,6 +31,7 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/tv_relay_connections_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
@@ -46,6 +47,7 @@
                 app:autoSizeTextType="uniform" />
 
             <TextView
+                android:id="@+id/tv_relay_connections_subtitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
@@ -54,6 +56,16 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_relay_connections_add"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/vps_connections_add"
+            android:padding="12dp"
+            android:src="@drawable/ic_add"
+            app:tint="@color/accent" />
     </LinearLayout>
 
     <View
@@ -62,6 +74,7 @@
         android:background="@color/divider" />
 
     <ScrollView
+        android:id="@+id/scroll_relay_connections"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"

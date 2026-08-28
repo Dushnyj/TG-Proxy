@@ -44,6 +44,20 @@ public class MainActivityManifestTest {
         assertTrue(document.getElementsByTagName("receiver").getLength() >= 1);
     }
 
+    @Test
+    public void manifestAcceptsRelayLinksFilesTextAndQrImages() throws Exception {
+        String xml = new String(Files.readAllBytes(manifest()), "UTF-8");
+
+        assertTrue(xml.contains("android:scheme=\"tgproxy\""));
+        assertTrue(xml.contains("android:host=\"import\""));
+        assertTrue(xml.contains("android.intent.action.SEND"));
+        assertTrue(xml.contains("android:mimeType=\"text/plain\""));
+        assertTrue(xml.contains("android:mimeType=\"application/vnd.tgproxy\""));
+        assertTrue(xml.contains("android:mimeType=\"application/octet-stream\""));
+        assertTrue(xml.contains("android:mimeType=\"image/*\""));
+        assertTrue(xml.contains("android:scheme=\"content\""));
+    }
+
     private static Node mainActivity(Document document) {
         NodeList activities = document.getElementsByTagName("activity");
         for (int i = 0; i < activities.getLength(); i++) {

@@ -63,10 +63,10 @@ public class MainUiStateTest {
                 MainUiState.SettingsContent.CLOUDFLARE_WORKER),
                 MainUiState.settingsContent(MainUiState.SettingsSection.ROUTES));
         assertEquals(Arrays.asList(
-                MainUiState.SettingsContent.VPS_RELAY,
-                MainUiState.SettingsContent.IMPORT_EXPORT),
+                MainUiState.SettingsContent.VPS_RELAY),
                 MainUiState.settingsContent(MainUiState.SettingsSection.RELAY));
         assertEquals(Arrays.asList(
+                MainUiState.SettingsContent.IMPORT_EXPORT,
                 MainUiState.SettingsContent.INTERFACE,
                 MainUiState.SettingsContent.BEHAVIOR,
                 MainUiState.SettingsContent.DIAGNOSTICS_LOGS,

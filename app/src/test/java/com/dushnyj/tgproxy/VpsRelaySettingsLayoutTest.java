@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 public class VpsRelaySettingsLayoutTest {
     @Test
@@ -33,7 +34,9 @@ public class VpsRelaySettingsLayoutTest {
         assertId(document, "btn_vps_relay_save");
         assertId(document, "btn_vps_relay_delete");
         assertId(document, "btn_vps_relay_auto_setup");
-        assertId(document, "btn_vps_owner_manage");
+        assertId(document, "tv_vps_relay_summary");
+        assertId(document, "btn_vps_relay_connections");
+        assertMissingId(document, "btn_vps_owner_manage");
         assertId(document, "btn_vps_manual_toggle");
         assertId(document, "vps_manual_content");
         assertId(document, "progress_vps_setup");
@@ -49,6 +52,16 @@ public class VpsRelaySettingsLayoutTest {
             if (("@+id/" + id).equals(value)) return;
         }
         assertNotNull(id, null);
+    }
+
+    private static void assertMissingId(Document document, String id) {
+        NodeList nodes = document.getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            if (!nodes.item(i).hasAttributes()) continue;
+            if (nodes.item(i).getAttributes().getNamedItem("android:id") == null) continue;
+            String value = nodes.item(i).getAttributes().getNamedItem("android:id").getNodeValue();
+            if (("@+id/" + id).equals(value)) assertNull(id, nodes.item(i));
+        }
     }
 
     private static Path layout() {

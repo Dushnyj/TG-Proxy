@@ -19,7 +19,13 @@ import java.util.Map;
 final class VpsRelayStore {
     static final String KEY_RELAYS = "vps_relays.v1";
     static final String KEY_PROFILE_BINDINGS = "vps_relay_profile_bindings.v1";
+    static final String KEY_PROFILE_POOLS = "vps_relay_profile_pools.v2";
     private static final String GLOBAL_PROFILE = "*";
+    /** Explicit profile override meaning that no Relay is selected for this profile. */
+    private static final String NO_RELAY = "!";
+    private static final String POOL_VERSION = "v2";
+    private static final Object CONTEXT_STORE_LOCK = new Object();
+    private static VpsRelayStore contextStore;
 
     interface KeyValueStore {
         String getString(String key, String fallback);
@@ -38,11 +44,25 @@ final class VpsRelayStore {
     private final KeyValueStore keyValueStore;
     private final LinkedHashMap<String, Record> relays = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> profileBindings = new LinkedHashMap<>();
+    private final LinkedHashMap<String, ArrayList<String>> profilePools = new LinkedHashMap<>();
 
     VpsRelayStore(KeyValueStore keyValueStore) {
         this.keyValueStore = keyValueStore;
+        reloadFromStore();
+    }
+
+    private synchronized void reloadFromStore() {
+        relays.clear();
+        profileBindings.clear();
+        profilePools.clear();
         relays.putAll(parseRelays(keyValueStore.getString(KEY_RELAYS, "")));
         profileBindings.putAll(parseBindings(keyValueStore.getString(KEY_PROFILE_BINDINGS, "")));
+        String rawPools = keyValueStore.getString(KEY_PROFILE_POOLS, "");
+        if (rawPools.startsWith(POOL_VERSION)) {
+            profilePools.putAll(parsePools(rawPools));
+        } else {
+            migrateLegacyPools();
+        }
         cleanupBindings();
     }
 
@@ -54,7 +74,17 @@ final class VpsRelayStore {
         Context app = context == null ? null : context.getApplicationContext();
         SharedPreferences prefs = app == null ? null
                 : PreferenceManager.getDefaultSharedPreferences(app);
-        return new VpsRelayStore(new SecureSharedPreferencesKeyValueStore(app, prefs));
+        synchronized (CONTEXT_STORE_LOCK) {
+            if (contextStore == null) {
+                contextStore = new VpsRelayStore(new SecureSharedPreferencesKeyValueStore(app, prefs));
+            } else {
+                // All Android callers share one synchronized in-process snapshot. Reloading on
+                // acquisition also observes preference restoration/test cleanup and prevents a
+                // stale Activity or Service instance from overwriting a newer Relay/token list.
+                contextStore.reloadFromStore();
+            }
+            return contextStore;
+        }
     }
 
     static VpsRelayStore inMemory() {
@@ -70,6 +100,7 @@ final class VpsRelayStore {
         if (relay == null) relay = VpsRelayConfig.disabled();
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         String id = existingEndpointId(relay);
         boolean isNew = id.isEmpty();
         if (isNew) id = idFor(relay);
@@ -78,13 +109,17 @@ final class VpsRelayStore {
         Record record = new Record(id, stored);
         relays.put(id, record);
         String key = normalize(profileKey);
-        profileBindings.put(bindingKey(key), id);
+        if (relay.hasValidConnection() && relay.isEnabled()) {
+            addToPool(key, id);
+            profileBindings.put(bindingKey(key), id);
+        }
         if (editor == null) {
             if (!persist()) {
                 relays.clear();
                 relays.putAll(previousRelays);
                 profileBindings.clear();
                 profileBindings.putAll(previousBindings);
+                restorePools(previousPools);
                 return null;
             }
         } else if (!writeAll(editor)) {
@@ -92,6 +127,7 @@ final class VpsRelayStore {
             relays.putAll(previousRelays);
             profileBindings.clear();
             profileBindings.putAll(previousBindings);
+            restorePools(previousPools);
             return null;
         }
         return record;
@@ -105,20 +141,60 @@ final class VpsRelayStore {
         }
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         VpsRelayConfig stored = relay.withProfileKey("")
                 .withName(uniqueName(relay.name(), id));
         Record record = new Record(id, stored);
         relays.put(id, record);
-        profileBindings.put(bindingKey(profileKey), id);
+        if (relay.hasValidConnection() && relay.isEnabled()) {
+            addToPool(profileKey, id);
+            profileBindings.put(bindingKey(profileKey), id);
+        }
         boolean written = editor == null ? persist() : writeAll(editor);
         if (!written) {
             relays.clear();
             relays.putAll(previousRelays);
             profileBindings.clear();
             profileBindings.putAll(previousBindings);
+            restorePools(previousPools);
             return null;
         }
         return record;
+    }
+
+    synchronized Record updateRelayMetadata(String relayId, VpsRelayConfig relay) {
+        String id = normalize(relayId);
+        Record current = relays.get(id);
+        if (current == null || relay == null || !relay.hasValidConnection()) return null;
+        LinkedHashMap<String, Record> previous = new LinkedHashMap<>(relays);
+        VpsRelayConfig stored = relay.withProfileKey("")
+                .withName(uniqueName(relay.name(), id));
+        Record updated = new Record(id, stored);
+        relays.put(id, updated);
+        if (persist()) return updated;
+        relays.clear();
+        relays.putAll(previous);
+        return null;
+    }
+
+    /**
+     * Updates an existing local connection without changing any profile policy. Editing a label,
+     * endpoint or token must not silently promote the connection or enable it in other networks.
+     */
+    synchronized Record updateConnection(String relayId, VpsRelayConfig relay) {
+        String id = normalize(relayId);
+        Record current = relays.get(id);
+        if (current == null || relay == null || !relay.hasValidConnection()) return null;
+        LinkedHashMap<String, Record> previous = new LinkedHashMap<>(relays);
+        VpsRelayConfig stored = relay.withProfileKey("")
+                .withEnabled(current.config().isEnabled())
+                .withName(uniqueName(relay.name(), id));
+        Record updated = new Record(id, stored);
+        relays.put(id, updated);
+        if (persist()) return updated;
+        relays.clear();
+        relays.putAll(previous);
+        return null;
     }
 
     synchronized Record saveUsableRelay(VpsRelayConfig relay, String profileKey) {
@@ -135,7 +211,9 @@ final class VpsRelayStore {
         if (id.isEmpty() || !relays.containsKey(id)) return false;
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         relays.remove(id);
+        removeFromAllPools(id);
         repairBindings(id);
         if (editor == null) {
             if (!persist()) {
@@ -143,6 +221,7 @@ final class VpsRelayStore {
                 relays.putAll(previousRelays);
                 profileBindings.clear();
                 profileBindings.putAll(previousBindings);
+                restorePools(previousPools);
                 return false;
             }
         } else if (!writeAll(editor)) {
@@ -150,6 +229,7 @@ final class VpsRelayStore {
             relays.putAll(previousRelays);
             profileBindings.clear();
             profileBindings.putAll(previousBindings);
+            restorePools(previousPools);
             return false;
         }
         return true;
@@ -158,18 +238,60 @@ final class VpsRelayStore {
     synchronized boolean setRelayEnabled(String relayId, boolean enabled) {
         String id = normalize(relayId);
         Record current = relays.get(id);
-        if (current == null) return false;
-        if (current.config().isEnabled() == enabled) return true;
+        if (current == null || !current.config().hasValidConnection()) return false;
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         relays.put(id, new Record(id, current.config().withEnabled(enabled)));
-        if (!enabled) repairBindings(id);
+        if (enabled) {
+            addToPool("", id);
+        } else {
+            removeFromAllPools(id);
+            repairBindings(id);
+        }
         if (persist()) return true;
         relays.clear();
         relays.putAll(previousRelays);
         profileBindings.clear();
         profileBindings.putAll(previousBindings);
+        restorePools(previousPools);
         return false;
+    }
+
+    synchronized boolean setRelayEnabledForProfile(String profileKey, String relayId,
+                                                    boolean enabled) {
+        String id = normalize(relayId);
+        Record current = relays.get(id);
+        if (current == null || !current.config().hasValidConnection()) return false;
+        LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
+        String key = bindingKey(profileKey);
+        String inheritedPrimary = selectedRelayId(profileKey);
+        boolean inheritedPolicy = !GLOBAL_PROFILE.equals(key)
+                && specificRelayId(normalize(profileKey)) == null;
+        boolean wasEffectivePrimary = id.equals(selectedRelayId(profileKey));
+        if (enabled) {
+            addToPool(profileKey, id);
+            if (inheritedPolicy && inheritedPrimary != null && !inheritedPrimary.isEmpty()) {
+                profileBindings.put(key, inheritedPrimary);
+            } else if (selectedRelayId(profileKey) == null || selectedRelayId(profileKey).isEmpty()) {
+                profileBindings.put(key, id);
+            }
+        } else {
+            removeFromPool(profileKey, id);
+            if (wasEffectivePrimary || id.equals(profileBindings.get(key))) {
+                repairBindingForProfile(key, id);
+            }
+        }
+        if (persist()) return true;
+        profileBindings.clear();
+        profileBindings.putAll(previousBindings);
+        restorePools(previousPools);
+        return false;
+    }
+
+    synchronized boolean relayEnabledForProfile(String profileKey, String relayId) {
+        return poolFor(profileKey).contains(normalize(relayId));
     }
 
     synchronized boolean makePrimary(String profileKey, String relayId) {
@@ -178,13 +300,16 @@ final class VpsRelayStore {
         if (current == null || !current.config().hasValidConnection()) return false;
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         relays.put(id, new Record(id, current.config().withEnabled(true)));
+        addToPool(profileKey, id);
         profileBindings.put(bindingKey(profileKey), id);
         if (persist()) return true;
         relays.clear();
         relays.putAll(previousRelays);
         profileBindings.clear();
         profileBindings.putAll(previousBindings);
+        restorePools(previousPools);
         return false;
     }
 
@@ -207,8 +332,10 @@ final class VpsRelayStore {
         if (ids.isEmpty()) return true;
         LinkedHashMap<String, Record> previousRelays = new LinkedHashMap<>(relays);
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         for (String id : ids) {
             relays.remove(id);
+            removeFromAllPools(id);
             repairBindings(id);
         }
         if (persist()) return true;
@@ -216,6 +343,7 @@ final class VpsRelayStore {
         relays.putAll(previousRelays);
         profileBindings.clear();
         profileBindings.putAll(previousBindings);
+        restorePools(previousPools);
         return false;
     }
 
@@ -226,23 +354,30 @@ final class VpsRelayStore {
     synchronized boolean bindProfileInto(String profileKey, String relayId,
                                          SharedPreferences.Editor editor) {
         LinkedHashMap<String, String> previousBindings = new LinkedHashMap<>(profileBindings);
+        LinkedHashMap<String, ArrayList<String>> previousPools = copyPools(profilePools);
         String key = normalize(profileKey);
         String id = normalize(relayId);
         String bindingKey = bindingKey(key);
         if (id.isEmpty() || !relays.containsKey(id)) profileBindings.remove(bindingKey);
-        else profileBindings.put(bindingKey, id);
+        else {
+            addToPool(profileKey, id);
+            profileBindings.put(bindingKey, id);
+        }
         if (editor == null) {
             if (!persistBindings()) {
                 profileBindings.clear();
                 profileBindings.putAll(previousBindings);
+                restorePools(previousPools);
                 return false;
             }
         } else {
             LinkedHashMap<String, String> values = new LinkedHashMap<>();
             values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+            values.put(KEY_PROFILE_POOLS, serializePools(profilePools));
             if (!keyValueStore.putStringsInto(editor, values)) {
                 profileBindings.clear();
                 profileBindings.putAll(previousBindings);
+                restorePools(previousPools);
                 return false;
             }
         }
@@ -252,7 +387,8 @@ final class VpsRelayStore {
     synchronized String selectedRelayId(String profileKey) {
         String key = normalize(profileKey);
         String selected = specificRelayId(key);
-        return selected == null ? profileBindings.get(GLOBAL_PROFILE) : selected;
+        selected = selected == null ? profileBindings.get(GLOBAL_PROFILE) : selected;
+        return NO_RELAY.equals(selected) ? "" : selected;
     }
 
     synchronized VpsRelayConfig selectedRelay(String profileKey) {
@@ -262,7 +398,8 @@ final class VpsRelayStore {
         if (relayId == null) relayId = profileBindings.get(GLOBAL_PROFILE);
         Record record = relayId == null ? null : relays.get(relayId);
         if (record == null) return null;
-        return record.config().withProfileKey(profileSpecific ? key : "");
+        return record.config().withEnabled(relayEnabledForProfile(profileKey, relayId))
+                .withProfileKey(profileSpecific ? key : "");
     }
 
     synchronized Record relay(String relayId) {
@@ -273,18 +410,20 @@ final class VpsRelayStore {
         return Collections.unmodifiableList(new ArrayList<>(relays.values()));
     }
 
-    /** Primary Relay followed by every other enabled saved Relay for automatic failover. */
+    /** Primary Relay followed by this profile's explicitly enabled automatic fallbacks. */
     synchronized List<VpsRelayConfig> relayPool(String profileKey) {
         String selectedId = selectedRelayId(profileKey);
         if (selectedId == null || selectedId.isEmpty()) return Collections.emptyList();
         ArrayList<VpsRelayConfig> result = new ArrayList<>();
         Record primary = relays.get(selectedId);
-        if (primary != null && primary.config().isUsable()) {
-            result.add(primary.config().withProfileKey(normalize(profileKey)));
+        if (primary != null && primary.config().hasValidConnection()) {
+            result.add(primary.config().withEnabled(true).withProfileKey(normalize(profileKey)));
         }
-        for (Record record : relays.values()) {
-            if (record.id().equals(selectedId) || !record.config().isUsable()) continue;
-            result.add(record.config().withProfileKey(""));
+        for (String id : poolFor(profileKey)) {
+            if (id.equals(selectedId)) continue;
+            Record record = relays.get(id);
+            if (record == null || !record.config().hasValidConnection()) continue;
+            result.add(record.config().withEnabled(true).withProfileKey(normalize(profileKey)));
         }
         return Collections.unmodifiableList(result);
     }
@@ -299,40 +438,150 @@ final class VpsRelayStore {
     private void cleanupBindings() {
         ArrayList<String> remove = new ArrayList<>();
         for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
-            if (!relays.containsKey(entry.getValue())) remove.add(entry.getKey());
+            if (!NO_RELAY.equals(entry.getValue()) && !relays.containsKey(entry.getValue())) {
+                remove.add(entry.getKey());
+            }
         }
         for (String key : remove) profileBindings.remove(key);
-        if (!remove.isEmpty()) persistBindings();
+        boolean poolChanged = cleanupPools();
+        if (!remove.isEmpty() || poolChanged) persist();
+    }
+
+    private void migrateLegacyPools() {
+        ArrayList<String> global = new ArrayList<>();
+        for (Record record : relays.values()) {
+            if (record.config().isUsable()) global.add(record.id());
+        }
+        if (!global.isEmpty()) profilePools.put(GLOBAL_PROFILE, global);
+        for (Map.Entry<String, String> binding : profileBindings.entrySet()) {
+            String id = binding.getValue();
+            if (!relays.containsKey(id)) continue;
+            ArrayList<String> pool = profilePools.get(binding.getKey());
+            if (pool == null) {
+                pool = new ArrayList<>(global);
+                profilePools.put(binding.getKey(), pool);
+            }
+            if (!pool.contains(id)) pool.add(0, id);
+        }
+        // The next atomic Relay write stores the v2 marker too. Avoiding a constructor-time
+        // write keeps reads side-effect free and prevents a half-migrated state on failure.
+    }
+
+    private boolean cleanupPools() {
+        boolean changed = false;
+        for (Map.Entry<String, ArrayList<String>> entry : profilePools.entrySet()) {
+            ArrayList<String> ids = entry.getValue();
+            for (int index = ids.size() - 1; index >= 0; index--) {
+                if (!relays.containsKey(ids.get(index))) {
+                    ids.remove(index);
+                    changed = true;
+                }
+            }
+        }
+        // Keep explicit empty profile pools. They mean "no Relay on this network" and must
+        // not silently inherit the global fallback list.
+        return changed;
+    }
+
+    private void addToPool(String profileKey, String relayId) {
+        String key = bindingKey(profileKey);
+        ArrayList<String> pool = profilePools.get(key);
+        if (pool == null) {
+            // The first profile-specific change creates an explicit copy of the currently
+            // inherited global policy. Otherwise enabling one additional backup would silently
+            // discard every inherited primary/fallback for this network.
+            ArrayList<String> global = profilePools.get(GLOBAL_PROFILE);
+            pool = !GLOBAL_PROFILE.equals(key) && global != null
+                    ? new ArrayList<>(global) : new ArrayList<>();
+            profilePools.put(key, pool);
+        }
+        if (!pool.contains(relayId)) pool.add(relayId);
+    }
+
+    private void removeFromPool(String profileKey, String relayId) {
+        String key = bindingKey(profileKey);
+        ArrayList<String> pool = profilePools.get(key);
+        if (pool == null) {
+            // Creating an empty explicit pool prevents an inherited global connection from
+            // being re-enabled for this network after the user turned it off.
+            pool = new ArrayList<>(poolFor(profileKey));
+            profilePools.put(key, pool);
+        }
+        pool.remove(relayId);
+    }
+
+    private void removeFromAllPools(String relayId) {
+        for (ArrayList<String> pool : profilePools.values()) pool.remove(relayId);
+    }
+
+    private List<String> poolFor(String profileKey) {
+        String key = bindingKey(profileKey);
+        ArrayList<String> exact = profilePools.get(key);
+        if (exact != null) return exact;
+        ArrayList<String> global = profilePools.get(GLOBAL_PROFILE);
+        return global == null ? Collections.emptyList() : global;
+    }
+
+    private List<String> poolForBindingKey(String key) {
+        ArrayList<String> exact = profilePools.get(key);
+        if (exact != null) return exact;
+        ArrayList<String> global = profilePools.get(GLOBAL_PROFILE);
+        return global == null ? Collections.emptyList() : global;
+    }
+
+    private static LinkedHashMap<String, ArrayList<String>> copyPools(
+            Map<String, ArrayList<String>> source) {
+        LinkedHashMap<String, ArrayList<String>> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, ArrayList<String>> entry : source.entrySet()) {
+            copy.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+        }
+        return copy;
+    }
+
+    private void restorePools(Map<String, ArrayList<String>> snapshot) {
+        profilePools.clear();
+        for (Map.Entry<String, ArrayList<String>> entry : snapshot.entrySet()) {
+            profilePools.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+        }
     }
 
     private boolean persist() {
         LinkedHashMap<String, String> values = new LinkedHashMap<>();
         values.put(KEY_RELAYS, serializeRelays(relays));
         values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        values.put(KEY_PROFILE_POOLS, serializePools(profilePools));
         return keyValueStore.putStrings(values);
     }
 
     private void repairBindings(String unavailableId) {
-        String fallback = firstUsableRelayId(unavailableId);
         ArrayList<String> affected = new ArrayList<>();
         for (Map.Entry<String, String> entry : profileBindings.entrySet()) {
             if (unavailableId.equals(entry.getValue())) affected.add(entry.getKey());
         }
         for (String key : affected) {
-            if (fallback.isEmpty()) profileBindings.remove(key);
-            else profileBindings.put(key, fallback);
+            repairBindingForProfile(key, unavailableId);
         }
     }
 
-    private String firstUsableRelayId(String exceptId) {
-        for (Record record : relays.values()) {
-            if (!record.id().equals(exceptId) && record.config().isUsable()) return record.id();
+    private void repairBindingForProfile(String key, String exceptId) {
+        for (String candidate : poolForBindingKey(key)) {
+            Record record = relays.get(candidate);
+            if (!candidate.equals(exceptId) && record != null
+                    && record.config().hasValidConnection()) {
+                profileBindings.put(key, candidate);
+                return;
+            }
         }
-        return "";
+        // Keep an explicit empty override. Removing the key here would immediately inherit the
+        // global primary again, so a user could never disable Relay for only one network profile.
+        profileBindings.put(key, NO_RELAY);
     }
 
     private boolean persistBindings() {
-        return keyValueStore.putString(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        values.put(KEY_PROFILE_POOLS, serializePools(profilePools));
+        return keyValueStore.putStrings(values);
     }
 
     private boolean writeAll(SharedPreferences.Editor editor) {
@@ -340,6 +589,7 @@ final class VpsRelayStore {
         LinkedHashMap<String, String> values = new LinkedHashMap<>();
         values.put(KEY_RELAYS, serializeRelays(relays));
         values.put(KEY_PROFILE_BINDINGS, serializeBindings(profileBindings));
+        values.put(KEY_PROFILE_POOLS, serializePools(profilePools));
         return keyValueStore.putStringsInto(editor, values);
     }
 
@@ -396,7 +646,8 @@ final class VpsRelayStore {
                     .append(c.tls() ? "1" : "0").append('\t')
                     .append(encoded(c.path())).append('\t')
                     .append(encoded(c.token())).append('\t')
-                    .append(encoded(c.capabilities().toStored()));
+                    .append(encoded(c.capabilities().toStored())).append('\t')
+                    .append(encoded(c.instanceId()));
         }
         return out.toString();
     }
@@ -419,7 +670,8 @@ final class VpsRelayStore {
                         decoded(parts[7]),
                         "").withCapabilities(parts.length >= 9
                                 ? VpsRelayCapabilities.fromStored(decoded(parts[8]))
-                                : VpsRelayCapabilities.unknown());
+                                : VpsRelayCapabilities.unknown())
+                        .withInstanceId(parts.length >= 10 ? decoded(parts[9]) : "");
                 if (!id.isEmpty()) result.put(id, new Record(id, config));
             } catch (Exception ignored) {
             }
@@ -569,6 +821,34 @@ final class VpsRelayStore {
         }
     }
 
+    private static String serializePools(Map<String, ArrayList<String>> source) {
+        StringBuilder out = new StringBuilder(POOL_VERSION);
+        for (Map.Entry<String, ArrayList<String>> entry : source.entrySet()) {
+            out.append('\n').append(encoded(entry.getKey()));
+            for (String relayId : entry.getValue()) out.append('\t').append(encoded(relayId));
+        }
+        return out.toString();
+    }
+
+    private static LinkedHashMap<String, ArrayList<String>> parsePools(String raw) {
+        LinkedHashMap<String, ArrayList<String>> result = new LinkedHashMap<>();
+        if (raw == null || !raw.startsWith(POOL_VERSION)) return result;
+        String[] lines = raw.split("\\n", -1);
+        for (int lineIndex = 1; lineIndex < lines.length; lineIndex++) {
+            String[] parts = lines[lineIndex].split("\\t", -1);
+            if (parts.length == 0) continue;
+            String profile = decoded(parts[0]);
+            if (profile.isEmpty()) continue;
+            ArrayList<String> ids = new ArrayList<>();
+            for (int index = 1; index < parts.length; index++) {
+                String id = decoded(parts[index]);
+                if (!id.isEmpty() && !ids.contains(id)) ids.add(id);
+            }
+            result.put(profile, ids);
+        }
+        return result;
+    }
+
     private static final class SecureSharedPreferencesKeyValueStore implements KeyValueStore {
         private final SecureValueStore secure;
 
@@ -625,7 +905,8 @@ final class VpsRelayStore {
     private String specificRelayId(String profileKey) {
         String key = normalize(profileKey);
         if (key.isEmpty()) return null;
-        return profileBindings.get(key);
+        String selected = profileBindings.get(key);
+        return NO_RELAY.equals(selected) ? "" : selected;
     }
 
     private static String sha256Hex(String value) {

@@ -33,27 +33,14 @@
 
         <Button
             android:id="@+id/btn_export_safe_profile"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginEnd="6dp"
-            android:layout_weight="1"
             android:minWidth="0dp"
             android:minHeight="0dp"
             android:text="@string/export_safe_profile"
             android:textAllCaps="false"
             android:textSize="12sp" />
 
-        <Button
-            android:id="@+id/btn_export_vps_relay"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="6dp"
-            android:layout_weight="1"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:text="@string/export_vps_relay"
-            android:textAllCaps="false"
-            android:textSize="12sp" />
     </LinearLayout>
 
     <LinearLayout

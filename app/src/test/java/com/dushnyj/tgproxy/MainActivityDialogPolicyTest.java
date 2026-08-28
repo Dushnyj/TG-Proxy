@@ -21,6 +21,10 @@ public class MainActivityDialogPolicyTest {
         assertTrue(source.contains("VpsOwnerActivity.intent(this, profileKey, relayId)"));
         assertTrue(owner.contains("setContentView(R.layout.activity_vps_owner)"));
         assertTrue(share.contains("new BottomSheetDialog(activity)"));
+        assertTrue(share.contains("intent.setType(\"image/png\")"));
+        assertTrue(share.contains("Intent.EXTRA_STREAM"));
+        assertTrue(share.contains("ClipData.newUri"));
+        assertTrue(share.contains("Intent.FLAG_GRANT_READ_URI_PERMISSION"));
         assertFalse(source.contains(".setMessage(R.string.relay_share_note)"));
         assertFalse(source.contains(".setMessage(R.string.vps_owner_manage_note)"));
     }

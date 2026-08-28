@@ -88,6 +88,23 @@ public class VpsTokenReusePolicyTest {
     }
 
     @Test
+    public void dynamicServerTokenIdIsMatchedThroughOwnerInventory() {
+        VpsRelayConfig endpoint = relay("relay.example.com", "dynamic-secret");
+        VpsRelayStore.Record saved = new VpsRelayStore.Record("relay_one", endpoint);
+        VpsOwnerRecord owner = VpsOwnerRecord.fromSetup(request(endpoint), endpoint)
+                .withManagedToken("tok_0123456789abcdef01234567", "Телефон",
+                        "dynamic-secret");
+
+        List<VpsRelayConfig> choices = VpsTokenReusePolicy.choices(
+                Collections.singletonList(endpoint), Collections.singletonList(saved),
+                Collections.singletonList(owner), owner, true, true,
+                Collections.singletonList("tok_0123456789abcdef01234567"), "wifi-home");
+
+        assertEquals(1, choices.size());
+        assertEquals("dynamic-secret", choices.get(0).token());
+    }
+
+    @Test
     public void selectedRevokedSecretIsNotCarriedIntoExistingRelayPlan() {
         String activeId = VpsOwnerRecord.clientTokenId("active-secret");
 

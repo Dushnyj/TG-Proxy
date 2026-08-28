@@ -67,11 +67,11 @@ final class MainUiState {
                     SettingsContent.ROUTING,
                     SettingsContent.CLOUDFLARE_WORKER));
     private static final List<SettingsContent> RELAY_CONTENT =
-            Collections.unmodifiableList(Arrays.asList(
-                    SettingsContent.VPS_RELAY,
-                    SettingsContent.IMPORT_EXPORT));
+            Collections.unmodifiableList(Collections.singletonList(
+                    SettingsContent.VPS_RELAY));
     private static final List<SettingsContent> SYSTEM_CONTENT =
             Collections.unmodifiableList(Arrays.asList(
+                    SettingsContent.IMPORT_EXPORT,
                     SettingsContent.INTERFACE,
                     SettingsContent.BEHAVIOR,
                     SettingsContent.DIAGNOSTICS_LOGS,

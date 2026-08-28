@@ -33,9 +33,9 @@ ANDROID_KEY_PASSWORD
 ## Создать релиз
 
 ```bash
-git tag -a v1.2.0 -m "TG Proxy Android v1.2.0"
+git tag -a v1.3.0 -m "TG Proxy Android v1.3.0"
 git push origin main
-git push origin v1.2.0
+git push origin v1.3.0
 ```
 
 Workflow `.github/workflows/release.yml`:

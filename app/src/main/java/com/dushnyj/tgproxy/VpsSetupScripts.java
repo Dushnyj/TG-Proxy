@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 final class VpsSetupScripts {
-    static final String RELAY_VERSION = "1.2.0";
+    static final String RELAY_VERSION = "1.3.0";
     private static final String RELEASE_BASE =
             "https://github.com/Dushnyj/TG-Proxy-Relay/releases/download";
     private static final String RELAY_DC_MAP_JSON =

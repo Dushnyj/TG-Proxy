@@ -43,6 +43,7 @@ public class ProxyServiceSourcePolicyTest {
         assertFalse(source.contains("prefs.getBoolean(\"vps_relay_enabled\""));
         assertFalse(source.contains("prefs.getString(\"vps_relay_host\""));
         assertFalse(source.contains("prefs.getString(\"vps_relay_token\""));
+        assertTrue(source.contains("VpsRelayStore.KEY_PROFILE_POOLS.equals(key)"));
     }
 
     @Test

@@ -1,6 +1,6 @@
 # Telegram topology и границы маршрутов
 
-Документ фиксирует доказательную базу и контракт TG Proxy 1.2.0. Он не смешивает пять
+Документ фиксирует доказательную базу и контракт TG Proxy 1.3.0. Он не смешивает пять
 разных сущностей: client DC endpoint, Telegram WebSocket ingress, media/CDN DC, MTProxy
 middle proxy и наш VPS Relay.
 
