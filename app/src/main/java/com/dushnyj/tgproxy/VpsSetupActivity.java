@@ -14,6 +14,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.StyleSpan;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
@@ -29,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
@@ -558,37 +560,69 @@ public final class VpsSetupActivity extends AppCompatActivity {
             return false;
         }
 
-        ArrayList<String> labels = new ArrayList<>();
-        for (VpsRelayConfig config : reusable) {
-            labels.add(getString(R.string.vps_setup_token_existing_item,
-                    config.name(), config.maskedToken()));
-        }
-        labels.add(getString(R.string.vps_setup_token_create_new));
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.vps_setup_token_choice_title)
-                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
-                    if (which >= 0 && which < reusable.size()) {
-                        VpsRelayConfig chosen = reusable.get(which);
-                        relayToken = chosen.token();
-                        if (chosen.name() != null && !chosen.name().trim().isEmpty()) {
-                            selectedRelay = chosen;
-                        }
-                        VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(chosen);
-                        if (owner != null && owner.canManage()) {
-                            savedOwner = owner;
-                            ownerExisted = true;
-                            adminToken = owner.adminToken();
-                        }
-                    } else {
-                        relayToken = generateToken("tgpc_");
-                        reuseEndpointOwner(endpointOwnerForChoice);
-                    }
-                    tokenChoiceEndpoint = endpointKey;
-                    startEndpointPreparation(endpointHost);
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        showReusableTokenDialog(reusable, endpointOwnerForChoice, endpointKey, endpointHost);
         return true;
+    }
+
+    private void showReusableTokenDialog(List<VpsRelayConfig> reusable,
+                                         VpsOwnerRecord endpointOwnerForChoice,
+                                         String endpointKey, String endpointHost) {
+        View root = LayoutInflater.from(this)
+                .inflate(R.layout.dialog_vps_token_choice, null, false);
+        LinearLayout choices = root.findViewById(R.id.content_vps_token_choices);
+        View choicesScroll = root.findViewById(R.id.scroll_vps_token_choices);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this).setView(root).create();
+        dialog.setCanceledOnTouchOutside(false);
+
+        for (int index = 0; index < reusable.size(); index++) {
+            VpsRelayConfig config = reusable.get(index);
+            View row = LayoutInflater.from(this)
+                    .inflate(R.layout.item_vps_token_choice, choices, false);
+            String name = config.name() == null || config.name().trim().isEmpty()
+                    ? getString(R.string.vps_relay) : config.name().trim();
+            ((TextView) row.findViewById(R.id.tv_vps_token_choice_name)).setText(name);
+            ((TextView) row.findViewById(R.id.tv_vps_token_choice_value)).setText(
+                    getString(R.string.vps_connections_token, config.maskedToken()));
+            row.setContentDescription(getString(R.string.vps_setup_token_existing_item,
+                    name, config.maskedToken()));
+            row.setOnClickListener(view -> {
+                dialog.dismiss();
+                useReusableToken(config, endpointKey, endpointHost);
+            });
+            choices.addView(row, index == 0 ? new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    : topMargin(8));
+        }
+        ViewGroup.LayoutParams scrollParams = choicesScroll.getLayoutParams();
+        scrollParams.height = Math.min(dp(296), Math.max(dp(68), reusable.size() * dp(76)));
+        choicesScroll.setLayoutParams(scrollParams);
+
+        root.findViewById(R.id.btn_vps_token_choice_cancel)
+                .setOnClickListener(view -> dialog.dismiss());
+        root.findViewById(R.id.btn_vps_token_choice_new).setOnClickListener(view -> {
+            dialog.dismiss();
+            relayToken = generateToken("tgpc_");
+            reuseEndpointOwner(endpointOwnerForChoice);
+            tokenChoiceEndpoint = endpointKey;
+            startEndpointPreparation(endpointHost);
+        });
+        dialog.show();
+    }
+
+    private void useReusableToken(VpsRelayConfig chosen, String endpointKey,
+                                  String endpointHost) {
+        relayToken = chosen.token();
+        if (chosen.name() != null && !chosen.name().trim().isEmpty()) {
+            selectedRelay = chosen;
+        }
+        VpsOwnerRecord owner = new VpsOwnerStore(this).forRelay(chosen);
+        if (owner != null && owner.canManage()) {
+            savedOwner = owner;
+            ownerExisted = true;
+            adminToken = owner.adminToken();
+        }
+        tokenChoiceEndpoint = endpointKey;
+        startEndpointPreparation(endpointHost);
     }
 
     private void reuseEndpointOwner(VpsOwnerRecord owner) {
@@ -876,8 +910,7 @@ public final class VpsSetupActivity extends AppCompatActivity {
         page = Page.INSTALL;
         setHeader(R.string.vps_setup_progress_title, R.string.vps_setup_step_install, 90);
         content.removeAllViews();
-        addHero(R.drawable.ic_server, R.string.vps_setup_progress_title,
-                R.string.vps_setup_progress_note);
+        addInstallNotice();
         installProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         installProgress.setMax(100);
         installProgress.setProgress(25);
@@ -889,6 +922,24 @@ public final class VpsSetupActivity extends AppCompatActivity {
         content.addView(installStatus, topMargin(14));
         footer.setVisibility(View.GONE);
         scrollTop();
+    }
+
+    private void addInstallNotice() {
+        LinearLayout notice = new LinearLayout(this);
+        notice.setOrientation(LinearLayout.HORIZONTAL);
+        notice.setGravity(Gravity.CENTER_VERTICAL);
+        notice.setBackgroundResource(R.drawable.owner_card_bg);
+        notice.setPadding(dp(14), dp(13), dp(14), dp(13));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_server);
+        icon.setImageTintList(ContextCompat.getColorStateList(this, R.color.accent));
+        notice.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView note = body(getString(R.string.vps_setup_progress_note));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        noteParams.setMargins(dp(12), 0, 0, 0);
+        notice.addView(note, noteParams);
+        content.addView(notice);
     }
 
     private void updateInstallProgress(VpsSetupProgress value) {
