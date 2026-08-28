@@ -119,6 +119,8 @@
     <string name="vps_connections_make_primary">Make primary</string>
     <string name="vps_connections_primary_changed">Primary Relay connection changed</string>
     <string name="vps_connections_add">Add connection</string>
+    <string name="vps_connections_add_more">Add another</string>
+    <string name="vps_connections_open_summary">Open VPS Relay connections. %1$s</string>
     <string name="vps_connections_add_title">Add VPS Relay</string>
     <string name="vps_connections_add_note">Choose a method. The app verifies the Relay and Telegram routes before saving.</string>
     <string name="vps_connections_add_setup">Set up your VPS</string>

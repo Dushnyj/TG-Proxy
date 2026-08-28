@@ -130,6 +130,8 @@
     <string name="vps_connections_make_primary">Сделать основным</string>
     <string name="vps_connections_primary_changed">Основное Relay-подключение изменено</string>
     <string name="vps_connections_add">Добавить подключение</string>
+    <string name="vps_connections_add_more">Добавить ещё</string>
+    <string name="vps_connections_open_summary">Открыть подключения VPS Relay. %1$s</string>
     <string name="vps_connections_add_title">Добавить VPS Relay</string>
     <string name="vps_connections_add_note">Выберите удобный способ. Перед сохранением приложение само проверит Relay и маршруты Telegram.</string>
     <string name="vps_connections_add_setup">Настроить свой VPS</string>

@@ -105,7 +105,6 @@ public class MainActivity extends AppCompatActivity {
     private Button btnRouteDirectOnly;
     private Button btnVpsRelayTest;
     private Button btnVpsRelayNew, btnVpsRelaySave, btnVpsRelayDelete, btnVpsRelayAutoSetup;
-    private Button btnVpsRelayConnections;
     private Button btnVpsManualToggle, btnConnectionAdvancedToggle;
     private View btnCfHelp, btnWorkerHelp;
     private Button btnCheckUpdate, btnOpenRelease, btnInstallUpdate;
@@ -122,6 +121,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvRoutePreferenceExplanation;
     private TextView tvUpdateStatus, tvUpdateProgress, tvVersion;
     private TextView tvVpsSetupStatus, tvVpsRelaySummary;
+    private View vpsRelaySummaryCard;
+    private ImageView ivVpsRelaySummaryArrow;
     private TextView tvBackgroundStatus;
     private TextView tvDiagnosticsNetwork, tvDiagnosticsProfile, tvDiagnosticsRoute;
     private TextView tvDiagnosticsRouteChecks, tvDiagnosticsHistory, tvDiagnosticsErrors;
@@ -356,7 +357,6 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelaySave = findViewById(R.id.btn_vps_relay_save);
         btnVpsRelayDelete = findViewById(R.id.btn_vps_relay_delete);
         btnVpsRelayAutoSetup = findViewById(R.id.btn_vps_relay_auto_setup);
-        btnVpsRelayConnections = findViewById(R.id.btn_vps_relay_connections);
         btnVpsManualToggle = findViewById(R.id.btn_vps_manual_toggle);
         btnConnectionAdvancedToggle = findViewById(R.id.btn_connection_advanced_toggle);
         btnCfHelp = findViewById(R.id.btn_cf_help);
@@ -396,6 +396,8 @@ public class MainActivity extends AppCompatActivity {
         tvVersion = findViewById(R.id.tv_version);
         tvVpsSetupStatus = findViewById(R.id.tv_vps_setup_status);
         tvVpsRelaySummary = findViewById(R.id.tv_vps_relay_summary);
+        vpsRelaySummaryCard = findViewById(R.id.vps_relay_summary_card);
+        ivVpsRelaySummaryArrow = findViewById(R.id.iv_vps_relay_summary_arrow);
         tvBackgroundStatus = findViewById(R.id.tv_background_status);
         tvGithub = findViewById(R.id.tv_github);
         tvActiveProfile = findViewById(R.id.tv_active_profile);
@@ -551,9 +553,6 @@ public class MainActivity extends AppCompatActivity {
         btnVpsRelayDelete.setOnClickListener(v -> confirmDeleteSelectedVpsRelay());
         btnVpsRelayAutoSetup.setOnClickListener(v -> startActivityForResult(
                 VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi(), true),
-                REQUEST_VPS_CONNECTIONS));
-        btnVpsRelayConnections.setOnClickListener(v -> startActivityForResult(
-                VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi()),
                 REQUEST_VPS_CONNECTIONS));
         btnVpsManualToggle.setOnClickListener(v -> setExpandableSection(
                 vpsManualContent, btnVpsManualToggle,
@@ -3532,6 +3531,13 @@ public class MainActivity extends AppCompatActivity {
         int total = relays == null ? 0 : relays.size();
         if (total == 0) {
             tvVpsRelaySummary.setText(R.string.vps_relay_summary_empty);
+            configureVpsRelaySummaryAction(false);
+            if (btnVpsRelayAutoSetup != null) {
+                btnVpsRelayAutoSetup.setText(R.string.vps_connections_add_title);
+                if (btnVpsRelayAutoSetup instanceof MaterialButton) {
+                    ((MaterialButton) btnVpsRelayAutoSetup).setIconResource(R.drawable.ic_server);
+                }
+            }
             return;
         }
         String key = vpsRelayProfileKeyForUi();
@@ -3540,6 +3546,29 @@ public class MainActivity extends AppCompatActivity {
         String primaryName = primary == null ? getString(R.string.vps_relay_none) : primary.name();
         tvVpsRelaySummary.setText(getString(R.string.vps_relay_summary,
                 primaryName, enabled, total));
+        configureVpsRelaySummaryAction(true);
+        if (btnVpsRelayAutoSetup != null) {
+            btnVpsRelayAutoSetup.setText(R.string.vps_connections_add_more);
+            if (btnVpsRelayAutoSetup instanceof MaterialButton) {
+                ((MaterialButton) btnVpsRelayAutoSetup).setIconResource(R.drawable.ic_add);
+            }
+        }
+    }
+
+    private void configureVpsRelaySummaryAction(boolean hasConnections) {
+        if (vpsRelaySummaryCard == null) return;
+        vpsRelaySummaryCard.setClickable(hasConnections);
+        vpsRelaySummaryCard.setFocusable(hasConnections);
+        vpsRelaySummaryCard.setOnClickListener(hasConnections ? v -> startActivityForResult(
+                VpsRelayConnectionsActivity.intent(this, vpsRelayProfileKeyForUi()),
+                REQUEST_VPS_CONNECTIONS) : null);
+        if (ivVpsRelaySummaryArrow != null) {
+            ivVpsRelaySummaryArrow.setVisibility(hasConnections ? View.VISIBLE : View.GONE);
+        }
+        vpsRelaySummaryCard.setContentDescription(hasConnections
+                ? getString(R.string.vps_connections_open_summary,
+                tvVpsRelaySummary == null ? "" : tvVpsRelaySummary.getText())
+                : null);
     }
 
     private void fillVpsRelayForm(VpsRelayConfig relay) {
