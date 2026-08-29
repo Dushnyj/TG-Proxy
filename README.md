@@ -105,12 +105,12 @@ upstream для текущей Wi-Fi или мобильной сети.
 ## Интерфейс
 
 <p align="center">
-  <a href="docs/assets/app/05-vps-auto-setup-access.png"><img src="docs/assets/app/05-vps-auto-setup-access.png" width="270" alt="Автонастройка VPS в TG Proxy"></a>
+  <a href="docs/assets/readme/01-main-active.png"><img src="docs/assets/readme/01-main-active.png" width="320" alt="Главный экран TG Proxy с активным маршрутом VPS Relay"></a>
   &nbsp;
-  <a href="docs/assets/app/10-relay-share-sheet.png"><img src="docs/assets/app/10-relay-share-sheet.png" width="270" alt="Передача подключения VPS Relay"></a>
+  <a href="docs/assets/readme/02-routes.png"><img src="docs/assets/readme/02-routes.png" width="320" alt="Настройка порядка и доступности маршрутов TG Proxy"></a>
 </p>
 
-<p align="center"><sub>Автонастройка VPS · Безопасная передача Relay</sub></p>
+<p align="center"><sub>Главный экран · Маршруты и автоматическое переключение</sub></p>
 
 <details>
 <summary><strong>Другие экраны приложения</strong></summary>
@@ -118,17 +118,16 @@ upstream для текущей Wi-Fi или мобильной сети.
 <br>
 
 <p align="center">
-  <a href="docs/assets/app/01-main-screen.png"><img src="docs/assets/app/01-main-screen.png" width="220" alt="Главный экран TG Proxy"></a>
+  <a href="docs/assets/readme/03-background-check.png"><img src="docs/assets/readme/03-background-check.png" width="215" alt="Проверка условий фоновой работы TG Proxy"></a>
   &nbsp;
-  <a href="docs/assets/app/02-background-check.png"><img src="docs/assets/app/02-background-check.png" width="220" alt="Проверка фоновой работы"></a>
+  <a href="docs/assets/readme/04-vps-overview.png"><img src="docs/assets/readme/04-vps-overview.png" width="215" alt="Управление подключениями VPS Relay"></a>
   &nbsp;
-  <a href="docs/assets/app/08-diagnostics-export.png"><img src="docs/assets/app/08-diagnostics-export.png" width="220" alt="Экспорт диагностики"></a>
+  <a href="docs/assets/readme/05-diagnostics.png"><img src="docs/assets/readme/05-diagnostics.png" width="215" alt="Полная диагностика и экспорт отчёта"></a>
 </p>
 
-</details>
+<p align="center"><sub>Фоновая работа · VPS Relay · Диагностика и экспорт</sub></p>
 
-Все демонстрационные данные обезличены. Скриншоты не содержат production endpoint,
-рабочие QR-коды или реальные credentials.
+</details>
 
 <a name="how-it-works"></a>
 
