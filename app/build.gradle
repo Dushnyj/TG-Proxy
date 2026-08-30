@@ -75,7 +75,7 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.preference:preference:1.2.1'
-    implementation 'org.bouncycastle:bcprov-jdk15to18:1.77'
+    implementation 'org.bouncycastle:bcprov-jdk15to18:1.85.2'
     implementation 'com.github.mwiede:jsch:2.28.2'
     implementation 'com.google.zxing:core:3.5.3'
     implementation('com.journeyapps:zxing-android-embedded:4.3.0') {
