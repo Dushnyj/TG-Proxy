@@ -12,10 +12,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Dushnyj/TG-Proxy/releases/latest"><img alt="Последний релиз" src="https://img.shields.io/github/v/release/Dushnyj/TG-Proxy?display_name=tag&sort=semver&style=flat-square&label=RELEASE&labelColor=3d3d3d&color=3390EC"></a>
-  <img alt="Android 5.0+" src="https://img.shields.io/badge/ANDROID-5.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white&labelColor=3d3d3d">
-  <a href="https://github.com/Dushnyj/TG-Proxy/actions/workflows/ci.yml"><img alt="Android CI" src="https://img.shields.io/github/actions/workflow/status/Dushnyj/TG-Proxy/ci.yml?branch=main&style=flat-square&label=CI&labelColor=3d3d3d"></a>
-  <a href="LICENSE"><img alt="Лицензия MIT" src="https://img.shields.io/github/license/Dushnyj/TG-Proxy?style=flat-square&label=LICENSE&labelColor=3d3d3d&color=111827"></a>
+  <a href="https://github.com/Dushnyj/TG-Proxy/releases/latest"><img alt="Последний релиз TG Proxy" src="https://img.shields.io/github/v/release/Dushnyj/TG-Proxy?display_name=tag&amp;sort=semver&amp;style=for-the-badge&amp;logo=github&amp;logoColor=white&amp;label=Release&amp;labelColor=223448&amp;color=896A35"></a>
+  &nbsp;
+  <a href="#quick-start"><img alt="Android 5.0 и новее — arm64-v8a, armeabi-v7a, x86_64 и universal APK" src="https://img.shields.io/badge/Android-5.0%2B-2D6A4F?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=223448"></a>
 </p>
 
 <p align="center">
