@@ -157,7 +157,7 @@ jobs:
         run: ls -lh "$OUT_DIR"
 
       - name: Upload Android APK artifacts
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: tg-proxy-android-${{ needs.check.outputs.version }}
           path: ${{ runner.temp }}/android-artifacts/*
