@@ -177,7 +177,7 @@ jobs:
           ref: ${{ needs.check.outputs.tag }}
 
       - name: Download Android APK artifacts
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: tg-proxy-android-${{ needs.check.outputs.version }}
           path: release-artifacts
